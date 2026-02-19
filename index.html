@@ -31,6 +31,27 @@
         --header-offset: 132px;
       }
 
+      .checkout-complete {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.65);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        z-index: 60;
+      }
+
+      .checkout-complete-card {
+        width: min(420px, 100%);
+        border-radius: 28px;
+        padding: 2rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(10, 10, 10, 0.92);
+        box-shadow: 0 40px 120px rgba(0, 0, 0, 0.65);
+        text-align: center;
+      }
+
       @media (min-width: 640px) {
         :root {
           --header-offset: 96px;
@@ -242,7 +263,7 @@
       <div class="absolute -bottom-8 left-10 h-[280px] w-[280px] rounded-full bg-[rgba(3,255,213,0.05)] blur-[140px]"></div>
     </div>
     <!-- Top bar -->
-    <header class="site-header sticky top-0 z-10 bg-black/70 border-b border-white/10 backdrop-blur-xl">
+    <header id="top" class="site-header sticky top-0 z-10 bg-black/70 border-b border-white/10 backdrop-blur-xl">
       <div
         class="nav-shell max-w-6xl mx-auto px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
       >
@@ -345,7 +366,7 @@
 
     <!-- Main -->
     <main class="max-w-6xl mx-auto px-4 py-10">
-      <div class="glass-panel hero-panel p-6 sm:p-8">
+      <section id="collection" class="glass-panel hero-panel p-6 sm:p-8">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-6 text-center sm:text-left">
           <div class="space-y-1">
             <p class="uppercase tracking-[0.4em] text-xs text-[var(--gold-soft)]">
@@ -368,7 +389,7 @@
           id="productGrid"
           class="product-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
         ></section>
-      </div>
+      </section>
     </main>
 
     <footer class="site-footer border-t border-white/5 mt-10">
@@ -394,7 +415,7 @@
             </div>
           </div>
 
-          <div>
+          <div id="visit">
             <h4 class="text-white font-semibold text-sm uppercase tracking-[0.3em]">Visit & Hours</h4>
             <div class="mt-3 text-sm text-gray-400 space-y-1">
               <p>Mon–Fri • 9am – 7pm</p>
@@ -404,7 +425,7 @@
             </div>
           </div>
 
-          <div>
+          <div id="contact">
             <h4 class="text-white font-semibold text-sm uppercase tracking-[0.3em]">Social</h4>
             <div class="mt-3 flex gap-3">
               <a href="https://www.instagram.com/luxury_perfume_oils_msa/" class="social-btn" aria-label="Instagram">
@@ -486,6 +507,14 @@
             disabled
           >
             Continue to Checkout
+          </button>
+
+          <button
+            id="clearCartBtn"
+            class="w-full py-2 rounded-2xl border border-white/15 text-sm text-gray-300 hover:text-white hover:border-white/40 disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled
+          >
+            Clear Cart
           </button>
 
           <p class="text-xs text-gray-400">
@@ -627,5 +656,19 @@
     </div>
 
     <script src="./app.js"></script>
+    <div
+      id="checkoutCompleteOverlay"
+      class="checkout-complete hidden"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="checkout-complete-card space-y-3">
+        <p class="text-[var(--gold-soft)] text-xs tracking-[0.4em] uppercase">Thank you</p>
+        <h4 class="text-2xl font-display text-white">Thank you for shopping with us</h4>
+        <p class="text-sm text-gray-400">
+          We saved your order. Redirecting you to the home collection in a moment.
+        </p>
+      </div>
+    </div>
   </body>
 </html>

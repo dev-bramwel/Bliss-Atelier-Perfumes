@@ -82,6 +82,7 @@ const cartItemsEl = document.getElementById("cartItems");
 const cartCountEls = document.querySelectorAll("[data-cart-count]");
 const cartTotalEl = document.getElementById("cartTotal");
 const openCheckoutBtn = document.getElementById("openCheckoutBtn");
+const clearCartBtn = document.getElementById("clearCartBtn");
 const backToTopBtn = document.getElementById("backToTopBtn");
 
 const checkoutModal = document.getElementById("checkoutModal");
@@ -91,6 +92,9 @@ const checkoutForm = document.getElementById("checkoutForm");
 const checkoutTotalEl = document.getElementById("checkoutTotal");
 const orderSuccess = document.getElementById("orderSuccess");
 const orderWhatsAppBtn = document.getElementById("orderWhatsAppBtn");
+const checkoutCompleteOverlay = document.getElementById(
+  "checkoutCompleteOverlay",
+);
 
 // --------------------
 // HELPERS
@@ -129,7 +133,7 @@ function buildWhatsAppMessage(extraLines = []) {
   const msg = [
     "Hi, I want to order:",
     ...items,
-    `Total: KES ${cartTotal()}`,
+    //`Total: KES ${cartTotal()}`,
     ...extraLines,
   ].join("\n");
 
@@ -266,6 +270,11 @@ function renderCart() {
   checkoutTotalEl.textContent = formatKes(total);
 
   openCheckoutBtn.disabled = count === 0;
+  if (clearCartBtn) {
+    clearCartBtn.disabled = count === 0;
+    clearCartBtn.classList.toggle("opacity-40", count === 0);
+    clearCartBtn.classList.toggle("cursor-not-allowed", count === 0);
+  }
 
   // top WhatsApp = cart message
   whatsappLink.href =
@@ -355,6 +364,10 @@ openCheckoutBtn.addEventListener("click", () => {
 
 checkoutBackdrop.addEventListener("click", closeCheckout);
 closeCheckoutBtn.addEventListener("click", closeCheckout);
+clearCartBtn?.addEventListener("click", () => {
+  if (cartCount() === 0) return;
+  clearCart();
+});
 
 // --------------------
 // Back-to-top control
@@ -418,12 +431,19 @@ checkoutForm.addEventListener("submit", (e) => {
   orderWhatsAppBtn.href = buildWhatsAppMessage(lines);
 
   orderSuccess.classList.remove("hidden");
+  checkoutCompleteOverlay?.classList.remove("hidden");
 
   // Optional: clear cart after saving order
   clearCart();
 
   // Reset form fields (keeps it neat)
   checkoutForm.reset();
+
+  setTimeout(() => {
+    checkoutCompleteOverlay?.classList.add("hidden");
+    closeCheckout();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, 2500);
 });
 
 // --------------------
