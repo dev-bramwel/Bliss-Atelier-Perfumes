@@ -73,13 +73,13 @@ const searchInputMobile = document.getElementById("searchInputMobile");
 const categorySelectMobile = document.getElementById("categorySelectMobile");
 
 const whatsappLink = document.getElementById("whatsappLink");
-const openCartBtn = document.getElementById("openCartBtn");
+const openCartBtns = document.querySelectorAll("[data-open-cart]");
 const closeCartBtn = document.getElementById("closeCartBtn");
 const cartDrawer = document.getElementById("cartDrawer");
 const cartBackdrop = document.getElementById("cartBackdrop");
 
 const cartItemsEl = document.getElementById("cartItems");
-const cartCountEl = document.getElementById("cartCount");
+const cartCountEls = document.querySelectorAll("[data-cart-count]");
 const cartTotalEl = document.getElementById("cartTotal");
 const openCheckoutBtn = document.getElementById("openCheckoutBtn");
 
@@ -260,7 +260,7 @@ function renderCart() {
   const count = cartCount();
   const total = cartTotal();
 
-  cartCountEl.textContent = String(count);
+  cartCountEls.forEach((el) => (el.textContent = String(count)));
   cartTotalEl.textContent = formatKes(total);
   checkoutTotalEl.textContent = formatKes(total);
 
@@ -342,7 +342,7 @@ function closeCheckout() {
   checkoutModal.classList.add("hidden");
 }
 
-openCartBtn.addEventListener("click", openCart);
+openCartBtns.forEach((btn) => btn.addEventListener("click", openCart));
 closeCartBtn.addEventListener("click", closeCart);
 cartBackdrop.addEventListener("click", closeCart);
 

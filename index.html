@@ -119,6 +119,60 @@
         padding-top: calc(var(--header-offset) + 1rem);
       }
 
+      .icon-btn {
+        width: 48px;
+        height: 48px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      @media (max-width: 420px) {
+        .icon-btn {
+          width: 44px;
+          height: 44px;
+        }
+      }
+
+      .site-footer {
+        background: radial-gradient(140% 140% at 30% 20%, rgba(212, 175, 55, 0.1), transparent 55%),
+          rgba(3, 3, 3, 0.95);
+      }
+
+      .footer-grid {
+        display: grid;
+        gap: 2rem;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      .footer-link {
+        color: rgba(255, 255, 255, 0.65);
+        font-size: 0.9rem;
+        transition: color 0.2s ease;
+      }
+
+      .footer-link:hover {
+        color: var(--gold-soft);
+      }
+
+      .social-btn {
+        width: 46px;
+        height: 46px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(255, 255, 255, 0.8);
+        transition: border-color 0.2s ease, transform 0.2s ease, color 0.2s ease;
+      }
+
+      .social-btn:hover {
+        border-color: var(--gold-primary);
+        color: var(--gold-soft);
+        transform: translateY(-2px);
+      }
+
       label {
         color: rgba(255, 255, 255, 0.75);
       }
@@ -161,20 +215,45 @@
       <div
         class="nav-shell max-w-6xl mx-auto px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
       >
-        <div class="flex items-center gap-3">
-          <div
-            class="w-11 h-11 rounded-2xl border border-[rgba(212,175,55,0.35)] flex items-center justify-center text-xl text-[var(--gold-soft)] lux-brand"
+        <div class="flex items-center justify-between gap-3 w-full">
+          <div class="flex items-center gap-3">
+            <div
+              class="w-11 h-11 rounded-2xl border border-[rgba(212,175,55,0.35)] flex items-center justify-center text-xl text-[var(--gold-soft)] lux-brand"
+            >
+              LP
+            </div>
+            <div>
+              <div class="lux-brand text-lg leading-tight tracking-[0.18em] text-white">
+                Luxury Perfumes, Mombasa
+              </div>
+              <div class="text-xs text-gray-400 -mt-0.5">
+                Smell expensive. Spend responsibly.
+              </div>
+            </div>
+          </div>
+
+          <button
+            data-open-cart
+            class="icon-btn rounded-2xl gold-btn sm:hidden relative"
+            aria-label="Open cart"
           >
-            LP
-          </div>
-          <div>
-            <div class="lux-brand text-lg leading-tight tracking-[0.18em] text-white">
-              Luxury Perfumes, Mombasa
-            </div>
-            <div class="text-xs text-gray-400 -mt-0.5">
-              Smell expensive. Spend responsibly.
-            </div>
-          </div>
+            <span class="sr-only">Cart</span>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              class="w-5 h-5 text-[#050505]"
+              fill="currentColor"
+            >
+              <path
+                d="M7 4h-.75a.75.75 0 0 0 0 1.5h.53l.63 2.52L9 14.25A2.25 2.25 0 0 0 11.2 16h5.18a2.25 2.25 0 0 0 2.2-1.75l1.2-5.4A1.25 1.25 0 0 0 18.56 7H8.75L8.2 4.98A1.5 1.5 0 0 0 7 4Zm3.05 4.5h8.51l-1.2 5.4a.75.75 0 0 1-.73.6h-5.18a.75.75 0 0 1-.73-.6L10.05 8.5ZM10 19.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm8 0a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z"
+              />
+            </svg>
+            <span
+              class="absolute -top-1 -right-1 h-5 min-w-[1.25rem] rounded-full bg-[#050505] text-[var(--gold-soft)] text-xs font-semibold flex items-center justify-center"
+            >
+              <span data-cart-count>0</span>
+            </span>
+          </button>
         </div>
 
         <div class="cta-group flex items-center gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap sm:justify-end">
@@ -192,21 +271,27 @@
             </select>
           </div>
 
-          <a
-            id="whatsappLink"
-            href="#"
-            target="_blank"
-            rel="noreferrer"
-            class="px-4 py-2.5 rounded-2xl gold-outline-btn text-sm font-semibold tracking-wide w-full sm:w-auto text-center"
-          >
-            WhatsApp
-          </a>
-
           <button
-            id="openCartBtn"
-            class="px-4 py-2.5 rounded-2xl gold-btn text-sm tracking-wide w-full sm:w-auto"
+            data-open-cart
+            class="icon-btn rounded-2xl gold-btn w-full sm:w-12 relative hidden sm:inline-flex"
+            aria-label="Open cart"
           >
-            Cart (<span id="cartCount">0</span>)
+            <span class="sr-only">Cart</span>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              class="w-5 h-5 text-[#050505]"
+              fill="currentColor"
+            >
+              <path
+                d="M7 4h-.75a.75.75 0 0 0 0 1.5h.53l.63 2.52L9 14.25A2.25 2.25 0 0 0 11.2 16h5.18a2.25 2.25 0 0 0 2.2-1.75l1.2-5.4A1.25 1.25 0 0 0 18.56 7H8.75L8.2 4.98A1.5 1.5 0 0 0 7 4Zm3.05 4.5h8.51l-1.2 5.4a.75.75 0 0 1-.73.6h-5.18a.75.75 0 0 1-.73-.6L10.05 8.5ZM10 19.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm8 0a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z"
+              />
+            </svg>
+            <span
+              class="absolute -top-1 -right-1 h-5 min-w-[1.25rem] rounded-full bg-[#050505] text-[var(--gold-soft)] text-xs font-semibold flex items-center justify-center"
+            >
+              <span data-cart-count>0</span>
+            </span>
           </button>
         </div>
       </div>
@@ -254,6 +339,87 @@
         ></section>
       </div>
     </main>
+
+    <footer class="site-footer border-t border-white/5 mt-10">
+      <div class="max-w-6xl mx-auto px-4 py-10 space-y-8">
+        <div class="footer-grid">
+          <div>
+            <div class="lux-brand text-white tracking-[0.2em] text-sm uppercase">
+              Luxury Perfumes
+            </div>
+            <p class="text-gray-400 text-sm mt-3">
+              Curated scents sourced from Paris, Dubai, Nairobi, and beyond. Designed for the quietly powerful.
+            </p>
+            <p class="text-gray-500 text-xs mt-3">Showroom • Old Town, Mombasa</p>
+          </div>
+
+          <div>
+            <h4 class="text-white font-semibold text-sm uppercase tracking-[0.3em]">Quick Links</h4>
+            <div class="mt-3 space-y-2">
+              <a href="#" class="footer-link">Bestsellers</a>
+              <a href="#" class="footer-link">Gift Sets</a>
+              <a href="#" class="footer-link">Wholesale</a>
+              <a href="#" class="footer-link">Corporate Gifting</a>
+            </div>
+          </div>
+
+          <div>
+            <h4 class="text-white font-semibold text-sm uppercase tracking-[0.3em]">Visit & Hours</h4>
+            <div class="mt-3 text-sm text-gray-400 space-y-1">
+              <p>Mon–Fri • 9am – 7pm</p>
+              <p>Sat • 10am – 6pm</p>
+              <p>Sun • By appointment</p>
+              <p class="text-gray-500 text-xs mt-3">Secure parking • private sniff sessions</p>
+            </div>
+          </div>
+
+          <div>
+            <h4 class="text-white font-semibold text-sm uppercase tracking-[0.3em]">Social</h4>
+            <div class="mt-3 flex gap-3">
+              <a href="#" class="social-btn" aria-label="Instagram">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor">
+                  <path d="M8 3a5 5 0 0 0-5 5v8a5 5 0 0 0 5 5h8a5 5 0 0 0 5-5V8a5 5 0 0 0-5-5H8Zm0 1.5h8A3.5 3.5 0 0 1 19.5 8v8a3.5 3.5 0 0 1-3.5 3.5H8A3.5 3.5 0 0 1 4.5 16V8A3.5 3.5 0 0 1 8 4.5Zm8.38 1.62a.88.88 0 1 0 0 1.76.88.88 0 0 0 0-1.76ZM12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0 1.5A3.5 3.5 0 1 1 8.5 12 3.5 3.5 0 0 1 12 8.5Z" />
+                </svg>
+              </a>
+              <a href="#" class="social-btn" aria-label="TikTok">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor">
+                  <path d="M13.5 3h2.25a4 4 0 0 0 3.1 3.1V8.5a6.5 6.5 0 0 1-3.1-.8v6.3a5 5 0 1 1-5-5c.17 0 .34.01.5.03V9.5a2.5 2.5 0 1 0 2 2.45V3Z" />
+                </svg>
+              </a>
+              <a href="#" class="social-btn" aria-label="Pinterest">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor">
+                  <path d="M12 3.5A6.5 6.5 0 0 0 9 16.06l-.88 3.56a.5.5 0 0 0 .85.45l2.05-2.08a6.5 6.5 0 1 0 1-14Z" />
+                </svg>
+              </a>
+            </div>
+            <a
+              id="whatsappLink"
+              href="#"
+              target="_blank"
+              rel="noreferrer"
+              class="mt-4 inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl gold-outline-btn w-full sm:w-auto"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                class="w-4 h-4"
+                fill="currentColor"
+              >
+                <path
+                  d="M19.5 4.5A8.96 8.96 0 0 0 12 1a9 9 0 0 0-7.78 13.33l-1.18 4.3a.75.75 0 0 0 .92.92l4.3-1.18A9 9 0 0 0 12 21a9 9 0 0 0 7.5-16.5Zm-7.5 13.5c-1.35 0-2.66-.36-3.82-1.05a.75.75 0 0 0-.61-.07l-2.53.69.69-2.53a.75.75 0 0 0-.07-.61A6.51 6.51 0 0 1 5.5 9a6.5 6.5 0 1 1 6.5 9Zm3.2-4.14c-.18-.09-1.08-.54-1.25-.6-.17-.07-.3-.09-.43.09s-.49.6-.6.72-.22.13-.4.04a5.32 5.32 0 0 1-2.69-2.35c-.2-.34.2-.32.55-1.06.06-.13.03-.24-.02-.33-.04-.09-.43-1.03-.59-1.41-.15-.36-.3-.31-.43-.32l-.36-.01c-.13 0-.33.05-.5.24-.17.2-.65.64-.65 1.56s.67 1.8.76 1.92c.09.13 1.32 2.02 3.21 2.83.45.2.8.31 1.07.4.45.14.86.12 1.18.07.36-.05 1.08-.44 1.23-.86.15-.42.15-.78.1-.86-.05-.09-.17-.13-.35-.22Z"
+                />
+              </svg>
+              <span class="text-sm font-semibold">Chat on WhatsApp</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="border-t border-white/5 pt-6 text-xs text-gray-500 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+          <p>© 2026 Luxury Perfumes • Crafted with intention in Mombasa.</p>
+          <p>Privacy • Terms • Returns within 7 days unopened.</p>
+        </div>
+      </div>
+    </footer>
 
     <!-- Cart Drawer -->
     <div id="cartDrawer" class="fixed inset-0 hidden">
