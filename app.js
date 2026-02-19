@@ -208,11 +208,11 @@ function renderProducts() {
         </div>
       </div>
 
-      <div class="mt-5 flex gap-2">
-        <button class="flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}">
+      <div class="mt-5 flex flex-col sm:flex-row gap-2">
+        <button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}">
           Add to cart
         </button>
-        <a class="py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 hover:bg-white/10"
+        <a class="w-full sm:w-auto py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 text-center hover:bg-white/10"
            href="${buildWhatsAppMessage([`Item: ${p.name} (${p.size})`, `Price: KES ${p.priceKes}`])}"
            target="_blank" rel="noreferrer">
           WhatsApp

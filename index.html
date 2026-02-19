@@ -28,6 +28,13 @@
         --gold-primary: #d4af37;
         --gold-soft: #f5d67b;
         --obsidian: #050505;
+        --header-offset: 132px;
+      }
+
+      @media (min-width: 640px) {
+        :root {
+          --header-offset: 96px;
+        }
       }
 
       body {
@@ -103,8 +110,42 @@
         box-shadow: 0 40px 80px rgba(0, 0, 0, 0.65);
       }
 
+      .drawer-panel {
+        top: var(--header-offset);
+        height: calc(100% - var(--header-offset));
+      }
+
+      .modal-stage {
+        padding-top: calc(var(--header-offset) + 1rem);
+      }
+
       label {
         color: rgba(255, 255, 255, 0.75);
+      }
+
+      @media (max-width: 640px) {
+        .nav-shell {
+          align-items: flex-start;
+        }
+
+        .cta-group {
+          width: 100%;
+          gap: 0.75rem;
+        }
+
+        .cta-group > a,
+        .cta-group > button {
+          flex: 1 1 calc(50% - 0.5rem);
+          text-align: center;
+        }
+
+        .hero-panel {
+          padding: 1.75rem;
+        }
+
+        .product-grid {
+          gap: 1.75rem;
+        }
       }
     </style>
   </head>
@@ -116,9 +157,9 @@
       <div class="absolute -bottom-8 left-10 h-[280px] w-[280px] rounded-full bg-[rgba(3,255,213,0.05)] blur-[140px]"></div>
     </div>
     <!-- Top bar -->
-    <header class="sticky top-0 z-10 bg-black/70 border-b border-white/10 backdrop-blur-xl">
+    <header class="site-header sticky top-0 z-10 bg-black/70 border-b border-white/10 backdrop-blur-xl">
       <div
-        class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3"
+        class="nav-shell max-w-6xl mx-auto px-4 py-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
       >
         <div class="flex items-center gap-3">
           <div
@@ -136,7 +177,7 @@
           </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="cta-group flex items-center gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap sm:justify-end">
           <div class="hidden sm:flex items-center gap-2">
             <input
               id="searchInput"
@@ -156,14 +197,14 @@
             href="#"
             target="_blank"
             rel="noreferrer"
-            class="px-4 py-2.5 rounded-2xl gold-outline-btn text-sm font-semibold tracking-wide"
+            class="px-4 py-2.5 rounded-2xl gold-outline-btn text-sm font-semibold tracking-wide w-full sm:w-auto text-center"
           >
             WhatsApp
           </a>
 
           <button
             id="openCartBtn"
-            class="px-4 py-2.5 rounded-2xl gold-btn text-sm tracking-wide"
+            class="px-4 py-2.5 rounded-2xl gold-btn text-sm tracking-wide w-full sm:w-auto"
           >
             Cart (<span id="cartCount">0</span>)
           </button>
@@ -171,7 +212,7 @@
       </div>
 
       <!-- Mobile search -->
-      <div class="sm:hidden max-w-6xl mx-auto px-4 pb-4 flex gap-2">
+      <div class="sm:hidden max-w-6xl mx-auto px-4 pb-4 flex flex-col gap-3">
         <input
           id="searchInputMobile"
           class="flex-1 glass-field rounded-2xl px-4 py-2.5 text-sm"
@@ -188,9 +229,9 @@
 
     <!-- Main -->
     <main class="max-w-6xl mx-auto px-4 py-10">
-      <div class="glass-panel p-8">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-6">
-          <div>
+      <div class="glass-panel hero-panel p-6 sm:p-8">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-6 text-center sm:text-left">
+          <div class="space-y-1">
             <p class="uppercase tracking-[0.4em] text-xs text-[var(--gold-soft)]">
               House of scent
             </p>
@@ -202,14 +243,14 @@
             </p>
           </div>
 
-          <div class="text-sm text-gray-300">
+          <div class="text-sm text-gray-300 text-center sm:text-right">
             Showing <span id="resultsCount">0</span>
           </div>
         </div>
 
         <section
           id="productGrid"
-          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
+          class="product-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
         ></section>
       </div>
     </main>
@@ -219,7 +260,7 @@
       <div id="cartBackdrop" class="absolute inset-0 bg-black/40"></div>
 
       <aside
-        class="absolute right-0 top-0 h-full w-full sm:w-[440px] cart-panel shadow-xl p-6 flex flex-col"
+        class="drawer-panel absolute right-0 w-full sm:w-[440px] cart-panel shadow-xl p-6 flex flex-col"
       >
         <div class="flex items-center justify-between">
           <h2 class="text-lg font-semibold text-white">Your Cart</h2>
@@ -255,7 +296,7 @@
     <div id="checkoutModal" class="fixed inset-0 hidden">
       <div id="checkoutBackdrop" class="absolute inset-0 bg-black/40"></div>
 
-      <div class="absolute inset-0 flex items-center justify-center p-4">
+      <div class="modal-stage absolute inset-0 flex items-start sm:items-center justify-center p-4">
         <div class="w-full max-w-xl modal-panel rounded-3xl p-6">
           <div class="flex items-center justify-between">
             <h3 class="text-lg font-semibold text-white">Checkout</h3>
