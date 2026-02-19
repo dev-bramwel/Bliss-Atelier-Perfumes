@@ -1,74 +1,5 @@
-// --------------------
-// CONFIG
-// --------------------
-const SHOP_WHATSAPP_NUMBER = "254796382024"; // replace later (format: 2547...)
-
-// Example products (replace with real ones)
-const PRODUCTS = [
-  {
-    id: "p1",
-    name: "Ocean Mist",
-    priceKes: 2000,
-    size: "50ml",
-    category: "Fresh",
-    gender: "Male",
-    notes: "Citrus, clean, airy",
-  },
-  {
-    id: "p2",
-    name: "Vanilla Noir",
-    priceKes: 2000,
-    size: "50ml",
-    category: "Sweet",
-    gender: "Female",
-    notes: "Vanilla, amber, cozy",
-  },
-  {
-    id: "p3",
-    name: "Rose & Oud",
-    priceKes: 2000,
-    size: "100ml",
-    category: "Luxury",
-    gender: "Female",
-    notes: "Floral, oud, deep",
-  },
-  {
-    id: "p4",
-    name: "Spice Drift",
-    priceKes: 2000,
-    size: "100ml",
-    category: "Spicy",
-    gender: "Male",
-    notes: "Pepper, woods, warm",
-  },
-  {
-    id: "p5",
-    name: "Cedar Night",
-    priceKes: 2000,
-    size: "50ml",
-    category: "Woody",
-    gender: "Male",
-    notes: "Cedar, musk, dry",
-  },
-  {
-    id: "p6",
-    name: "Bloom Day",
-    priceKes: 2000,
-    size: "50ml",
-    category: "Floral",
-    gender: "Female",
-    notes: "Jasmine, rose, soft",
-  },
-];
-
-// --------------------
-// STATE
-// --------------------
-let cart = loadCart(); // { [id]: qty }
-let orders = loadOrders(); // array
-
-// --------------------
-// DOM
+﻿// --------------------
+// DOM (index page)
 // --------------------
 const productGrid = document.getElementById("productGrid");
 const resultsCount = document.getElementById("resultsCount");
@@ -81,75 +12,10 @@ const genderSelect = document.getElementById("genderSelect");
 const genderSelectMobile = document.getElementById("genderSelectMobile");
 
 const whatsappLink = document.getElementById("whatsappLink");
-const openCartBtns = document.querySelectorAll("[data-open-cart]");
-const closeCartBtn = document.getElementById("closeCartBtn");
-const cartDrawer = document.getElementById("cartDrawer");
-const cartBackdrop = document.getElementById("cartBackdrop");
-
-const cartItemsEl = document.getElementById("cartItems");
-const cartCountEls = document.querySelectorAll("[data-cart-count]");
-const cartTotalEl = document.getElementById("cartTotal");
-const openCheckoutBtn = document.getElementById("openCheckoutBtn");
-const clearCartBtn = document.getElementById("clearCartBtn");
 const backToTopBtn = document.getElementById("backToTopBtn");
 
-const checkoutModal = document.getElementById("checkoutModal");
-const checkoutBackdrop = document.getElementById("checkoutBackdrop");
-const closeCheckoutBtn = document.getElementById("closeCheckoutBtn");
-const checkoutForm = document.getElementById("checkoutForm");
-const checkoutTotalEl = document.getElementById("checkoutTotal");
-const orderSuccess = document.getElementById("orderSuccess");
-const orderWhatsAppBtn = document.getElementById("orderWhatsAppBtn");
-const checkoutCompleteOverlay = document.getElementById(
-  "checkoutCompleteOverlay",
-);
-
 // --------------------
-// HELPERS
-// --------------------
-function formatKes(n) {
-  return String(n);
-}
-
-function getProduct(id) {
-  return PRODUCTS.find((p) => p.id === id);
-}
-
-function cartCount() {
-  return Object.values(cart).reduce((a, b) => a + b, 0);
-}
-
-function cartTotal() {
-  let total = 0;
-  for (const [id, qty] of Object.entries(cart)) {
-    const p = getProduct(id);
-    if (p) total += p.priceKes * qty;
-  }
-  return total;
-}
-
-function buildWhatsAppMessage(extraLines = []) {
-  const items = Object.entries(cart)
-    .map(([id, qty]) => {
-      const p = getProduct(id);
-      return p
-        ? `- ${p.name} (${p.size}) x${qty} = KES ${p.priceKes * qty}`
-        : "";
-    })
-    .filter(Boolean);
-
-  const msg = [
-    "Hi, I want to order:",
-    ...items,
-    //`Total: KES ${cartTotal()}`,
-    ...extraLines,
-  ].join("\n");
-
-  return `https://wa.me/${SHOP_WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
-}
-
-// --------------------
-// RENDER: Categories
+// RENDER: Filter selects
 // --------------------
 function renderFilterOptions() {
   const genderOptions = [
@@ -182,7 +48,6 @@ function updateCategorySelectOptions(selectedGender = "all") {
     (p) =>
       selectedGender === "all" || (p.gender || "Unisex") === selectedGender,
   );
-
   const categories = [
     "all",
     ...Array.from(new Set(filtered.map((p) => p.category))),
@@ -207,10 +72,9 @@ function updateCategorySelectOptions(selectedGender = "all") {
 }
 
 // --------------------
-// RENDER: Products with filters
+// RENDER: Products
 // --------------------
 function getFilters() {
-  // desktop wins if visible, else mobile
   const s = (searchInput?.value ?? "").trim();
   const sm = (searchInputMobile?.value ?? "").trim();
   const search = s.length ? s : sm;
@@ -228,17 +92,14 @@ function getFilters() {
 
 function renderProducts() {
   const { search, category, gender } = getFilters();
-
   let filtered = PRODUCTS.slice();
 
   if (gender !== "all") {
     filtered = filtered.filter((p) => (p.gender || "Unisex") === gender);
   }
-
   if (category !== "all") {
     filtered = filtered.filter((p) => p.category === category);
   }
-
   if (search.length) {
     const q = search.toLowerCase();
     filtered = filtered.filter(
@@ -257,11 +118,11 @@ function renderProducts() {
     <div class="glass-panel rounded-3xl p-5 border border-white/10">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">${p.gender ?? "Unisex"} • ${p.category}</div>
+          <div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">${p.gender ?? "Unisex"} &bull; ${p.category}</div>
           <h3 class="text-xl font-semibold text-white">${p.name}</h3>
-          <p class="text-sm text-gray-400">${p.size} • ${p.notes}</p>
+          <p class="text-sm text-gray-400">${p.size} &bull; ${p.notes}</p>
         </div>
-        <div class="text-right">
+        <div class="text-right shrink-0">
           <div class="font-semibold text-lg text-[var(--gold-soft)]">KES ${formatKes(p.priceKes)}</div>
         </div>
       </div>
@@ -282,148 +143,42 @@ function renderProducts() {
     .join("");
 
   document.querySelectorAll("[data-add]").forEach((btn) => {
-    btn.addEventListener("click", () => addToCart(btn.dataset.add));
+    btn.addEventListener("click", () => {
+      addToCart(btn.dataset.add);
+      updateCartBadges();
+    });
   });
 }
 
 // --------------------
-// CART ops
+// CART BADGE (index nav)
 // --------------------
-function addToCart(id) {
-  cart[id] = (cart[id] || 0) + 1;
-  saveCart(cart);
-  renderCart();
-}
-
-function setQty(id, qty) {
-  if (qty <= 0) {
-    delete cart[id];
-  } else {
-    cart[id] = qty;
-  }
-  saveCart(cart);
-  renderCart();
-}
-
-function clearCart() {
-  cart = {};
-  saveCart(cart);
-  renderCart();
-}
-
-// --------------------
-// RENDER: Cart
-// --------------------
-function renderCart() {
+function updateCartBadges() {
   const count = cartCount();
-  const total = cartTotal();
+  document.querySelectorAll("[data-cart-count]").forEach((el) => {
+    el.textContent = String(count);
+  });
 
-  cartCountEls.forEach((el) => (el.textContent = String(count)));
-  cartTotalEl.textContent = formatKes(total);
-  checkoutTotalEl.textContent = formatKes(total);
-
-  openCheckoutBtn.disabled = count === 0;
-  if (clearCartBtn) {
-    clearCartBtn.disabled = count === 0;
-    clearCartBtn.classList.toggle("opacity-40", count === 0);
-    clearCartBtn.classList.toggle("cursor-not-allowed", count === 0);
+  // Update WhatsApp link in footer
+  if (whatsappLink) {
+    whatsappLink.href =
+      count === 0
+        ? `https://wa.me/${SHOP_WHATSAPP_NUMBER}?text=${encodeURIComponent("Hi, I want to ask about your perfumes.")}`
+        : buildWhatsAppMessage(["My location:", "Preferred delivery time:"]);
   }
-
-  // top WhatsApp = cart message
-  whatsappLink.href =
-    count === 0
-      ? `https://wa.me/${SHOP_WHATSAPP_NUMBER}?text=${encodeURIComponent("Hi, I want to ask about your perfumes.")}`
-      : buildWhatsAppMessage(["My location:", "Preferred delivery time:"]);
-
-  const entries = Object.entries(cart);
-
-  if (entries.length === 0) {
-    cartItemsEl.innerHTML = `<p class="text-gray-400 text-sm">Cart is empty. Tragic.</p>`;
-    return;
-  }
-
-  cartItemsEl.innerHTML = entries
-    .map(([id, qty]) => {
-      const p = getProduct(id);
-      if (!p) return "";
-      return `
-      <div class="glass-panel rounded-2xl p-4 flex items-center justify-between gap-3 border border-white/10">
-        <div>
-          <div class="font-medium text-white">${p.name}</div>
-          <div class="text-sm text-gray-300">${p.size} • KES ${p.priceKes}</div>
-          <div class="text-xs text-gray-500">${p.category} • ${p.notes}</div>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <button class="px-2 py-1 rounded-2xl border border-white/20 text-white" data-dec="${id}">-</button>
-          <input class="w-16 text-center glass-field rounded-2xl py-1" type="number" min="1" value="${qty}" data-qty="${id}" />
-          <button class="px-2 py-1 rounded-2xl border border-white/20 text-white" data-inc="${id}">+</button>
-        </div>
-      </div>
-    `;
-    })
-    .join("");
-
-  document
-    .querySelectorAll("[data-dec]")
-    .forEach((b) =>
-      b.addEventListener("click", () =>
-        setQty(b.dataset.dec, (cart[b.dataset.dec] || 1) - 1),
-      ),
-    );
-  document
-    .querySelectorAll("[data-inc]")
-    .forEach((b) =>
-      b.addEventListener("click", () =>
-        setQty(b.dataset.inc, (cart[b.dataset.inc] || 1) + 1),
-      ),
-    );
-  document
-    .querySelectorAll("[data-qty]")
-    .forEach((inp) =>
-      inp.addEventListener("change", () =>
-        setQty(inp.dataset.qty, Number(inp.value || 1)),
-      ),
-    );
 }
 
 // --------------------
-// Drawer & Modal controls
+// CART NAVIGATION
 // --------------------
-function openCart() {
-  cartDrawer.classList.remove("hidden");
-}
-function closeCart() {
-  cartDrawer.classList.add("hidden");
-}
-
-function openCheckout() {
-  orderSuccess.classList.add("hidden");
-  checkoutModal.classList.remove("hidden");
-}
-function closeCheckout() {
-  checkoutModal.classList.add("hidden");
-}
-
-openCartBtns.forEach((btn) => btn.addEventListener("click", openCart));
-closeCartBtn.addEventListener("click", closeCart);
-cartBackdrop.addEventListener("click", closeCart);
-
-openCheckoutBtn.addEventListener("click", () => {
-  if (cartCount() === 0) return;
-  closeCart();
-  openCheckout();
-});
-
-checkoutBackdrop.addEventListener("click", closeCheckout);
-closeCheckoutBtn.addEventListener("click", closeCheckout);
-clearCartBtn?.addEventListener("click", () => {
-  if (cartCount() === 0) return;
-  clearCart();
+document.querySelectorAll("[data-open-cart]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    window.location.href = "cart.html";
+  });
 });
 
 // --------------------
-// Back-to-top control
+// BACK TO TOP
 // --------------------
 function updateBackToTopVisibility() {
   if (!backToTopBtn) return;
@@ -434,73 +189,13 @@ function updateBackToTopVisibility() {
   }
 }
 
-backToTopBtn?.addEventListener("click", () => {
-  window.scrollTo({ top: 0, behavior: "smooth" });
-});
-
+backToTopBtn?.addEventListener("click", () =>
+  window.scrollTo({ top: 0, behavior: "smooth" }),
+);
 window.addEventListener("scroll", updateBackToTopVisibility, { passive: true });
 
 // --------------------
-// Checkout submit: create order (local only for now)
-// --------------------
-checkoutForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  if (cartCount() === 0) return;
-
-  const fd = new FormData(checkoutForm);
-  const customer = {
-    name: String(fd.get("name") || ""),
-    phone: String(fd.get("phone") || ""),
-    location: String(fd.get("location") || ""),
-    delivery: String(fd.get("delivery") || "delivery"),
-    notes: String(fd.get("notes") || ""),
-  };
-
-  const order = {
-    id: "ORD-" + Date.now(),
-    createdAt: new Date().toISOString(),
-    customer,
-    items: Object.entries(cart).map(([id, qty]) => {
-      const p = getProduct(id);
-      return { id, name: p?.name, size: p?.size, priceKes: p?.priceKes, qty };
-    }),
-    totalKes: cartTotal(),
-    status: "PENDING_PAYMENT",
-  };
-
-  orders.unshift(order);
-  saveOrders(orders);
-
-  // Create WhatsApp link for THIS order
-  const lines = [
-    `Order ID: ${order.id}`,
-    `Name: ${customer.name}`,
-    `Phone: ${customer.phone}`,
-    `Location: ${customer.location}`,
-    `Delivery: ${customer.delivery}`,
-    customer.notes ? `Notes: ${customer.notes}` : null,
-  ].filter(Boolean);
-
-  orderWhatsAppBtn.href = buildWhatsAppMessage(lines);
-
-  orderSuccess.classList.remove("hidden");
-  checkoutCompleteOverlay?.classList.remove("hidden");
-
-  // Optional: clear cart after saving order
-  clearCart();
-
-  // Reset form fields (keeps it neat)
-  checkoutForm.reset();
-
-  setTimeout(() => {
-    checkoutCompleteOverlay?.classList.add("hidden");
-    closeCheckout();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, 7500);
-});
-
-// --------------------
-// Filters events
+// FILTER EVENTS
 // --------------------
 [searchInput, searchInputMobile].forEach((inp) =>
   inp?.addEventListener("input", renderProducts),
@@ -511,45 +206,18 @@ checkoutForm.addEventListener("submit", (e) => {
 [genderSelect, genderSelectMobile].forEach((sel) =>
   sel?.addEventListener("change", (e) => {
     const value = e.target.value;
-    if (sel === genderSelect && genderSelectMobile) {
+    if (sel === genderSelect && genderSelectMobile)
       genderSelectMobile.value = value;
-    }
-    if (sel === genderSelectMobile && genderSelect) {
-      genderSelect.value = value;
-    }
+    if (sel === genderSelectMobile && genderSelect) genderSelect.value = value;
     updateCategorySelectOptions(value);
     renderProducts();
   }),
 );
 
 // --------------------
-// Persistence
-// --------------------
-function loadCart() {
-  try {
-    return JSON.parse(localStorage.getItem("cart") || "{}");
-  } catch {
-    return {};
-  }
-}
-function saveCart(c) {
-  localStorage.setItem("cart", JSON.stringify(c));
-}
-function loadOrders() {
-  try {
-    return JSON.parse(localStorage.getItem("orders") || "[]");
-  } catch {
-    return [];
-  }
-}
-function saveOrders(o) {
-  localStorage.setItem("orders", JSON.stringify(o));
-}
-
-// --------------------
 // INIT
 // --------------------
 renderFilterOptions();
 renderProducts();
-renderCart();
+updateCartBadges();
 updateBackToTopVisibility();

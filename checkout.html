@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Checkout — Bliss Atelier Perfumes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ['"Playfair Display"', "serif"],
+              sans: ['"Manrope"', "sans-serif"],
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+
+  <body class="relative min-h-screen text-gray-100 overflow-x-hidden">
+    <!-- Ambient glows -->
+    <div class="pointer-events-none fixed inset-0 -z-10">
+      <div
+        class="absolute -top-10 left-1/2 h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-[rgba(212,175,55,0.25)] blur-[160px]"
+      ></div>
+      <div
+        class="absolute bottom-0 right-0 h-[360px] w-[360px] translate-x-1/3 bg-[rgba(255,255,255,0.08)] blur-[180px]"
+      ></div>
+    </div>
+
+    <!-- Header -->
+    <header
+      id="top"
+      class="sticky top-0 z-10 bg-black/70 border-b border-white/10 backdrop-blur-xl"
+    >
+      <div
+        class="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-4"
+      >
+        <!-- Logo -->
+        <a href="index.html" class="flex items-center gap-3 min-w-0">
+          <div
+            class="w-10 h-10 shrink-0 rounded-2xl border border-[rgba(212,175,55,0.35)] flex items-center justify-center text-lg text-[var(--gold-soft)] lux-brand"
+          >
+            BP
+          </div>
+          <div class="min-w-0">
+            <div
+              class="lux-brand text-base leading-tight tracking-[0.18em] text-white truncate"
+            >
+              Bliss Atelier
+            </div>
+            <div class="text-xs text-gray-400 -mt-0.5">Checkout</div>
+          </div>
+        </a>
+
+        <!-- Back to cart -->
+        <a
+          href="cart.html"
+          class="flex items-center gap-1.5 text-sm text-[var(--gold-soft)] hover:text-[var(--gold-primary)] transition-colors font-medium"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            class="w-4 h-4"
+            fill="currentColor"
+          >
+            <path
+              d="M10.78 4.97a.75.75 0 0 0-1.06 0L3.47 11.22a.75.75 0 0 0 0 1.06l6.25 6.25a.75.75 0 0 0 1.06-1.06L5.56 12.5H20a.75.75 0 0 0 0-1.5H5.56l5.22-5.22a.75.75 0 0 0 0-1.06Z"
+            />
+          </svg>
+          Back to Cart
+        </a>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="max-w-4xl mx-auto px-4 py-10">
+      <div class="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6 items-start">
+        <!-- Checkout form -->
+        <div class="glass-panel p-6 sm:p-8">
+          <h1 class="text-2xl sm:text-3xl font-display text-white mb-6">
+            Checkout
+          </h1>
+
+          <form id="checkoutForm" class="space-y-5">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="text-sm block mb-1">Full name</label>
+                <input
+                  name="name"
+                  required
+                  class="w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
+                  placeholder="Jane Doe"
+                />
+              </div>
+              <div>
+                <label class="text-sm block mb-1">Phone (for delivery)</label>
+                <input
+                  name="phone"
+                  required
+                  class="w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
+                  placeholder="07xx..."
+                />
+              </div>
+            </div>
+
+            <div>
+              <label class="text-sm block mb-1">Delivery location</label>
+              <input
+                name="location"
+                required
+                class="w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
+                placeholder="Mombasa, Likoni..."
+              />
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="text-sm block mb-1">Delivery option</label>
+                <select
+                  name="delivery"
+                  class="w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
+                >
+                  <option value="delivery">Delivery</option>
+                  <option value="pickup">Pickup</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-sm block mb-1">Notes</label>
+                <input
+                  name="notes"
+                  class="w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
+                  placeholder="Gift wrap, call on arrival..."
+                />
+              </div>
+            </div>
+
+            <!-- Payment placeholder -->
+            <div
+              class="border border-white/10 rounded-2xl p-4 bg-white/5 space-y-3"
+            >
+              <div class="flex items-center gap-3 text-sm text-gray-200">
+                <span
+                  class="inline-flex h-9 w-9 rounded-full bg-black/30 border border-white/10 items-center justify-center shrink-0"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    class="w-4 h-4"
+                    fill="currentColor"
+                  >
+                    <path
+                      d="M4.75 6A2.75 2.75 0 0 0 2 8.75v6.5A2.75 2.75 0 0 0 4.75 18h14.5A2.75 2.75 0 0 0 22 15.25v-6.5A2.75 2.75 0 0 0 19.25 6H4.75Zm0 1.5h14.5c.69 0 1.25.56 1.25 1.25V10H3.5V8.75c0-.69.56-1.25 1.25-1.25Zm-1.25 5.5h16.5v2.25c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25V13Z"
+                    />
+                  </svg>
+                </span>
+                <div>
+                  <p class="font-semibold text-white">Payment coming soon</p>
+                  <p class="text-xs text-gray-400">
+                    Stripe, PayPal, and M-Pesa widgets arrive next.
+                  </p>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-2 text-xs text-gray-400">
+                <span class="px-3 py-1 rounded-full border border-white/10"
+                  >Visa / Mastercard</span
+                >
+                <span class="px-3 py-1 rounded-full border border-white/10"
+                  >PayPal</span
+                >
+                <span class="px-3 py-1 rounded-full border border-white/10"
+                  >Stripe Link</span
+                >
+                <span class="px-3 py-1 rounded-full border border-white/10"
+                  >M-Pesa STK</span
+                >
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              class="w-full py-3 rounded-2xl gold-btn font-medium"
+            >
+              Place Order
+            </button>
+
+            <!-- Order saved confirmation -->
+            <div
+              id="orderSuccess"
+              class="hidden border border-green-400/30 rounded-2xl p-3 bg-green-500/10 text-green-200 text-sm"
+            >
+              Order saved! You can also send it via WhatsApp while we wire
+              payments.
+              <div class="mt-2">
+                <a
+                  id="orderWhatsAppBtn"
+                  href="#"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="inline-flex px-4 py-2 rounded-2xl bg-green-500/80 text-white text-sm font-semibold hover:bg-green-500"
+                >
+                  Send Order on WhatsApp
+                </a>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <!-- Order summary sidebar -->
+        <div class="glass-panel p-6">
+          <h2 class="text-lg font-semibold text-white mb-4">Order Summary</h2>
+
+          <div id="checkoutItems" class="space-y-1 text-sm mb-4"></div>
+
+          <div
+            class="border-t border-white/10 pt-4 flex items-center justify-between"
+          >
+            <span class="text-gray-300 font-medium">Total</span>
+            <span class="text-white font-semibold text-base">
+              KES <span id="checkoutTotal">0</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Back to top -->
+    <button id="backToTopBtn" class="back-to-top" aria-label="Back to top">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        class="w-5 h-5"
+        fill="currentColor"
+      >
+        <path
+          d="M12 5.5a.75.75 0 0 1 .53.22l5 5a.75.75 0 0 1-1.06 1.06L12 7.31l-4.47 4.47a.75.75 0 0 1-1.06-1.06l5-5A.75.75 0 0 1 12 5.5Zm0 6a.75.75 0 0 1 .53.22l5 5a.75.75 0 0 1-1.06 1.06L12 13.31l-4.47 4.47a.75.75 0 1 1-1.06-1.06l5-5A.75.75 0 0 1 12 11.5Z"
+        />
+      </svg>
+    </button>
+
+    <!-- Thank-you overlay -->
+    <div
+      id="checkoutCompleteOverlay"
+      class="checkout-complete hidden"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="checkout-complete-card space-y-3">
+        <p class="text-[var(--gold-soft)] text-xs tracking-[0.4em] uppercase">
+          Thank you
+        </p>
+        <h4 class="text-2xl font-display text-white">
+          Thank you for shopping with us
+        </h4>
+        <p class="text-sm text-gray-400">
+          We saved your order. Redirecting you to the collection in a moment…
+        </p>
+      </div>
+    </div>
+
+    <script src="./shared.js"></script>
+    <script src="./checkout.js"></script>
+  </body>
+</html>
