@@ -11,6 +11,7 @@ const PRODUCTS = [
     priceKes: 2000,
     size: "50ml",
     category: "Fresh",
+    gender: "Male",
     notes: "Citrus, clean, airy",
   },
   {
@@ -19,6 +20,7 @@ const PRODUCTS = [
     priceKes: 2000,
     size: "50ml",
     category: "Sweet",
+    gender: "Female",
     notes: "Vanilla, amber, cozy",
   },
   {
@@ -27,6 +29,7 @@ const PRODUCTS = [
     priceKes: 2000,
     size: "100ml",
     category: "Luxury",
+    gender: "Female",
     notes: "Floral, oud, deep",
   },
   {
@@ -35,6 +38,7 @@ const PRODUCTS = [
     priceKes: 2000,
     size: "100ml",
     category: "Spicy",
+    gender: "Male",
     notes: "Pepper, woods, warm",
   },
   {
@@ -43,6 +47,7 @@ const PRODUCTS = [
     priceKes: 2000,
     size: "50ml",
     category: "Woody",
+    gender: "Male",
     notes: "Cedar, musk, dry",
   },
   {
@@ -51,6 +56,7 @@ const PRODUCTS = [
     priceKes: 2000,
     size: "50ml",
     category: "Floral",
+    gender: "Female",
     notes: "Jasmine, rose, soft",
   },
 ];
@@ -71,6 +77,8 @@ const searchInput = document.getElementById("searchInput");
 const categorySelect = document.getElementById("categorySelect");
 const searchInputMobile = document.getElementById("searchInputMobile");
 const categorySelectMobile = document.getElementById("categorySelectMobile");
+const genderSelect = document.getElementById("genderSelect");
+const genderSelectMobile = document.getElementById("genderSelectMobile");
 
 const whatsappLink = document.getElementById("whatsappLink");
 const openCartBtns = document.querySelectorAll("[data-open-cart]");
@@ -143,22 +151,59 @@ function buildWhatsAppMessage(extraLines = []) {
 // --------------------
 // RENDER: Categories
 // --------------------
-function renderCategories() {
-  const categories = [
+function renderFilterOptions() {
+  const genderOptions = [
     "all",
-    ...Array.from(new Set(PRODUCTS.map((p) => p.category))),
+    ...Array.from(new Set(PRODUCTS.map((p) => p.gender || "Unisex"))),
   ];
 
-  categorySelect.innerHTML = categories
+  if (genderSelect) {
+    genderSelect.innerHTML = genderOptions
+      .map(
+        (g) =>
+          `<option value="${g}">${g === "all" ? "All genders" : g}</option>`,
+      )
+      .join("");
+    genderSelect.value = "all";
+  }
+
+  if (genderSelectMobile) {
+    genderSelectMobile.innerHTML = genderOptions
+      .map((g) => `<option value="${g}">${g === "all" ? "All" : g}</option>`)
+      .join("");
+    genderSelectMobile.value = "all";
+  }
+
+  updateCategorySelectOptions("all");
+}
+
+function updateCategorySelectOptions(selectedGender = "all") {
+  const filtered = PRODUCTS.filter(
+    (p) =>
+      selectedGender === "all" || (p.gender || "Unisex") === selectedGender,
+  );
+
+  const categories = [
+    "all",
+    ...Array.from(new Set(filtered.map((p) => p.category))),
+  ];
+
+  const desktopOptions = categories
     .map(
       (c) =>
         `<option value="${c}">${c === "all" ? "All categories" : c}</option>`,
     )
     .join("");
-
-  categorySelectMobile.innerHTML = categories
+  const mobileOptions = categories
     .map((c) => `<option value="${c}">${c === "all" ? "All" : c}</option>`)
     .join("");
+
+  [categorySelect, categorySelectMobile].forEach((sel, idx) => {
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = idx === 0 ? desktopOptions : mobileOptions;
+    sel.value = categories.includes(prev) ? prev : "all";
+  });
 }
 
 // --------------------
@@ -170,17 +215,25 @@ function getFilters() {
   const sm = (searchInputMobile?.value ?? "").trim();
   const search = s.length ? s : sm;
 
+  const g = genderSelect?.value ?? "all";
+  const gm = genderSelectMobile?.value ?? "all";
+  const gender = g !== "all" ? g : gm !== "all" ? gm : "all";
+
   const c = categorySelect?.value ?? "all";
   const cm = categorySelectMobile?.value ?? "all";
   const category = c !== "all" ? c : cm !== "all" ? cm : "all";
 
-  return { search, category };
+  return { search, category, gender };
 }
 
 function renderProducts() {
-  const { search, category } = getFilters();
+  const { search, category, gender } = getFilters();
 
   let filtered = PRODUCTS.slice();
+
+  if (gender !== "all") {
+    filtered = filtered.filter((p) => (p.gender || "Unisex") === gender);
+  }
 
   if (category !== "all") {
     filtered = filtered.filter((p) => p.category === category);
@@ -204,7 +257,7 @@ function renderProducts() {
     <div class="glass-panel rounded-3xl p-5 border border-white/10">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">${p.category}</div>
+          <div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">${p.gender ?? "Unisex"} • ${p.category}</div>
           <h3 class="text-xl font-semibold text-white">${p.name}</h3>
           <p class="text-sm text-gray-400">${p.size} • ${p.notes}</p>
         </div>
@@ -455,6 +508,19 @@ checkoutForm.addEventListener("submit", (e) => {
 [categorySelect, categorySelectMobile].forEach((sel) =>
   sel?.addEventListener("change", renderProducts),
 );
+[genderSelect, genderSelectMobile].forEach((sel) =>
+  sel?.addEventListener("change", (e) => {
+    const value = e.target.value;
+    if (sel === genderSelect && genderSelectMobile) {
+      genderSelectMobile.value = value;
+    }
+    if (sel === genderSelectMobile && genderSelect) {
+      genderSelect.value = value;
+    }
+    updateCategorySelectOptions(value);
+    renderProducts();
+  }),
+);
 
 // --------------------
 // Persistence
@@ -483,7 +549,7 @@ function saveOrders(o) {
 // --------------------
 // INIT
 // --------------------
-renderCategories();
+renderFilterOptions();
 renderProducts();
 renderCart();
 updateBackToTopVisibility();

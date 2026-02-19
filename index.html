@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Luxury Perfumes</title>
+    <title>Bliss Atelier Perfumes</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -134,12 +134,21 @@
       .drawer-panel {
         top: var(--header-offset);
         height: calc(100% - var(--header-offset));
+        overflow: hidden;
       }
 
       .modal-stage {
-        padding-top: calc(var(--header-offset) + 1rem);
-        min-height: 100%;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: calc(var(--header-offset) + 1rem) 1rem 2rem;
+        display: flex;
+        flex-direction: column;
         align-items: center;
+      }
+
+      .checkout-scroll {
+        width: 100%;
+        max-width: 640px;
       }
 
       .icon-btn {
@@ -276,7 +285,7 @@
             </div>
             <div>
               <div class="lux-brand text-lg leading-tight tracking-[0.18em] text-white">
-                Luxury Perfumes, Mombasa
+                Bliss Atelier Perfumes
               </div>
               <div class="text-xs text-gray-400 -mt-0.5">
                 Smell expensive. Spend responsibly.
@@ -316,6 +325,12 @@
               placeholder="Search perfumes..."
             />
             <select
+              id="genderSelect"
+              class="glass-field rounded-2xl px-4 py-2.5 text-sm"
+            >
+              <option value="all">All genders</option>
+            </select>
+            <select
               id="categorySelect"
               class="glass-field rounded-2xl px-4 py-2.5 text-sm"
             >
@@ -349,12 +364,18 @@
       </div>
 
       <!-- Mobile search -->
-      <div class="sm:hidden max-w-6xl mx-auto px-4 pb-3 flex items-center gap-2">
+      <div class="sm:hidden max-w-6xl mx-auto px-4 pb-3 flex flex-wrap items-center gap-2">
         <input
           id="searchInputMobile"
           class="flex-1 glass-field rounded-2xl px-4 py-2.5 text-sm"
           placeholder="Search perfumes..."
         />
+        <select
+          id="genderSelectMobile"
+          class="w-[140px] glass-field rounded-2xl px-3 py-2.5 text-sm"
+        >
+          <option value="all">All</option>
+        </select>
         <select
           id="categorySelectMobile"
           class="w-[140px] glass-field rounded-2xl px-3 py-2.5 text-sm"
@@ -373,7 +394,7 @@
               House of scent
             </p>
             <h1 class="text-3xl sm:text-4xl font-semibold font-display text-white">
-              Luxury Perfumes, Mombasa
+              Bliss Atelier Perfumes
             </h1>
             <p class="text-gray-400 text-sm mt-1">
               Choose a scent. Become a different person.
@@ -467,7 +488,7 @@
         </div>
 
         <div class="border-t border-white/5 pt-6 text-xs text-gray-500 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-          <p>© 2026 Luxury Perfumes • Crafted with intention in Mombasa.</p>
+          <p>© 2026 Bliss Atelier Perfumes • Crafted with intention in Mombasa.</p>
           <p>Privacy • Terms • Returns within 7 days unopened.</p>
         </div>
       </div>
@@ -485,17 +506,18 @@
 
       <aside
         class="drawer-panel absolute right-0 w-full sm:w-[440px] cart-panel shadow-xl p-6 flex flex-col"
+        style="overflow:hidden"
       >
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between shrink-0">
           <h2 class="text-lg font-semibold text-white">Your Cart</h2>
           <button id="closeCartBtn" class="text-gray-400 hover:text-white">
             ✕
           </button>
         </div>
 
-        <div id="cartItems" class="mt-4 flex-1 overflow-auto space-y-3 pr-2"></div>
+        <div id="cartItems" class="mt-4 flex-1 min-h-0 overflow-y-auto space-y-3 pr-2"></div>
 
-        <div class="border-t border-white/10 pt-4 space-y-3">
+        <div class="border-t border-white/10 pt-4 space-y-3 shrink-0">
           <div class="flex items-center justify-between">
             <span class="font-medium text-gray-300">Total</span>
             <span class="font-semibold text-white">KES <span id="cartTotal">0</span></span>
@@ -528,8 +550,8 @@
     <div id="checkoutModal" class="fixed inset-0 hidden">
       <div id="checkoutBackdrop" class="absolute inset-0 bg-black/40"></div>
 
-      <div class="modal-stage absolute inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-xl modal-panel rounded-3xl p-6">
+      <div class="modal-stage absolute inset-0">
+        <div class="checkout-scroll modal-panel rounded-3xl p-6">
           <div class="flex items-center justify-between">
             <h3 class="text-lg font-semibold text-white">Checkout</h3>
             <button
