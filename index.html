@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Calyx Perfumes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+
+  <body class="bg-gray-50 text-gray-900">
+    <!-- Top bar -->
+    <header class="sticky top-0 z-10 bg-white border-b">
+      <div
+        class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3"
+      >
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-black"></div>
+          <div>
+            <div class="font-semibold leading-tight">Calyx Perfumes</div>
+            <div class="text-xs text-gray-500 -mt-0.5">
+              Smell expensive. Spend responsibly.
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <div class="hidden sm:flex items-center gap-2">
+            <input
+              id="searchInput"
+              class="w-64 border rounded-xl px-3 py-2 text-sm"
+              placeholder="Search perfumes..."
+            />
+            <select
+              id="categorySelect"
+              class="border rounded-xl px-3 py-2 text-sm"
+            >
+              <option value="all">All categories</option>
+            </select>
+          </div>
+
+          <a
+            id="whatsappLink"
+            href="#"
+            target="_blank"
+            rel="noreferrer"
+            class="px-3 py-2 rounded-xl bg-green-600 text-white text-sm hover:bg-green-700"
+          >
+            WhatsApp
+          </a>
+
+          <button
+            id="openCartBtn"
+            class="px-3 py-2 rounded-xl bg-black text-white text-sm"
+          >
+            Cart (<span id="cartCount">0</span>)
+          </button>
+        </div>
+      </div>
+
+      <!-- Mobile search -->
+      <div class="sm:hidden max-w-6xl mx-auto px-4 pb-3 flex gap-2">
+        <input
+          id="searchInputMobile"
+          class="flex-1 border rounded-xl px-3 py-2 text-sm"
+          placeholder="Search perfumes..."
+        />
+        <select
+          id="categorySelectMobile"
+          class="border rounded-xl px-3 py-2 text-sm"
+        >
+          <option value="all">All</option>
+        </select>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="max-w-6xl mx-auto px-4 py-8">
+      <div class="flex items-end justify-between gap-3 mb-5">
+        <div>
+          <h1 class="text-2xl font-bold">Shop Perfumes</h1>
+          <p class="text-gray-600 text-sm">
+            Choose a scent. Become a different person.
+          </p>
+        </div>
+
+        <div class="text-sm text-gray-600">
+          Showing <span id="resultsCount">0</span>
+        </div>
+      </div>
+
+      <section
+        id="productGrid"
+        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
+      ></section>
+    </main>
+
+    <!-- Cart Drawer -->
+    <div id="cartDrawer" class="fixed inset-0 hidden">
+      <div id="cartBackdrop" class="absolute inset-0 bg-black/40"></div>
+
+      <aside
+        class="absolute right-0 top-0 h-full w-full sm:w-[440px] bg-white shadow-xl p-5 flex flex-col"
+      >
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-semibold">Your Cart</h2>
+          <button id="closeCartBtn" class="text-gray-600 hover:text-black">
+            ✕
+          </button>
+        </div>
+
+        <div id="cartItems" class="mt-4 flex-1 overflow-auto space-y-3"></div>
+
+        <div class="border-t pt-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-medium">Total</span>
+            <span class="font-semibold">KES <span id="cartTotal">0</span></span>
+          </div>
+
+          <button
+            id="openCheckoutBtn"
+            class="w-full py-3 rounded-xl bg-black text-white font-medium disabled:opacity-40"
+            disabled
+          >
+            Continue to Checkout
+          </button>
+
+          <p class="text-xs text-gray-500">
+            Store-first: payments come later (Stripe/PayPal/M-Pesa).
+          </p>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Checkout Modal -->
+    <div id="checkoutModal" class="fixed inset-0 hidden">
+      <div id="checkoutBackdrop" class="absolute inset-0 bg-black/40"></div>
+
+      <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="w-full max-w-xl bg-white rounded-2xl shadow-xl p-5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-lg font-semibold">Checkout</h3>
+            <button
+              id="closeCheckoutBtn"
+              class="text-gray-600 hover:text-black"
+            >
+              ✕
+            </button>
+          </div>
+
+          <form id="checkoutForm" class="mt-4 space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="text-sm text-gray-700">Full name</label>
+                <input
+                  name="name"
+                  required
+                  class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label class="text-sm text-gray-700"
+                  >Phone (for delivery)</label
+                >
+                <input
+                  name="phone"
+                  required
+                  class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                  placeholder="07xx..."
+                />
+              </div>
+            </div>
+
+            <div>
+              <label class="text-sm text-gray-700">Delivery location</label>
+              <input
+                name="location"
+                required
+                class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                placeholder="Kisumu, Milimani..."
+              />
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="text-sm text-gray-700">Delivery option</label>
+                <select
+                  name="delivery"
+                  class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                >
+                  <option value="delivery">Delivery</option>
+                  <option value="pickup">Pickup</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-sm text-gray-700">Notes</label>
+                <input
+                  name="notes"
+                  class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                  placeholder="Gift wrap, call on arrival..."
+                />
+              </div>
+            </div>
+
+            <div class="border rounded-2xl p-4 bg-gray-50">
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-700">Order total</span>
+                <span class="font-semibold"
+                  >KES <span id="checkoutTotal">0</span></span
+                >
+              </div>
+              <div class="text-xs text-gray-500 mt-1">
+                Next: payment buttons (Stripe/PayPal/M-Pesa) will go here.
+              </div>
+            </div>
+
+            <button
+              class="w-full py-3 rounded-xl bg-black text-white font-medium"
+            >
+              Place Order (Save)
+            </button>
+
+            <div
+              id="orderSuccess"
+              class="hidden mt-3 border rounded-xl p-3 bg-green-50 text-green-800 text-sm"
+            >
+              Order saved. You can now send it on WhatsApp while we wire
+              payments.
+              <div class="mt-2">
+                <a
+                  id="orderWhatsAppBtn"
+                  href="#"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="inline-flex px-3 py-2 rounded-xl bg-green-600 text-white text-sm hover:bg-green-700"
+                >
+                  Send Order on WhatsApp
+                </a>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
