@@ -117,6 +117,8 @@
 
       .modal-stage {
         padding-top: calc(var(--header-offset) + 1rem);
+        min-height: 100%;
+        align-items: center;
       }
 
       .icon-btn {
@@ -462,7 +464,7 @@
     <div id="checkoutModal" class="fixed inset-0 hidden">
       <div id="checkoutBackdrop" class="absolute inset-0 bg-black/40"></div>
 
-      <div class="modal-stage absolute inset-0 flex items-start sm:items-center justify-center p-4">
+      <div class="modal-stage absolute inset-0 flex items-center justify-center p-4">
         <div class="w-full max-w-xl modal-panel rounded-3xl p-6">
           <div class="flex items-center justify-between">
             <h3 class="text-lg font-semibold text-white">Checkout</h3>
@@ -537,6 +539,26 @@
               </div>
               <div class="text-xs text-gray-400 mt-1">
                 Next: payment buttons (Stripe/PayPal/M-Pesa) will go here.
+              </div>
+            </div>
+
+            <div class="border border-white/10 rounded-2xl p-4 bg-white/5 space-y-3">
+              <div class="flex items-center gap-3 text-sm text-gray-200">
+                <span class="inline-flex h-9 w-9 rounded-full bg-black/30 border border-white/10 items-center justify-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor">
+                    <path d="M4.75 6A2.75 2.75 0 0 0 2 8.75v6.5A2.75 2.75 0 0 0 4.75 18h14.5A2.75 2.75 0 0 0 22 15.25v-6.5A2.75 2.75 0 0 0 19.25 6H4.75Zm0 1.5h14.5c.69 0 1.25.56 1.25 1.25V10H3.5V8.75c0-.69.56-1.25 1.25-1.25Zm-1.25 5.5h16.5v2.25c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25V13Z" />
+                  </svg>
+                </span>
+                <div>
+                  <p class="font-semibold text-white">Payment in progress</p>
+                  <p class="text-xs text-gray-400">Stripe, PayPal, and M-Pesa widgets arrive next.</p>
+                </div>
+              </div>
+              <div class="flex flex-wrap gap-2 text-xs text-gray-400">
+                <span class="px-3 py-1 rounded-full border border-white/10">Visa / Mastercard</span>
+                <span class="px-3 py-1 rounded-full border border-white/10">PayPal</span>
+                <span class="px-3 py-1 rounded-full border border-white/10">Stripe Link</span>
+                <span class="px-3 py-1 rounded-full border border-white/10">M-Pesa STK</span>
               </div>
             </div>
 
