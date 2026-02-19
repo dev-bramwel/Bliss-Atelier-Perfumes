@@ -8,7 +8,7 @@ const PRODUCTS = [
   {
     id: "p1",
     name: "Ocean Mist",
-    priceKes: 2500,
+    priceKes: 2000,
     size: "50ml",
     category: "Fresh",
     notes: "Citrus, clean, airy",
@@ -16,7 +16,7 @@ const PRODUCTS = [
   {
     id: "p2",
     name: "Vanilla Noir",
-    priceKes: 3200,
+    priceKes: 2000,
     size: "50ml",
     category: "Sweet",
     notes: "Vanilla, amber, cozy",
@@ -24,7 +24,7 @@ const PRODUCTS = [
   {
     id: "p3",
     name: "Rose & Oud",
-    priceKes: 4500,
+    priceKes: 2000,
     size: "100ml",
     category: "Luxury",
     notes: "Floral, oud, deep",
@@ -32,7 +32,7 @@ const PRODUCTS = [
   {
     id: "p4",
     name: "Spice Drift",
-    priceKes: 3800,
+    priceKes: 2000,
     size: "100ml",
     category: "Spicy",
     notes: "Pepper, woods, warm",
@@ -40,7 +40,7 @@ const PRODUCTS = [
   {
     id: "p5",
     name: "Cedar Night",
-    priceKes: 3000,
+    priceKes: 2000,
     size: "50ml",
     category: "Woody",
     notes: "Cedar, musk, dry",
@@ -48,7 +48,7 @@ const PRODUCTS = [
   {
     id: "p6",
     name: "Bloom Day",
-    priceKes: 2700,
+    priceKes: 2000,
     size: "50ml",
     category: "Floral",
     notes: "Jasmine, rose, soft",
@@ -196,23 +196,23 @@ function renderProducts() {
   productGrid.innerHTML = filtered
     .map(
       (p) => `
-    <div class="bg-white border rounded-2xl p-5 shadow-sm">
+    <div class="glass-panel rounded-3xl p-5 border border-white/10">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-xs text-gray-500">${p.category}</div>
-          <h3 class="text-lg font-semibold">${p.name}</h3>
-          <p class="text-sm text-gray-600">${p.size} • ${p.notes}</p>
+          <div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">${p.category}</div>
+          <h3 class="text-xl font-semibold text-white">${p.name}</h3>
+          <p class="text-sm text-gray-400">${p.size} • ${p.notes}</p>
         </div>
         <div class="text-right">
-          <div class="font-semibold">KES ${formatKes(p.priceKes)}</div>
+          <div class="font-semibold text-lg text-[var(--gold-soft)]">KES ${formatKes(p.priceKes)}</div>
         </div>
       </div>
 
-      <div class="mt-4 flex gap-2">
-        <button class="flex-1 py-2.5 rounded-xl bg-gray-900 text-white hover:bg-black" data-add="${p.id}">
+      <div class="mt-5 flex gap-2">
+        <button class="flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}">
           Add to cart
         </button>
-        <a class="py-2.5 px-3 rounded-xl border hover:bg-gray-50"
+        <a class="py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 hover:bg-white/10"
            href="${buildWhatsAppMessage([`Item: ${p.name} (${p.size})`, `Price: KES ${p.priceKes}`])}"
            target="_blank" rel="noreferrer">
           WhatsApp
@@ -275,7 +275,7 @@ function renderCart() {
   const entries = Object.entries(cart);
 
   if (entries.length === 0) {
-    cartItemsEl.innerHTML = `<p class="text-gray-600 text-sm">Cart is empty. Tragic.</p>`;
+    cartItemsEl.innerHTML = `<p class="text-gray-400 text-sm">Cart is empty. Tragic.</p>`;
     return;
   }
 
@@ -284,17 +284,17 @@ function renderCart() {
       const p = getProduct(id);
       if (!p) return "";
       return `
-      <div class="border rounded-2xl p-3 flex items-center justify-between gap-3">
+      <div class="glass-panel rounded-2xl p-4 flex items-center justify-between gap-3 border border-white/10">
         <div>
-          <div class="font-medium">${p.name}</div>
-          <div class="text-sm text-gray-600">${p.size} • KES ${p.priceKes}</div>
+          <div class="font-medium text-white">${p.name}</div>
+          <div class="text-sm text-gray-300">${p.size} • KES ${p.priceKes}</div>
           <div class="text-xs text-gray-500">${p.category} • ${p.notes}</div>
         </div>
 
         <div class="flex items-center gap-2">
-          <button class="px-2 py-1 rounded bg-gray-100" data-dec="${id}">-</button>
-          <input class="w-14 text-center border rounded-xl py-1" type="number" min="1" value="${qty}" data-qty="${id}" />
-          <button class="px-2 py-1 rounded bg-gray-100" data-inc="${id}">+</button>
+          <button class="px-2 py-1 rounded-2xl border border-white/20 text-white" data-dec="${id}">-</button>
+          <input class="w-16 text-center glass-field rounded-2xl py-1" type="number" min="1" value="${qty}" data-qty="${id}" />
+          <button class="px-2 py-1 rounded-2xl border border-white/20 text-white" data-inc="${id}">+</button>
         </div>
       </div>
     `;

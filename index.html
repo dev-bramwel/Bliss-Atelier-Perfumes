@@ -3,21 +3,134 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Calyx Perfumes</title>
+    <title>Luxury Perfumes</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ['"Playfair Display"', "serif"],
+              sans: ['"Manrope"', "sans-serif"],
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      :root {
+        --gold-primary: #d4af37;
+        --gold-soft: #f5d67b;
+        --obsidian: #050505;
+      }
+
+      body {
+        font-family: "Manrope", sans-serif;
+        background: radial-gradient(120% 120% at 10% 10%, rgba(212, 175, 55, 0.25), transparent 55%),
+          radial-gradient(90% 90% at 90% 20%, rgba(245, 214, 123, 0.2), transparent 60%),
+          #030303;
+      }
+
+      .lux-brand {
+        font-family: "Playfair Display", serif;
+        letter-spacing: 0.08em;
+      }
+
+      .glass-panel {
+        background: rgba(10, 10, 10, 0.65);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 24px;
+        backdrop-filter: blur(24px);
+        -webkit-backdrop-filter: blur(24px);
+        box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
+      }
+
+      .glass-field {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        color: #f8f8f8;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .glass-field::placeholder {
+        color: rgba(248, 248, 248, 0.55);
+      }
+
+      .glass-field:focus {
+        border-color: var(--gold-primary);
+        box-shadow: 0 0 0 1px rgba(212, 175, 55, 0.4);
+        outline: none;
+      }
+
+      .gold-btn {
+        background: linear-gradient(135deg, var(--gold-primary), var(--gold-soft));
+        color: #050505;
+        font-weight: 600;
+        box-shadow: 0 20px 35px rgba(212, 175, 55, 0.35);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .gold-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 25px 45px rgba(212, 175, 55, 0.45);
+      }
+
+      .gold-outline-btn {
+        border: 1px solid rgba(212, 175, 55, 0.5);
+        color: var(--gold-soft);
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+
+      .gold-outline-btn:hover {
+        background: rgba(212, 175, 55, 0.12);
+        color: var(--gold-primary);
+      }
+
+      .cart-panel {
+        background: rgba(5, 5, 5, 0.92);
+        border-left: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .modal-panel {
+        background: rgba(8, 8, 8, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 40px 80px rgba(0, 0, 0, 0.65);
+      }
+
+      label {
+        color: rgba(255, 255, 255, 0.75);
+      }
+    </style>
   </head>
 
-  <body class="bg-gray-50 text-gray-900">
+  <body class="relative min-h-screen text-gray-100 overflow-x-hidden">
+    <div class="pointer-events-none fixed inset-0 -z-10">
+      <div class="absolute -top-10 left-1/2 h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-[rgba(212,175,55,0.25)] blur-[160px]"></div>
+      <div class="absolute bottom-0 right-0 h-[360px] w-[360px] translate-x-1/3 bg-[rgba(255,255,255,0.08)] blur-[180px]"></div>
+      <div class="absolute -bottom-8 left-10 h-[280px] w-[280px] rounded-full bg-[rgba(3,255,213,0.05)] blur-[140px]"></div>
+    </div>
     <!-- Top bar -->
-    <header class="sticky top-0 z-10 bg-white border-b">
+    <header class="sticky top-0 z-10 bg-black/70 border-b border-white/10 backdrop-blur-xl">
       <div
-        class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3"
+        class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between gap-3"
       >
         <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl bg-black"></div>
+          <div
+            class="w-11 h-11 rounded-2xl border border-[rgba(212,175,55,0.35)] flex items-center justify-center text-xl text-[var(--gold-soft)] lux-brand"
+          >
+            LP
+          </div>
           <div>
-            <div class="font-semibold leading-tight">Calyx Perfumes</div>
-            <div class="text-xs text-gray-500 -mt-0.5">
+            <div class="lux-brand text-lg leading-tight tracking-[0.18em] text-white">
+              Luxury Perfumes, Mombasa
+            </div>
+            <div class="text-xs text-gray-400 -mt-0.5">
               Smell expensive. Spend responsibly.
             </div>
           </div>
@@ -27,12 +140,12 @@
           <div class="hidden sm:flex items-center gap-2">
             <input
               id="searchInput"
-              class="w-64 border rounded-xl px-3 py-2 text-sm"
+              class="w-64 glass-field rounded-2xl px-4 py-2.5 text-sm"
               placeholder="Search perfumes..."
             />
             <select
               id="categorySelect"
-              class="border rounded-xl px-3 py-2 text-sm"
+              class="glass-field rounded-2xl px-4 py-2.5 text-sm"
             >
               <option value="all">All categories</option>
             </select>
@@ -43,14 +156,14 @@
             href="#"
             target="_blank"
             rel="noreferrer"
-            class="px-3 py-2 rounded-xl bg-green-600 text-white text-sm hover:bg-green-700"
+            class="px-4 py-2.5 rounded-2xl gold-outline-btn text-sm font-semibold tracking-wide"
           >
             WhatsApp
           </a>
 
           <button
             id="openCartBtn"
-            class="px-3 py-2 rounded-xl bg-black text-white text-sm"
+            class="px-4 py-2.5 rounded-2xl gold-btn text-sm tracking-wide"
           >
             Cart (<span id="cartCount">0</span>)
           </button>
@@ -58,15 +171,15 @@
       </div>
 
       <!-- Mobile search -->
-      <div class="sm:hidden max-w-6xl mx-auto px-4 pb-3 flex gap-2">
+      <div class="sm:hidden max-w-6xl mx-auto px-4 pb-4 flex gap-2">
         <input
           id="searchInputMobile"
-          class="flex-1 border rounded-xl px-3 py-2 text-sm"
+          class="flex-1 glass-field rounded-2xl px-4 py-2.5 text-sm"
           placeholder="Search perfumes..."
         />
         <select
           id="categorySelectMobile"
-          class="border rounded-xl px-3 py-2 text-sm"
+          class="glass-field rounded-2xl px-4 py-2.5 text-sm"
         >
           <option value="all">All</option>
         </select>
@@ -74,24 +187,31 @@
     </header>
 
     <!-- Main -->
-    <main class="max-w-6xl mx-auto px-4 py-8">
-      <div class="flex items-end justify-between gap-3 mb-5">
-        <div>
-          <h1 class="text-2xl font-bold">Shop Perfumes</h1>
-          <p class="text-gray-600 text-sm">
-            Choose a scent. Become a different person.
-          </p>
+    <main class="max-w-6xl mx-auto px-4 py-10">
+      <div class="glass-panel p-8">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-6">
+          <div>
+            <p class="uppercase tracking-[0.4em] text-xs text-[var(--gold-soft)]">
+              House of scent
+            </p>
+            <h1 class="text-3xl sm:text-4xl font-semibold font-display text-white">
+              Luxury Perfumes, Mombasa
+            </h1>
+            <p class="text-gray-400 text-sm mt-1">
+              Choose a scent. Become a different person.
+            </p>
+          </div>
+
+          <div class="text-sm text-gray-300">
+            Showing <span id="resultsCount">0</span>
+          </div>
         </div>
 
-        <div class="text-sm text-gray-600">
-          Showing <span id="resultsCount">0</span>
-        </div>
+        <section
+          id="productGrid"
+          class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
+        ></section>
       </div>
-
-      <section
-        id="productGrid"
-        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
-      ></section>
     </main>
 
     <!-- Cart Drawer -->
@@ -99,32 +219,32 @@
       <div id="cartBackdrop" class="absolute inset-0 bg-black/40"></div>
 
       <aside
-        class="absolute right-0 top-0 h-full w-full sm:w-[440px] bg-white shadow-xl p-5 flex flex-col"
+        class="absolute right-0 top-0 h-full w-full sm:w-[440px] cart-panel shadow-xl p-6 flex flex-col"
       >
         <div class="flex items-center justify-between">
-          <h2 class="text-lg font-semibold">Your Cart</h2>
-          <button id="closeCartBtn" class="text-gray-600 hover:text-black">
+          <h2 class="text-lg font-semibold text-white">Your Cart</h2>
+          <button id="closeCartBtn" class="text-gray-400 hover:text-white">
             ✕
           </button>
         </div>
 
-        <div id="cartItems" class="mt-4 flex-1 overflow-auto space-y-3"></div>
+        <div id="cartItems" class="mt-4 flex-1 overflow-auto space-y-3 pr-2"></div>
 
-        <div class="border-t pt-4 space-y-3">
+        <div class="border-t border-white/10 pt-4 space-y-3">
           <div class="flex items-center justify-between">
-            <span class="font-medium">Total</span>
-            <span class="font-semibold">KES <span id="cartTotal">0</span></span>
+            <span class="font-medium text-gray-300">Total</span>
+            <span class="font-semibold text-white">KES <span id="cartTotal">0</span></span>
           </div>
 
           <button
             id="openCheckoutBtn"
-            class="w-full py-3 rounded-xl bg-black text-white font-medium disabled:opacity-40"
+            class="w-full py-3 rounded-2xl gold-btn font-medium disabled:opacity-40 disabled:cursor-not-allowed"
             disabled
           >
             Continue to Checkout
           </button>
 
-          <p class="text-xs text-gray-500">
+          <p class="text-xs text-gray-400">
             Store-first: payments come later (Stripe/PayPal/M-Pesa).
           </p>
         </div>
@@ -136,12 +256,12 @@
       <div id="checkoutBackdrop" class="absolute inset-0 bg-black/40"></div>
 
       <div class="absolute inset-0 flex items-center justify-center p-4">
-        <div class="w-full max-w-xl bg-white rounded-2xl shadow-xl p-5">
+        <div class="w-full max-w-xl modal-panel rounded-3xl p-6">
           <div class="flex items-center justify-between">
-            <h3 class="text-lg font-semibold">Checkout</h3>
+            <h3 class="text-lg font-semibold text-white">Checkout</h3>
             <button
               id="closeCheckoutBtn"
-              class="text-gray-600 hover:text-black"
+              class="text-gray-400 hover:text-white"
             >
               ✕
             </button>
@@ -150,78 +270,78 @@
           <form id="checkoutForm" class="mt-4 space-y-4">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label class="text-sm text-gray-700">Full name</label>
+                <label class="text-sm">Full name</label>
                 <input
                   name="name"
                   required
-                  class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                  class="mt-1 w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
                 />
               </div>
               <div>
-                <label class="text-sm text-gray-700"
+                <label class="text-sm"
                   >Phone (for delivery)</label
                 >
                 <input
                   name="phone"
                   required
-                  class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                  class="mt-1 w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
                   placeholder="07xx..."
                 />
               </div>
             </div>
 
             <div>
-              <label class="text-sm text-gray-700">Delivery location</label>
+              <label class="text-sm">Delivery location</label>
               <input
                 name="location"
                 required
-                class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
-                placeholder="Kisumu, Milimani..."
+                class="mt-1 w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
+                placeholder="Mombasa, Likoni..."
               />
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label class="text-sm text-gray-700">Delivery option</label>
+                <label class="text-sm">Delivery option</label>
                 <select
                   name="delivery"
-                  class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                  class="mt-1 w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
                 >
                   <option value="delivery">Delivery</option>
                   <option value="pickup">Pickup</option>
                 </select>
               </div>
               <div>
-                <label class="text-sm text-gray-700">Notes</label>
+                <label class="text-sm">Notes</label>
                 <input
                   name="notes"
-                  class="mt-1 w-full border rounded-xl px-3 py-2 text-sm"
+                  class="mt-1 w-full glass-field rounded-2xl px-4 py-2.5 text-sm"
                   placeholder="Gift wrap, call on arrival..."
                 />
               </div>
             </div>
 
-            <div class="border rounded-2xl p-4 bg-gray-50">
-              <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-700">Order total</span>
-                <span class="font-semibold"
+            <div class="border border-white/10 rounded-2xl p-4 bg-white/5">
+              <div class="flex items-center justify-between text-sm text-gray-200">
+                <span>Order total</span>
+                <span class="font-semibold text-white"
                   >KES <span id="checkoutTotal">0</span></span
                 >
               </div>
-              <div class="text-xs text-gray-500 mt-1">
+              <div class="text-xs text-gray-400 mt-1">
                 Next: payment buttons (Stripe/PayPal/M-Pesa) will go here.
               </div>
             </div>
 
             <button
-              class="w-full py-3 rounded-xl bg-black text-white font-medium"
+              class="w-full py-3 rounded-2xl gold-btn font-medium"
             >
               Place Order (Save)
             </button>
 
             <div
               id="orderSuccess"
-              class="hidden mt-3 border rounded-xl p-3 bg-green-50 text-green-800 text-sm"
+              class="hidden mt-3 border border-green-400/30 rounded-2xl p-3 bg-green-500/10 text-green-200 text-sm"
             >
               Order saved. You can now send it on WhatsApp while we wire
               payments.
@@ -231,7 +351,7 @@
                   href="#"
                   target="_blank"
                   rel="noreferrer"
-                  class="inline-flex px-3 py-2 rounded-xl bg-green-600 text-white text-sm hover:bg-green-700"
+                  class="inline-flex px-4 py-2 rounded-2xl bg-green-500/80 text-white text-sm font-semibold hover:bg-green-500"
                 >
                   Send Order on WhatsApp
                 </a>
