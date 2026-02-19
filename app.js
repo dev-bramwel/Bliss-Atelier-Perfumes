@@ -82,6 +82,7 @@ const cartItemsEl = document.getElementById("cartItems");
 const cartCountEls = document.querySelectorAll("[data-cart-count]");
 const cartTotalEl = document.getElementById("cartTotal");
 const openCheckoutBtn = document.getElementById("openCheckoutBtn");
+const backToTopBtn = document.getElementById("backToTopBtn");
 
 const checkoutModal = document.getElementById("checkoutModal");
 const checkoutBackdrop = document.getElementById("checkoutBackdrop");
@@ -356,6 +357,24 @@ checkoutBackdrop.addEventListener("click", closeCheckout);
 closeCheckoutBtn.addEventListener("click", closeCheckout);
 
 // --------------------
+// Back-to-top control
+// --------------------
+function updateBackToTopVisibility() {
+  if (!backToTopBtn) return;
+  if (window.scrollY > 220) {
+    backToTopBtn.classList.add("visible");
+  } else {
+    backToTopBtn.classList.remove("visible");
+  }
+}
+
+backToTopBtn?.addEventListener("click", () => {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+window.addEventListener("scroll", updateBackToTopVisibility, { passive: true });
+
+// --------------------
 // Checkout submit: create order (local only for now)
 // --------------------
 checkoutForm.addEventListener("submit", (e) => {
@@ -447,3 +466,4 @@ function saveOrders(o) {
 renderCategories();
 renderProducts();
 renderCart();
+updateBackToTopVisibility();
