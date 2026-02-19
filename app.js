@@ -443,7 +443,7 @@ checkoutForm.addEventListener("submit", (e) => {
     checkoutCompleteOverlay?.classList.add("hidden");
     closeCheckout();
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, 2500);
+  }, 5000);
 });
 
 // --------------------
