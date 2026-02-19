@@ -193,23 +193,16 @@
               Place Order
             </button>
 
-            <!-- Order saved confirmation -->
+            <!-- Order confirmation & thank you -->
             <div
               id="orderSuccess"
-              class="hidden border border-green-400/30 rounded-2xl p-3 bg-green-500/10 text-green-200 text-sm"
+              class="hidden rounded-2xl overflow-hidden border border-[rgba(212,175,55,0.25)]"
             >
-              Order saved! You can also send it via WhatsApp while we wire
-              payments.
-              <div class="mt-2">
-                <a
-                  id="orderWhatsAppBtn"
-                  href="#"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="inline-flex px-4 py-2 rounded-2xl bg-green-500/80 text-white text-sm font-semibold hover:bg-green-500"
-                >
-                  Send Order on WhatsApp
-                </a>
+              <div class="p-5 bg-[rgba(212,175,55,0.07)] space-y-2 text-center">
+                <p class="text-[var(--gold-soft)] text-xs tracking-[0.4em] uppercase">Order Confirmed</p>
+                <h4 class="text-xl font-display text-white">Thank you for shopping with us!</h4>
+                <p class="text-sm text-gray-400">Your order has been saved. We'll be in touch shortly to confirm and process it.</p>
+                <p class="text-xs text-gray-500 pt-1">Redirecting you back to the collection in a moment…</p>
               </div>
             </div>
           </form>
@@ -246,26 +239,6 @@
         />
       </svg>
     </button>
-
-    <!-- Thank-you overlay -->
-    <div
-      id="checkoutCompleteOverlay"
-      class="checkout-complete hidden"
-      role="status"
-      aria-live="polite"
-    >
-      <div class="checkout-complete-card space-y-3">
-        <p class="text-[var(--gold-soft)] text-xs tracking-[0.4em] uppercase">
-          Thank you
-        </p>
-        <h4 class="text-2xl font-display text-white">
-          Thank you for shopping with us
-        </h4>
-        <p class="text-sm text-gray-400">
-          We saved your order. Redirecting you to the collection in a moment…
-        </p>
-      </div>
-    </div>
 
     <script src="./shared.js"></script>
     <script src="./checkout.js"></script>

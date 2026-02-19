@@ -5,10 +5,6 @@ const checkoutForm = document.getElementById("checkoutForm");
 const checkoutTotalEl = document.getElementById("checkoutTotal");
 const checkoutItemsEl = document.getElementById("checkoutItems");
 const orderSuccess = document.getElementById("orderSuccess");
-const orderWhatsAppBtn = document.getElementById("orderWhatsAppBtn");
-const checkoutCompleteOverlay = document.getElementById(
-  "checkoutCompleteOverlay",
-);
 const backToTopBtn = document.getElementById("backToTopBtn");
 
 // --------------------
@@ -92,28 +88,17 @@ checkoutForm?.addEventListener("submit", (e) => {
   orders.unshift(order);
   saveOrders(orders);
 
-  // Build WhatsApp message for this specific order
-  const lines = [
-    `Order ID: ${order.id}`,
-    `Name: ${customer.name}`,
-    `Phone: ${customer.phone}`,
-    `Location: ${customer.location}`,
-    `Delivery: ${customer.delivery}`,
-    customer.notes ? `Notes: ${customer.notes}` : null,
-  ].filter(Boolean);
+  // TODO: Send order to backend when ready
+  // The order object is saved locally in localStorage until the backend is wired up.
+  // Backend endpoint will replace this block: POST /api/orders with `order` payload.
 
-  if (orderWhatsAppBtn) orderWhatsAppBtn.href = buildWhatsAppMessage(lines);
   if (orderSuccess) orderSuccess.classList.remove("hidden");
-  if (checkoutCompleteOverlay)
-    checkoutCompleteOverlay.classList.remove("hidden");
 
   clearCart();
   checkoutForm.reset();
 
   // Redirect home after 5 seconds
   setTimeout(() => {
-    if (checkoutCompleteOverlay)
-      checkoutCompleteOverlay.classList.add("hidden");
     window.location.href = "index.html";
   }, 5000);
 });
