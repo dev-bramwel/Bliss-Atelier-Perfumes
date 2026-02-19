@@ -496,7 +496,7 @@ checkoutForm.addEventListener("submit", (e) => {
     checkoutCompleteOverlay?.classList.add("hidden");
     closeCheckout();
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, 5000);
+  }, 7500);
 });
 
 // --------------------
