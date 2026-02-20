@@ -6,14 +6,14 @@ const API_BASE = "http://localhost:5000"; // change to your deployed API URL in 
 // --------------------
 // DOM (checkout page)
 // --------------------
-const checkoutForm   = document.getElementById("checkoutForm");
+const checkoutForm = document.getElementById("checkoutForm");
 const checkoutTotalEl = document.getElementById("checkoutTotal");
 const checkoutItemsEl = document.getElementById("checkoutItems");
-const orderSuccess   = document.getElementById("orderSuccess");
-const backToTopBtn   = document.getElementById("backToTopBtn");
-const stkOverlay     = document.getElementById("stkOverlay");
-const stkStatusText  = document.getElementById("stkStatusText");
-const stkSubText     = document.getElementById("stkSubText");
+const orderSuccess = document.getElementById("orderSuccess");
+const backToTopBtn = document.getElementById("backToTopBtn");
+const stkOverlay = document.getElementById("stkOverlay");
+const stkStatusText = document.getElementById("stkStatusText");
+const stkSubText = document.getElementById("stkSubText");
 
 // --------------------
 // RENDER ORDER SUMMARY
@@ -74,12 +74,12 @@ checkoutForm?.addEventListener("submit", async (e) => {
 
   const fd = new FormData(checkoutForm);
   const customer = {
-    name:     String(fd.get("name")     || ""),
-    phone:    String(fd.get("phone")    || ""),
+    name: String(fd.get("name") || ""),
+    phone: String(fd.get("phone") || ""),
     location: String(fd.get("location") || ""),
     delivery: String(fd.get("delivery") || "delivery"),
-    notes:    String(fd.get("notes")    || ""),
-    payment:  String(fd.get("payment")  || "on_delivery"),
+    notes: String(fd.get("notes") || ""),
+    payment: String(fd.get("payment") || "on_delivery"),
   };
 
   const orderPayload = {
@@ -93,13 +93,16 @@ checkoutForm?.addEventListener("submit", async (e) => {
 
   // Disable submit while processing
   const submitBtn = checkoutForm.querySelector("[type='submit']");
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Placing order…"; }
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Placing order…";
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/orders`, {
-      method:  "POST",
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(orderPayload),
+      body: JSON.stringify(orderPayload),
     });
 
     const data = await res.json();
@@ -124,12 +127,16 @@ checkoutForm?.addEventListener("submit", async (e) => {
       // ---- on_delivery or STK failed gracefully ----
       showOrderSuccess();
     }
-
   } catch (err) {
     console.error("[checkout submit]", err);
-    alert(`Could not place order: ${err.message}\n\nPlease try again or contact us on WhatsApp.`);
+    alert(
+      `Could not place order: ${err.message}\n\nPlease try again or contact us on WhatsApp.`,
+    );
   } finally {
-    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Place Order"; }
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Place Order";
+    }
   }
 });
 
@@ -148,7 +155,7 @@ function hideStkOverlay() {
 
 function setStkStatus(title, sub) {
   if (stkStatusText) stkStatusText.textContent = title;
-  if (stkSubText)    stkSubText.textContent    = sub;
+  if (stkSubText) stkSubText.textContent = sub;
 }
 
 /**
@@ -156,18 +163,23 @@ function setStkStatus(title, sub) {
  * Resolves once M-Pesa responds or times out.
  */
 async function pollPaymentStatus(orderId) {
-  const MAX_TRIES  = 30;  // 30 × 4s = 2 minutes
-  const INTERVAL   = 4000;
-  let   tries      = 0;
+  const MAX_TRIES = 30; // 30 × 4s = 2 minutes
+  const INTERVAL = 4000;
+  let tries = 0;
 
-  setStkStatus("Check your phone", "Enter your M-Pesa PIN when prompted to complete payment.");
+  setStkStatus(
+    "Check your phone",
+    "Enter your M-Pesa PIN when prompted to complete payment.",
+  );
 
   return new Promise((resolve) => {
     const timer = setInterval(async () => {
       tries++;
 
       try {
-        const res  = await fetch(`${API_BASE}/api/orders/${orderId}/payment-status`);
+        const res = await fetch(
+          `${API_BASE}/api/orders/${orderId}/payment-status`,
+        );
         const data = await res.json();
 
         if (data.paymentStatus === "PAID") {
@@ -187,14 +199,22 @@ async function pollPaymentStatus(orderId) {
             "Payment unsuccessful",
             "The M-Pesa request was cancelled or timed out. Your order is saved — we'll be in touch.",
           );
-          setTimeout(() => { hideStkOverlay(); showOrderSuccess(); resolve(); }, 3500);
+          setTimeout(() => {
+            hideStkOverlay();
+            showOrderSuccess();
+            resolve();
+          }, 3500);
         } else if (tries >= MAX_TRIES) {
           clearInterval(timer);
           setStkStatus(
             "Taking longer than expected…",
             "We haven't received M-Pesa confirmation yet. Your order is saved — we'll follow up.",
           );
-          setTimeout(() => { hideStkOverlay(); showOrderSuccess(); resolve(); }, 3500);
+          setTimeout(() => {
+            hideStkOverlay();
+            showOrderSuccess();
+            resolve();
+          }, 3500);
         }
         // else still PENDING — keep polling
       } catch (err) {
@@ -213,7 +233,9 @@ async function pollPaymentStatus(orderId) {
 
 function showOrderSuccess() {
   if (orderSuccess) orderSuccess.classList.remove("hidden");
-  setTimeout(() => { window.location.href = "index.html"; }, 10000);
+  setTimeout(() => {
+    window.location.href = "index.html";
+  }, 10000);
 }
 
 // --------------------
@@ -229,9 +251,14 @@ function showOrderSuccess() {
       if (!radio) return;
       card.classList.toggle("selected", radio.checked);
     });
-    const payNowRadio = document.querySelector("input[name='payment'][value='pay_now']");
+    const payNowRadio = document.querySelector(
+      "input[name='payment'][value='pay_now']",
+    );
     if (payNowNotice) {
-      payNowNotice.classList.toggle("hidden", !(payNowRadio && payNowRadio.checked));
+      payNowNotice.classList.toggle(
+        "hidden",
+        !(payNowRadio && payNowRadio.checked),
+      );
     }
   }
 

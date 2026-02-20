@@ -3,16 +3,17 @@ import axios from "axios";
 // --------------------
 // CONFIG
 // --------------------
-const ENV         = process.env.MPESA_ENV || "sandbox";
-const BASE_URL    = ENV === "production"
-  ? "https://api.safaricom.co.ke"
-  : "https://sandbox.safaricom.co.ke";
+const ENV = process.env.MPESA_ENV || "sandbox";
+const BASE_URL =
+  ENV === "production"
+    ? "https://api.safaricom.co.ke"
+    : "https://sandbox.safaricom.co.ke";
 
-const CONSUMER_KEY    = process.env.MPESA_CONSUMER_KEY;
+const CONSUMER_KEY = process.env.MPESA_CONSUMER_KEY;
 const CONSUMER_SECRET = process.env.MPESA_CONSUMER_SECRET;
-const SHORTCODE       = process.env.MPESA_SHORTCODE;
-const PASSKEY         = process.env.MPESA_PASSKEY;
-const CALLBACK_URL    = process.env.MPESA_CALLBACK_URL;
+const SHORTCODE = process.env.MPESA_SHORTCODE;
+const PASSKEY = process.env.MPESA_PASSKEY;
+const CALLBACK_URL = process.env.MPESA_CALLBACK_URL;
 
 // --------------------
 // HELPERS
@@ -20,10 +21,15 @@ const CALLBACK_URL    = process.env.MPESA_CALLBACK_URL;
 
 /** Base64 encode consumer key + secret to get the OAuth token */
 async function getAccessToken() {
-  const credentials = Buffer.from(`${CONSUMER_KEY}:${CONSUMER_SECRET}`).toString("base64");
-  const res = await axios.get(`${BASE_URL}/oauth/v1/generate?grant_type=client_credentials`, {
-    headers: { Authorization: `Basic ${credentials}` },
-  });
+  const credentials = Buffer.from(
+    `${CONSUMER_KEY}:${CONSUMER_SECRET}`,
+  ).toString("base64");
+  const res = await axios.get(
+    `${BASE_URL}/oauth/v1/generate?grant_type=client_credentials`,
+    {
+      headers: { Authorization: `Basic ${credentials}` },
+    },
+  );
   return res.data.access_token;
 }
 
@@ -56,25 +62,25 @@ export function formatPhone(phone) {
  * @returns {Promise<{ merchantRequestId: string, checkoutRequestId: string, responseDescription: string }>}
  */
 export async function initiateStkPush(phone, amount, orderId) {
-  const token     = await getAccessToken();
+  const token = await getAccessToken();
   const timestamp = new Date()
     .toISOString()
     .replace(/[^0-9]/g, "")
-    .slice(0, 14);             // YYYYMMDDHHmmss
-  const password  = generatePassword(timestamp);
+    .slice(0, 14); // YYYYMMDDHHmmss
+  const password = generatePassword(timestamp);
 
   const payload = {
     BusinessShortCode: SHORTCODE,
-    Password:          password,
-    Timestamp:         timestamp,
-    TransactionType:   "CustomerPayBillOnline",
-    Amount:            Math.ceil(amount),
-    PartyA:            formatPhone(phone),
-    PartyB:            SHORTCODE,
-    PhoneNumber:       formatPhone(phone),
-    CallBackURL:       CALLBACK_URL,
-    AccountReference:  orderId,
-    TransactionDesc:   `Bliss Atelier Order ${orderId}`,
+    Password: password,
+    Timestamp: timestamp,
+    TransactionType: "CustomerPayBillOnline",
+    Amount: Math.ceil(amount),
+    PartyA: formatPhone(phone),
+    PartyB: SHORTCODE,
+    PhoneNumber: formatPhone(phone),
+    CallBackURL: CALLBACK_URL,
+    AccountReference: orderId,
+    TransactionDesc: `Bliss Atelier Order ${orderId}`,
   };
 
   const res = await axios.post(
@@ -84,8 +90,8 @@ export async function initiateStkPush(phone, amount, orderId) {
   );
 
   return {
-    merchantRequestId:  res.data.MerchantRequestID,
-    checkoutRequestId:  res.data.CheckoutRequestID,
+    merchantRequestId: res.data.MerchantRequestID,
+    checkoutRequestId: res.data.CheckoutRequestID,
     responseDescription: res.data.ResponseDescription,
   };
 }

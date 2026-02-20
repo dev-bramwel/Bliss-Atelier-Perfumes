@@ -1,20 +1,22 @@
 import "dotenv/config";
 import express from "express";
-import cors    from "cors";
+import cors from "cors";
 
 import ordersRouter from "./routes/orders.js";
-import mpesaRouter  from "./routes/mpesa.js";
+import mpesaRouter from "./routes/mpesa.js";
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 5000;
 
 // --------------------
 // MIDDLEWARE
 // --------------------
-app.use(cors({
-  // In production lock this down to your actual frontend origin
-  origin: process.env.FRONTEND_ORIGIN || "*",
-}));
+app.use(
+  cors({
+    // In production lock this down to your actual frontend origin
+    origin: process.env.FRONTEND_ORIGIN || "*",
+  }),
+);
 app.use(express.json());
 
 // --------------------
@@ -22,7 +24,7 @@ app.use(express.json());
 // --------------------
 app.get("/", (_req, res) => res.json({ status: "Bliss Atelier API running" }));
 app.use("/api/orders", ordersRouter);
-app.use("/api/mpesa",  mpesaRouter);
+app.use("/api/mpesa", mpesaRouter);
 
 // --------------------
 // START
