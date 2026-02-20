@@ -1,0 +1,60 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Order {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Customer details
+  customerName     String
+  customerPhone    String
+  deliveryLocation String
+  deliveryOption   String  @default("delivery")
+  notes            String?
+
+  // Payment
+  paymentMethod    String  @default("on_delivery") // "on_delivery" | "pay_now"
+  paymentStatus    String  @default("PENDING")     // PENDING | PAID | FAILED | CANCELLED
+
+  // Order totals
+  totalKes         Int
+
+  // Line items stored as JSON
+  items            Json
+
+  // M-Pesa linking (null for on_delivery orders)
+  mpesaTransaction MpesaTransaction?
+}
+
+model MpesaTransaction {
+  id                  String   @id @default(cuid())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  orderId             String   @unique
+  order               Order    @relation(fields: [orderId], references: [id])
+
+  // Daraja STK Push request fields
+  merchantRequestId   String?
+  checkoutRequestId   String?  @unique
+
+  // Callback result fields
+  resultCode          String?
+  resultDesc          String?
+  mpesaReceiptNumber  String?
+  transactionDate     String?
+  phoneNumber         String?
+
+  status              String   @default("PENDING") // PENDING | SUCCESS | FAILED
+}

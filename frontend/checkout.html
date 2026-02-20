@@ -250,6 +250,54 @@
       </svg>
     </button>
 
+    <!-- ========= M-PESA STK PUSH WAITING OVERLAY ========= -->
+    <div
+      id="stkOverlay"
+      class="hidden fixed inset-0 z-[999] flex items-center justify-center p-4"
+      style="background: rgba(0,0,0,0.82); backdrop-filter: blur(8px);"
+    >
+      <div
+        class="glass-panel w-full max-w-sm rounded-3xl p-8 flex flex-col items-center gap-5 text-center"
+        style="border: 1px solid var(--glass-border);"
+      >
+        <!-- Spinner -->
+        <div id="stkSpinner" class="relative w-16 h-16">
+          <svg class="animate-spin w-16 h-16 text-[var(--gold-primary)]" viewBox="0 0 24 24" fill="none">
+            <circle class="opacity-20" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"/>
+            <path class="opacity-80" fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+        </div>
+
+        <!-- M-Pesa logo wordmark -->
+        <p class="text-xs tracking-[0.35em] uppercase text-[var(--gold-soft)] opacity-70">M-Pesa Payment</p>
+
+        <!-- Dynamic title -->
+        <h3
+          id="stkStatusText"
+          class="font-display text-xl text-white leading-snug"
+        >
+          Check your phone
+        </h3>
+
+        <!-- Dynamic subtitle -->
+        <p
+          id="stkSubText"
+          class="text-sm text-gray-400 leading-relaxed"
+        >
+          Enter your M-Pesa PIN when prompted to complete payment.
+        </p>
+
+        <!-- Animated pulse dots -->
+        <div id="stkDots" class="flex gap-2">
+          <span class="w-2 h-2 rounded-full bg-[var(--gold-primary)] animate-bounce" style="animation-delay:0s"></span>
+          <span class="w-2 h-2 rounded-full bg-[var(--gold-primary)] animate-bounce" style="animation-delay:0.15s"></span>
+          <span class="w-2 h-2 rounded-full bg-[var(--gold-primary)] animate-bounce" style="animation-delay:0.3s"></span>
+        </div>
+      </div>
+    </div>
+    <!-- ===================================================== -->
+
     <script src="./shared.js"></script>
     <script src="./checkout.js"></script>
   </body>
