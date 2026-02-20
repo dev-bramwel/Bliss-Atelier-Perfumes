@@ -71,6 +71,7 @@ checkoutForm?.addEventListener("submit", (e) => {
     location: String(fd.get("location") || ""),
     delivery: String(fd.get("delivery") || "delivery"),
     notes: String(fd.get("notes") || ""),
+    payment: String(fd.get("payment") || "on_delivery"),
   };
 
   const order = {
@@ -102,6 +103,36 @@ checkoutForm?.addEventListener("submit", (e) => {
     window.location.href = "index.html";
   }, 10000);
 });
+
+// --------------------
+// PAYMENT OPTION TOGGLE
+// --------------------
+(function () {
+  const cards = document.querySelectorAll(".payment-option-card");
+  const payNowNotice = document.getElementById("payNowNotice");
+
+  function syncCards() {
+    cards.forEach((card) => {
+      const radio = card.querySelector("input[type='radio']");
+      if (!radio) return;
+      card.classList.toggle("selected", radio.checked);
+    });
+    const payNowRadio = document.querySelector("input[name='payment'][value='pay_now']");
+    if (payNowNotice) {
+      payNowNotice.classList.toggle("hidden", !(payNowRadio && payNowRadio.checked));
+    }
+  }
+
+  cards.forEach((card) => {
+    card.addEventListener("click", () => {
+      const radio = card.querySelector("input[type='radio']");
+      if (radio) radio.checked = true;
+      syncCards();
+    });
+  });
+
+  syncCards(); // set initial state
+})();
 
 // --------------------
 // INIT
