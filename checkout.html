@@ -160,45 +160,54 @@
               </div>
             </div>
 
-            <!-- Payment placeholder -->
-            <div
-              class="border border-white/10 rounded-2xl p-4 bg-white/5 space-y-3"
-            >
-              <div class="flex items-center gap-3 text-sm text-gray-200">
-                <span
-                  class="inline-flex h-9 w-9 rounded-full bg-black/30 border border-white/10 items-center justify-center shrink-0"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    class="w-4 h-4"
-                    fill="currentColor"
-                  >
-                    <path
-                      d="M4.75 6A2.75 2.75 0 0 0 2 8.75v6.5A2.75 2.75 0 0 0 4.75 18h14.5A2.75 2.75 0 0 0 22 15.25v-6.5A2.75 2.75 0 0 0 19.25 6H4.75Zm0 1.5h14.5c.69 0 1.25.56 1.25 1.25V10H3.5V8.75c0-.69.56-1.25 1.25-1.25Zm-1.25 5.5h16.5v2.25c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25V13Z"
-                    />
-                  </svg>
-                </span>
-                <div>
-                  <p class="font-semibold text-white">Payment coming soon</p>
-                  <p class="text-xs text-gray-400">
-                    Stripe, PayPal, and M-Pesa widgets arrive next.
-                  </p>
-                </div>
+            <!-- Payment timing -->
+            <div class="space-y-2">
+              <label class="text-sm block mb-1">Payment</label>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                <!-- Pay on delivery / pickup -->
+                <label class="payment-option-card" id="payLaterCard">
+                  <input type="radio" name="payment" value="on_delivery" class="sr-only" checked />
+                  <span class="payment-option-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5" fill="currentColor">
+                      <path d="M3 7.75A2.75 2.75 0 0 1 5.75 5h9.5A2.75 2.75 0 0 1 18 7.75V8h.25A2.75 2.75 0 0 1 21 10.75v4.5A2.75 2.75 0 0 1 18.25 18H5.75A2.75 2.75 0 0 1 3 15.25V7.75Zm13.5.25V7.75c0-.69-.56-1.25-1.25-1.25h-9.5C5.06 6.5 4.5 7.06 4.5 7.75v7.5c0 .69.56 1.25 1.25 1.25H18.25c.69 0 1.25-.56 1.25-1.25v-4.5c0-.69-.56-1.25-1.25-1.25H18v-1.5h-.5ZM10 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"/>
+                    </svg>
+                  </span>
+                  <span class="payment-option-text">
+                    <span class="payment-option-title">Pay on delivery / pickup</span>
+                    <span class="payment-option-sub">Cash or M-Pesa when you receive your order</span>
+                  </span>
+                  <span class="payment-option-check">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                      <path d="M20.28 5.72a.75.75 0 0 0-1.06 0L9 15.94 4.78 11.72a.75.75 0 0 0-1.06 1.06l4.75 4.75a.75.75 0 0 0 1.06 0l10.75-10.75a.75.75 0 0 0 0-1.06Z"/>
+                    </svg>
+                  </span>
+                </label>
+
+                <!-- Pay now -->
+                <label class="payment-option-card" id="payNowCard">
+                  <input type="radio" name="payment" value="pay_now" class="sr-only" />
+                  <span class="payment-option-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5" fill="currentColor">
+                      <path d="M4.75 6A2.75 2.75 0 0 0 2 8.75v6.5A2.75 2.75 0 0 0 4.75 18h14.5A2.75 2.75 0 0 0 22 15.25v-6.5A2.75 2.75 0 0 0 19.25 6H4.75Zm0 1.5h14.5c.69 0 1.25.56 1.25 1.25V10H3.5V8.75c0-.69.56-1.25 1.25-1.25Zm-1.25 5.5h16.5v2.25c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25V13Z"/>
+                    </svg>
+                  </span>
+                  <span class="payment-option-text">
+                    <span class="payment-option-title">Pay now</span>
+                    <span class="payment-option-sub">M-Pesa, card &amp; more — coming soon</span>
+                  </span>
+                  <span class="payment-option-check">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                      <path d="M20.28 5.72a.75.75 0 0 0-1.06 0L9 15.94 4.78 11.72a.75.75 0 0 0-1.06 1.06l4.75 4.75a.75.75 0 0 0 1.06 0l10.75-10.75a.75.75 0 0 0 0-1.06Z"/>
+                    </svg>
+                  </span>
+                </label>
+
               </div>
-              <div class="flex flex-wrap gap-2 text-xs text-gray-400">
-                <span class="px-3 py-1 rounded-full border border-white/10"
-                  >Visa / Mastercard</span
-                >
-                <span class="px-3 py-1 rounded-full border border-white/10"
-                  >PayPal</span
-                >
-                <span class="px-3 py-1 rounded-full border border-white/10"
-                  >Stripe Link</span
-                >
-                <span class="px-3 py-1 rounded-full border border-white/10"
-                  >M-Pesa STK</span
-                >
+
+              <!-- Pay now coming-soon notice (shows when pay now is selected) -->
+              <div id="payNowNotice" class="hidden rounded-2xl px-4 py-3 bg-[rgba(212,175,55,0.07)] border border-[rgba(212,175,55,0.2)] text-xs text-[var(--gold-soft)]">
+                Online payment integration is on the way. Your order will still be confirmed — we'll follow up to collect payment before dispatch.
               </div>
             </div>
 
