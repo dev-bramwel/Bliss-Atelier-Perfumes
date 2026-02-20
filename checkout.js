@@ -100,7 +100,7 @@ checkoutForm?.addEventListener("submit", (e) => {
   // Redirect home after 5 seconds
   setTimeout(() => {
     window.location.href = "index.html";
-  }, 5000);
+  }, 10000);
 });
 
 // --------------------

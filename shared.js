@@ -135,10 +135,32 @@ function buildWhatsAppMessage(extraLines = []) {
 // CART OPS
 // (each mutates state, saves, then fires "cartUpdated")
 // --------------------
+// --------------------
+// CART TOAST NOTIFICATION
+// --------------------
+function showCartToast(productName) {
+  let toast = document.getElementById("cart-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "cart-toast";
+    toast.className = "cart-toast";
+    toast.innerHTML =
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M20.28 5.72a.75.75 0 0 0-1.06 0L9 15.94 4.78 11.72a.75.75 0 0 0-1.06 1.06l4.75 4.75a.75.75 0 0 0 1.06 0l10.75-10.75a.75.75 0 0 0 0-1.06Z"/></svg>` +
+      `<span></span>`;
+    document.body.appendChild(toast);
+  }
+  toast.querySelector("span").textContent = productName + " added to cart";
+  if (toast._t) clearTimeout(toast._t);
+  toast.classList.add("visible");
+  toast._t = setTimeout(() => toast.classList.remove("visible"), 2400);
+}
+
 function addToCart(id) {
   cart[id] = (cart[id] || 0) + 1;
   saveCart(cart);
   document.dispatchEvent(new Event("cartUpdated"));
+  const p = getProduct(id);
+  if (p) showCartToast(p.name);
 }
 
 function setQty(id, qty) {
