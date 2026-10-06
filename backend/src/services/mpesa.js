@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import axios from "axios";
 
 // --------------------
@@ -57,6 +58,30 @@ export function formatDarajaReferences(orderId) {
   };
 }
 
+export function createCallbackSignature(orderId, secret = CALLBACK_SECRET) {
+  if (!secret) throw new Error("MPESA_CALLBACK_SECRET must be configured.");
+  return createHmac("sha256", secret).update(orderId).digest("hex");
+}
+
+export function verifyCallbackSignature(
+  orderId,
+  signature,
+  secret = CALLBACK_SECRET,
+) {
+  if (
+    !secret ||
+    typeof orderId !== "string" ||
+    typeof signature !== "string" ||
+    !/^[a-f0-9]{64}$/i.test(signature)
+  ) {
+    return false;
+  }
+
+  const expected = Buffer.from(createCallbackSignature(orderId, secret), "hex");
+  const provided = Buffer.from(signature, "hex");
+  return timingSafeEqual(provided, expected);
+}
+
 // --------------------
 // STK PUSH
 // --------------------
@@ -66,7 +91,7 @@ export function formatDarajaReferences(orderId) {
  *
  * @param {string} phone   - Customer phone number (07xx… or 2547xx…)
  * @param {number} amount  - Amount in KES (integer)
- * @param {string} orderId - Your internal order ID (used as AccountReference)
+ * @param {string} orderId - Your internal order ID, retained for callback recovery
  * @returns {Promise<{ merchantRequestId: string, checkoutRequestId: string, responseDescription: string }>}
  */
 export async function initiateStkPush(phone, amount, orderId) {
@@ -94,7 +119,7 @@ export async function initiateStkPush(phone, amount, orderId) {
     PartyA: formatPhone(phone),
     PartyB: SHORTCODE,
     PhoneNumber: formatPhone(phone),
-    CallBackURL: getCallbackUrl(),
+    CallBackURL: getCallbackUrl(orderId),
     AccountReference: accountReference,
     TransactionDesc: transactionDescription,
   };
@@ -112,8 +137,12 @@ export async function initiateStkPush(phone, amount, orderId) {
   };
 }
 
-function getCallbackUrl() {
+function getCallbackUrl(orderId) {
   const callbackUrl = new URL(CALLBACK_URL);
-  callbackUrl.searchParams.set("token", CALLBACK_SECRET);
+  callbackUrl.searchParams.set("orderId", orderId);
+  callbackUrl.searchParams.set(
+    "signature",
+    createCallbackSignature(orderId),
+  );
   return callbackUrl.toString();
 }

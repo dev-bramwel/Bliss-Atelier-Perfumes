@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "../db.js";
+import { verifyCallbackSignature } from "../services/mpesa.js";
 
 const router = Router();
 
@@ -12,11 +13,15 @@ const router = Router();
 router.post("/callback", async (req, res) => {
   const expectedToken = process.env.MPESA_CALLBACK_SECRET;
   const providedToken = req.query.token;
-  if (
-    !expectedToken ||
-    typeof providedToken !== "string" ||
-    !safeTokenMatch(providedToken, expectedToken)
-  ) {
+  const callbackOrderId = req.query.orderId;
+  const hasSignedOrderId = verifyCallbackSignature(
+    callbackOrderId,
+    req.query.signature,
+  );
+  const hasLegacyToken =
+    typeof providedToken === "string" &&
+    safeTokenMatch(providedToken, expectedToken);
+  if (!expectedToken || (!hasSignedOrderId && !hasLegacyToken)) {
     return res.status(401).json({ error: "Unauthorized callback." });
   }
 
@@ -27,22 +32,26 @@ router.post("/callback", async (req, res) => {
     }
 
     const checkoutRequestId = body.CheckoutRequestID;
-    const resultCode = String(body.ResultCode);
-    const resultDesc = body.ResultDesc;
-
-    // Find the matching transaction record
-    const txn = await prisma.mpesaTransaction.findUnique({
-      where: { checkoutRequestId },
-    });
-    if (!txn) {
+    const orderId = hasSignedOrderId
+      ? callbackOrderId
+      : (
+          await prisma.mpesaTransaction.findUnique({
+            where: { checkoutRequestId },
+            select: { orderId: true },
+          })
+        )?.orderId;
+    if (!orderId) {
       console.warn(
-        "[Mpesa Callback] Unknown checkoutRequestId:",
+        "[Mpesa Callback] Cannot map checkoutRequestId:",
         checkoutRequestId,
       );
       return res
         .status(503)
         .json({ error: "Transaction is not available yet." });
     }
+
+    const resultCode = String(body.ResultCode);
+    const resultDesc = body.ResultDesc;
 
     let receiptNumber = null;
     let transactionDate = null;
@@ -64,10 +73,13 @@ router.post("/callback", async (req, res) => {
     const stkStatus = resultCode === "0" ? "SUCCESS" : "FAILED";
     const paymentStatus = resultCode === "0" ? "PAID" : "FAILED";
 
-    await prisma.$transaction([
-      prisma.mpesaTransaction.update({
-        where: { id: txn.id },
-        data: {
+    await prisma.$transaction(async (transaction) => {
+      await transaction.mpesaTransaction.upsert({
+        where: { orderId },
+        create: {
+          orderId,
+          merchantRequestId: body.MerchantRequestID ?? null,
+          checkoutRequestId,
           resultCode,
           resultDesc,
           mpesaReceiptNumber: receiptNumber,
@@ -75,15 +87,25 @@ router.post("/callback", async (req, res) => {
           phoneNumber: phoneNumber ? String(phoneNumber) : null,
           status: stkStatus,
         },
-      }),
-      prisma.order.update({
-        where: { id: txn.orderId },
+        update: {
+          merchantRequestId: body.MerchantRequestID ?? null,
+          checkoutRequestId,
+          resultCode,
+          resultDesc,
+          mpesaReceiptNumber: receiptNumber,
+          transactionDate,
+          phoneNumber: phoneNumber ? String(phoneNumber) : null,
+          status: stkStatus,
+        },
+      });
+      await transaction.order.update({
+        where: { id: orderId },
         data: { paymentStatus },
-      }),
-    ]);
+      });
+    });
 
     console.log(
-      `[Mpesa Callback] Order ${txn.orderId} → ${paymentStatus}` +
+      `[Mpesa Callback] Order ${orderId} → ${paymentStatus}` +
         (receiptNumber ? ` | Receipt: ${receiptNumber}` : ""),
     );
 
@@ -95,6 +117,7 @@ router.post("/callback", async (req, res) => {
 });
 
 function safeTokenMatch(providedToken, expectedToken) {
+  if (typeof expectedToken !== "string") return false;
   const provided = Buffer.from(providedToken);
   const expected = Buffer.from(expectedToken);
   return (

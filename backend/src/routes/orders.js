@@ -80,14 +80,32 @@ router.post("/", async (req, res) => {
       }
 
       // Store the STK transaction record
-      await prisma.mpesaTransaction.create({
-        data: {
-          orderId: order.id,
-          merchantRequestId: stkResult.merchantRequestId,
-          checkoutRequestId: stkResult.checkoutRequestId,
-          status: "PENDING",
-        },
-      });
+      try {
+        await prisma.mpesaTransaction.upsert({
+          where: { orderId: order.id },
+          create: {
+            orderId: order.id,
+            merchantRequestId: stkResult.merchantRequestId,
+            checkoutRequestId: stkResult.checkoutRequestId,
+            status: "PENDING",
+          },
+          update: {
+            merchantRequestId: stkResult.merchantRequestId,
+            checkoutRequestId: stkResult.checkoutRequestId,
+          },
+        });
+      } catch (mappingErr) {
+        console.error(
+          "[M-Pesa STK] accepted but transaction mapping save failed:",
+          mappingErr,
+        );
+        return res.status(202).json({
+          order,
+          stkPush: stkResult,
+          warning:
+            "M-Pesa accepted the payment request. The callback will recover its transaction mapping.",
+        });
+      }
 
       return res.status(201).json({ order, stkPush: stkResult });
     }
