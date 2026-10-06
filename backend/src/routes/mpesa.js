@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { PrismaClient } from "../../generated/prisma/index.js";
+import { timingSafeEqual } from "node:crypto";
+import { prisma } from "../db.js";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // --------------------
 // POST /api/mpesa/callback
@@ -10,15 +10,23 @@ const prisma = new PrismaClient();
 // Must be publicly reachable (use ngrok in development).
 // --------------------
 router.post("/callback", async (req, res) => {
-  // Always ACK immediately so Safaricom doesn't retry
-  res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+  const expectedToken = process.env.MPESA_CALLBACK_SECRET;
+  const providedToken = req.query.token;
+  if (
+    !expectedToken ||
+    typeof providedToken !== "string" ||
+    !safeTokenMatch(providedToken, expectedToken)
+  ) {
+    return res.status(401).json({ error: "Unauthorized callback." });
+  }
 
   try {
     const body = req.body?.Body?.stkCallback;
-    if (!body) return;
+    if (!body?.CheckoutRequestID || body.ResultCode === undefined) {
+      return res.status(400).json({ error: "Invalid M-Pesa callback." });
+    }
 
     const checkoutRequestId = body.CheckoutRequestID;
-    const merchantRequestId = body.MerchantRequestID;
     const resultCode = String(body.ResultCode);
     const resultDesc = body.ResultDesc;
 
@@ -31,7 +39,9 @@ router.post("/callback", async (req, res) => {
         "[Mpesa Callback] Unknown checkoutRequestId:",
         checkoutRequestId,
       );
-      return;
+      return res
+        .status(503)
+        .json({ error: "Transaction is not available yet." });
     }
 
     let receiptNumber = null;
@@ -54,32 +64,43 @@ router.post("/callback", async (req, res) => {
     const stkStatus = resultCode === "0" ? "SUCCESS" : "FAILED";
     const paymentStatus = resultCode === "0" ? "PAID" : "FAILED";
 
-    // Update M-Pesa transaction
-    await prisma.mpesaTransaction.update({
-      where: { checkoutRequestId },
-      data: {
-        resultCode,
-        resultDesc,
-        mpesaReceiptNumber: receiptNumber,
-        transactionDate,
-        phoneNumber: phoneNumber ? String(phoneNumber) : null,
-        status: stkStatus,
-      },
-    });
-
-    // Update the parent order
-    await prisma.order.update({
-      where: { id: txn.orderId },
-      data: { paymentStatus },
-    });
+    await prisma.$transaction([
+      prisma.mpesaTransaction.update({
+        where: { id: txn.id },
+        data: {
+          resultCode,
+          resultDesc,
+          mpesaReceiptNumber: receiptNumber,
+          transactionDate,
+          phoneNumber: phoneNumber ? String(phoneNumber) : null,
+          status: stkStatus,
+        },
+      }),
+      prisma.order.update({
+        where: { id: txn.orderId },
+        data: { paymentStatus },
+      }),
+    ]);
 
     console.log(
       `[Mpesa Callback] Order ${txn.orderId} → ${paymentStatus}` +
         (receiptNumber ? ` | Receipt: ${receiptNumber}` : ""),
     );
+
+    return res.json({ ResultCode: 0, ResultDesc: "Accepted" });
   } catch (err) {
     console.error("[Mpesa Callback] Processing error:", err);
+    return res.status(500).json({ error: "Callback processing failed." });
   }
 });
+
+function safeTokenMatch(providedToken, expectedToken) {
+  const provided = Buffer.from(providedToken);
+  const expected = Buffer.from(expectedToken);
+  return (
+    provided.length === expected.length &&
+    timingSafeEqual(provided, expected)
+  );
+}
 
 export default router;

@@ -1,7 +1,11 @@
 // --------------------
 // CONFIG
 // --------------------
-const API_BASE = "http://localhost:5000"; // change to your deployed API URL in production
+const configuredApiBase =
+  document.querySelector('meta[name="api-base-url"]')?.content.trim() ?? "";
+const API_BASE = configuredApiBase.endsWith("/")
+  ? configuredApiBase.slice(0, -1)
+  : configuredApiBase;
 
 // --------------------
 // DOM (checkout page)

@@ -14,6 +14,7 @@ const CONSUMER_SECRET = process.env.MPESA_CONSUMER_SECRET;
 const SHORTCODE = process.env.MPESA_SHORTCODE;
 const PASSKEY = process.env.MPESA_PASSKEY;
 const CALLBACK_URL = process.env.MPESA_CALLBACK_URL;
+const CALLBACK_SECRET = process.env.MPESA_CALLBACK_SECRET;
 
 // --------------------
 // HELPERS
@@ -62,6 +63,12 @@ export function formatPhone(phone) {
  * @returns {Promise<{ merchantRequestId: string, checkoutRequestId: string, responseDescription: string }>}
  */
 export async function initiateStkPush(phone, amount, orderId) {
+  if (!CALLBACK_URL || !CALLBACK_SECRET) {
+    throw new Error(
+      "MPESA_CALLBACK_URL and MPESA_CALLBACK_SECRET must be configured.",
+    );
+  }
+
   const token = await getAccessToken();
   const timestamp = new Date()
     .toISOString()
@@ -78,7 +85,7 @@ export async function initiateStkPush(phone, amount, orderId) {
     PartyA: formatPhone(phone),
     PartyB: SHORTCODE,
     PhoneNumber: formatPhone(phone),
-    CallBackURL: CALLBACK_URL,
+    CallBackURL: getCallbackUrl(),
     AccountReference: orderId,
     TransactionDesc: `Bliss Atelier Order ${orderId}`,
   };
@@ -94,4 +101,10 @@ export async function initiateStkPush(phone, amount, orderId) {
     checkoutRequestId: res.data.CheckoutRequestID,
     responseDescription: res.data.ResponseDescription,
   };
+}
+
+function getCallbackUrl() {
+  const callbackUrl = new URL(CALLBACK_URL);
+  callbackUrl.searchParams.set("token", CALLBACK_SECRET);
+  return callbackUrl.toString();
 }

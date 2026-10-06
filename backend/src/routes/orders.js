@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { PrismaClient } from "../../generated/prisma/index.js";
+import { prisma } from "../db.js";
 import { initiateStkPush } from "../services/mpesa.js";
+import { priceOrderItems } from "../services/order.js";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // --------------------
 // POST /api/orders
@@ -11,7 +11,7 @@ const prisma = new PrismaClient();
 // --------------------
 router.post("/", async (req, res) => {
   try {
-    const { customer, items, totalKes } = req.body;
+    const { customer, items } = req.body ?? {};
 
     if (!customer?.name || !customer?.phone || !customer?.location) {
       return res
@@ -24,18 +24,34 @@ router.post("/", async (req, res) => {
         .json({ error: "Order must contain at least one item." });
     }
 
+    const paymentMethod = customer.payment || "on_delivery";
+    const deliveryOption = customer.delivery || "delivery";
+    if (!["on_delivery", "pay_now"].includes(paymentMethod)) {
+      return res.status(400).json({ error: "Invalid payment method." });
+    }
+    if (!["delivery", "pickup"].includes(deliveryOption)) {
+      return res.status(400).json({ error: "Invalid delivery option." });
+    }
+
+    let pricedOrder;
+    try {
+      pricedOrder = priceOrderItems(items);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+
     // Persist the order
     const order = await prisma.order.create({
       data: {
         customerName: customer.name,
         customerPhone: customer.phone,
         deliveryLocation: customer.location,
-        deliveryOption: customer.delivery || "delivery",
-        notes: customer.notes || null,
-        paymentMethod: customer.payment || "on_delivery",
+        deliveryOption,
+        notes: typeof customer.notes === "string" ? customer.notes : null,
+        paymentMethod,
         paymentStatus: "PENDING",
-        totalKes: Number(totalKes),
-        items,
+        totalKes: pricedOrder.totalKes,
+        items: pricedOrder.items,
       },
     });
 
@@ -43,7 +59,11 @@ router.post("/", async (req, res) => {
     if (order.paymentMethod === "pay_now") {
       let stkResult;
       try {
-        stkResult = await initiateStkPush(customer.phone, totalKes, order.id);
+        stkResult = await initiateStkPush(
+          customer.phone,
+          pricedOrder.totalKes,
+          order.id,
+        );
       } catch (mpesaErr) {
         // If STK push fails we still want the order saved — surface the error but
         // don't rollback so the merchant can follow up manually.
