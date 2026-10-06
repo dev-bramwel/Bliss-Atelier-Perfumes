@@ -14,6 +14,9 @@ const checkoutForm = document.getElementById("checkoutForm");
 const checkoutTotalEl = document.getElementById("checkoutTotal");
 const checkoutItemsEl = document.getElementById("checkoutItems");
 const orderSuccess = document.getElementById("orderSuccess");
+const orderStatusLabel = document.getElementById("orderStatusLabel");
+const orderStatusTitle = document.getElementById("orderStatusTitle");
+const orderStatusMessage = document.getElementById("orderStatusMessage");
 const backToTopBtn = document.getElementById("backToTopBtn");
 const stkOverlay = document.getElementById("stkOverlay");
 const stkStatusText = document.getElementById("stkStatusText");
@@ -123,12 +126,14 @@ checkoutForm?.addEventListener("submit", async (e) => {
     clearCart();
     checkoutForm.reset();
 
-    if (customer.payment === "pay_now" && data.stkPush) {
-      // ---- STK push sent — show waiting overlay and poll for result ----
-      showStkOverlay();
-      await pollPaymentStatus(data.order.id);
+    if (customer.payment === "pay_now") {
+      if (data.stkPush) {
+        showStkOverlay();
+        await pollPaymentStatus(data.order.id);
+      } else {
+        showPaymentInitiationFailure(data.warning);
+      }
     } else {
-      // ---- on_delivery or STK failed gracefully ----
       showOrderSuccess();
     }
   } catch (err) {
@@ -236,6 +241,26 @@ async function pollPaymentStatus(orderId) {
 }
 
 function showOrderSuccess() {
+  showOrderStatus(
+    "Order Confirmed",
+    "Thank you for shopping with us!",
+    "Your order has been saved. We'll be in touch shortly to confirm and process it.",
+  );
+}
+
+function showPaymentInitiationFailure(warning) {
+  showOrderStatus(
+    "Payment not started",
+    "Your order is saved",
+    warning ||
+      "We couldn't start the M-Pesa payment request. We'll follow up about your order.",
+  );
+}
+
+function showOrderStatus(label, title, message) {
+  if (orderStatusLabel) orderStatusLabel.textContent = label;
+  if (orderStatusTitle) orderStatusTitle.textContent = title;
+  if (orderStatusMessage) orderStatusMessage.textContent = message;
   if (orderSuccess) orderSuccess.classList.remove("hidden");
   setTimeout(() => {
     window.location.href = "index.html";
