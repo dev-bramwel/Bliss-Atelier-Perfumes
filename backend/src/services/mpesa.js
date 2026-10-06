@@ -50,6 +50,13 @@ export function formatPhone(phone) {
   return p;
 }
 
+export function formatDarajaReferences(orderId) {
+  return {
+    accountReference: orderId.slice(-12),
+    transactionDescription: "Bliss order",
+  };
+}
+
 // --------------------
 // STK PUSH
 // --------------------
@@ -75,6 +82,8 @@ export async function initiateStkPush(phone, amount, orderId) {
     .replace(/[^0-9]/g, "")
     .slice(0, 14); // YYYYMMDDHHmmss
   const password = generatePassword(timestamp);
+  const { accountReference, transactionDescription } =
+    formatDarajaReferences(orderId);
 
   const payload = {
     BusinessShortCode: SHORTCODE,
@@ -86,8 +95,8 @@ export async function initiateStkPush(phone, amount, orderId) {
     PartyB: SHORTCODE,
     PhoneNumber: formatPhone(phone),
     CallBackURL: getCallbackUrl(),
-    AccountReference: orderId,
-    TransactionDesc: `Bliss Atelier Order ${orderId}`,
+    AccountReference: accountReference,
+    TransactionDesc: transactionDescription,
   };
 
   const res = await axios.post(
