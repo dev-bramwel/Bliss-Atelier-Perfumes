@@ -32,3 +32,7 @@ Reviewed baseline: commit `0b775ec`, 6 October 2026. Findings are a code review,
 | P2 | `npm start` runs migrations per process | Concurrent replicas should not each own migration execution | BAP-014 |
 
 No evidence of admin, CI workflows, Docker, Kubernetes, Redis, brokers, structured analytics, backups, or release runbooks in the checked-in baseline. Database connectivity and live payment settlement have not been verified by this assessment.
+
+## Direction update: 8 October 2026
+
+The owner selected a full Go backend rewrite and retained HTML/CSS/JavaScript frontend. The findings above describe the legacy Express/Prisma implementation and remain relevant migration test cases. No Go backend has been implemented by this documentation change. See [ADR 002](adr/002-go-backend-and-vanilla-frontend.md) and [backend migration](backend-migration.md). Moving to Go alone does not fix duplicate orders, callback regressions, stock authority or unverified settlement.

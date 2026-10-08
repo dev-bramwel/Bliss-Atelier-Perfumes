@@ -1,12 +1,14 @@
 # Bliss Atelier Perfumes
 
-Perfume storefront with a vanilla JavaScript frontend and an Express / Prisma / PostgreSQL backend integrating M-Pesa STK push.
+Perfume storefront with an HTML/CSS/JavaScript frontend. The current backend is Express / Prisma / PostgreSQL with M-Pesa STK integration code. The approved target is a full Go backend rewrite, starting as a modular monolith.
 
 ## Project planning
 
 Start with [the documentation index](docs/README.md). The production architecture and schedule are proposals, not implemented capabilities or measured capacity claims.
 
-## Current local setup
+See [the Go migration plan](docs/backend-migration.md) and [development workflow](docs/development-workflow.md) for the target setup. Go, Docker and CI commands in the design docs are planned until their files are delivered.
+
+## Current local setup (legacy backend)
 
 1. Install Node compatible with the locked backend dependencies and PostgreSQL.
 2. In `backend/`, run `npm ci`.

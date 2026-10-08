@@ -1,6 +1,6 @@
 # Test strategy and release gates
 
-Status: proposed. Existing tests cover selected pure pricing and M-Pesa helpers only. Preserve them; add behavior tests against real infrastructure for transactions and delivery semantics.
+Status: proposed. Existing tests cover selected pure pricing and M-Pesa helpers only. Use existing JS cases as behavioral fixtures, port them to Go before legacy retirement, and add behavior tests against real infrastructure for transactions and delivery semantics.
 
 ## Layers and scenarios
 
@@ -21,7 +21,7 @@ No automated live charges. Sandbox smoke tests supplement a deterministic fake p
 
 ## CI requirements
 
-PR: clean dependency install, formatting/lint, unit/API tests, schema generation/migration check, deterministic browser smoke and artifact capture. Nightly/staging: full browser matrix, broker failure, security and representative load. Release: all blocking gates plus restore/rollback and sandbox evidence. Add meaningful branch coverage targets for payment/inventory invariants rather than treating a global percentage as proof. Tests must assert user/business behavior and persisted effects.
+PR: clean dependency install, formatting/lint, unit/API tests, SQL migration and API/schema compatibility check, deterministic browser smoke and artifact capture. Nightly/staging: full browser matrix, broker failure, security and representative load. Release: all blocking gates plus restore/rollback and sandbox evidence. Add meaningful branch coverage targets for payment/inventory invariants rather than treating a global percentage as proof. Tests must assert user/business behavior and persisted effects.
 
 ## Performance protocol
 
@@ -38,3 +38,7 @@ Capacity report includes commit, date, environment/cost, requests and data mix, 
 ## Release blockers
 
 Any reproducible duplicate payment/order from a same-key retry, unauthorized administrative mutation, paid-status regression, overselling, lost committed work, untested restore, exposed secrets, missing actionable monitoring or unmet approved load target blocks release. Lower-severity exceptions require explicit owner acceptance and a dated follow-up issue.
+
+## Go rewrite verification
+
+Follow [backend migration](backend-migration.md). Use Go table tests and httptest fake providers for deterministic behavior; real disposable PostgreSQL for transactions/locks/upgrade tests; `go test -race` for token refresh, callbacks and concurrent consumers. A clean `go vet`/build is necessary but cannot prove domain correctness. Upgrade tests start from legacy quoted Prisma schema with representative records, preserve IDs/money/history, and exercise old frontend DTOs. Use supported Go toolchain matching CI/Docker, not the observed old host install.

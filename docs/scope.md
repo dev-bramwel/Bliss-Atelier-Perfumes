@@ -7,8 +7,9 @@ Deliver a real, maintainable perfume commerce application with reliable payments
 ## Confirmed constraints and scope
 
 - Established operating business, managed remotely by the owner and locally by managers.
-- Deadline: 10 December 2026; planning starts 6 October 2026. Developer availability: 14 hours/week, approximately 130 hours across the interval. Team size is not confirmed; planning assumes one developer assisted by coding tools.
+- Deadline: 10 December 2026; planning starts 6 October 2026. Developer availability: 14 hours/week, approximately 130 hours across the original interval; roughly 126 hours remain from Oct 8 before subtracting spent effort. Team size is not confirmed; planning assumes one developer assisted by coding tools.
 - Current infrastructure budget: zero. No domain, hosting, server, cloud credits, or Daraja access. Existing collection method: NCBA bank paybill 880100 with a business collection reference supplied by the owner. Keep the actual collection reference in deployment configuration, not committed documentation.
+- Go backend rewrite selected 8 October 2026; frontend stays HTML/CSS/JavaScript. Begin with a modular monolith, with evidence-based microservice extraction later.
 - Guest checkout with delivery and pickup. M-Pesa STK must work at customer launch.
 - Owner replenishes stock; local managers handle fulfillment, delivery and cancellations. Business policy: no routine refunds; exchanges only for unused perfume.
 - Admin scope: products, stock, orders and sales reports. Supplier payments are excluded; implement only after a separately scoped request. Customer accounts and cards are outside this release baseline.
@@ -32,7 +33,7 @@ Do not supply credentials in chat. Use local environment files and deployment se
 
 ## Release interpretation and feasibility
 
-The requested December outcome is a thoroughly tested project with all infrastructure implemented, plus working live STK for customer launch. We retain those requirements. Approximately 130 hours cannot honestly inherit the previous multi-month feature/HA estimates; the roadmap now has a timeboxed candidate plan with explicit feasibility checkpoints. Keep implementation narrow, retain the existing frontend where practical and prioritize payment correctness. Do not reduce release gates to fit the date.
+The requested December outcome is a thoroughly tested project with all infrastructure implemented, plus working live STK for customer launch. We retain those requirements. Approximately 130 hours cannot honestly inherit the previous multi-month feature/HA estimates; the roadmap now has a timeboxed candidate plan with explicit feasibility checkpoints. The Go rewrite adds effort requiring a forecast update. Keep implementation narrow, retain the vanilla frontend and prioritize payment correctness. Do not reduce release gates to fit the date.
 
 A local integrated release can demonstrate all technologies at zero infrastructure spend, assuming suitable hardware. It cannot demonstrate public hosting availability or live payment onboarding. A customer launch also requires an authorized production payment route and sustainable public hosting. If these gates remain unmet, classify the December artifact as a tested local/sandbox release and explicitly report the unmet customer-launch requirements; do not treat that as fulfillment of the requested live launch.
 

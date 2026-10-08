@@ -52,3 +52,7 @@ Deliver stable crawlable product/category URLs, unique accurate titles/descripti
 Google decides indexing and ranking; the acceptance gate is technical readiness, submission and recorded inspection results, followed by index monitoring. See [Google ecommerce guidance](https://developers.google.com/search/docs/specialty/ecommerce) and [Product structured data](https://developers.google.com/search/docs/appearance/structured-data/product).
 
 Launch sequence: signed release evidence → backups/rollback ready → merchant-controlled live payment check → limited customer beta → observe and reconcile → expand traffic. Validate contact/delivery/return/privacy content with the merchant. Record actual spend, capacity and outstanding issues at each expansion. Ongoing work includes dependency updates, monthly restore/reconciliation drills, access reviews and metric-based capacity planning.
+
+## Delivery document ownership
+
+The target runtime is Go, confirmed 8 October 2026. API/worker binaries use bounded resources, context cancellation, graceful shutdown and structured logs. Node/Prisma describe the historical runtime only. Detailed specifications live in [CI/CD](ci-cd.md), [Docker configuration](docker-and-local-environments.md), [infrastructure](infrastructure.md) and [deployment](deployment.md). Keep executed commands, chosen hosting versions and observed evidence in those implementation records rather than inventing a deployed environment here.

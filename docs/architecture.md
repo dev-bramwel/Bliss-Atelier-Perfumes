@@ -1,12 +1,12 @@
 # Proposed architecture
 
-Status: draft. Preserve the existing backend as a modular monolith with separately deployed workers. Do not split commerce into microservices before ownership and scaling evidence justify it.
+Status: Go language direction accepted 8 October 2026; detailed design is draft. Rewrite the backend as a Go modular monolith with separately deployed workers. Do not split commerce into microservices before ownership and scaling evidence justify it.
 
 ```mermaid
 flowchart LR
   U[Mobile and desktop] --> E[HTTPS edge / CDN]
   E --> S[Crawlable storefront]
-  E --> A[Express API]
+  E --> A[Go API]
   AD[Admin UI] --> A
   A --> P[(PostgreSQL)]
   A --> R[(Redis)]
@@ -28,7 +28,7 @@ Dashed paths show the analytics pipeline, required for the December learning del
 
 ## Components and boundaries
 
-- Storefront: mobile-first, crawlable category/product HTML with stable URLs. Decide SSR framework versus generated pages in BAP-002; retain working UI behavior through migration. Serve optimized images/assets through object storage and CDN.
+- Storefront: mobile-first, crawlable category/product HTML with stable URLs. Keep HTML/CSS/JavaScript. Use generated HTML or Go templates for crawlable product pages; retain working UI behavior through migration. Serve optimized images/assets through object storage and CDN.
 - API modules: catalog, inventory, checkout/orders, payments, identity/admin, delivery, notifications, analytics. Business rules belong in services with transaction boundaries, not UI.
 - PostgreSQL: authoritative products, stock, orders, payments, access control, audit, outbox, and reporting aggregates. Local PostgreSQL is the zero-budget development baseline; durable production hosting is unresolved.
 - Redis: bounded catalog cache, rate-limit counters, optional sessions. Explicit TTL/invalidation; no authoritative inventory or payment state. Cache failure policy defined per use: reads can fall back; admin authentication fails closed when its required session store is unavailable.
@@ -65,7 +65,7 @@ Versioned OpenAPI document with request/response schemas, auth, error codes and 
 - [Kubernetes production guidance](https://kubernetes.io/docs/setup/production-environment/): account for control plane, availability, and operational ownership.
 - [Google ecommerce structure](https://developers.google.com/search/docs/specialty/ecommerce/help-google-understand-your-ecommerce-site-structure): crawlable navigation and product links inform storefront design.
 
-Exact service versions, hosting and frontend framework remain undecided; record them in ADRs with support/cost constraints before implementation.
+Frontend framework adoption is outside the approved direction. Go/tool versions, SQL migration runner and hosting remain undecided; record them in ADRs with support/cost constraints before implementation.
 
 ## Business integration update: 6 October 2026
 
@@ -76,3 +76,27 @@ Delivery is Mombasa-only initially. Pickup Mtaani/customer-specific transport is
 Inventory authority is unresolved because an existing inventory system is already used. Choose replacement with reconciled opening balances, or integration with explicit stock authority, product mapping, sync/reconciliation and failure handling. An import snapshot alone does not guarantee availability while local sales continue. Log every stock movement and financial adjustment with actor, reason and linked order; never overwrite totals to hide discrepancies.
 
 Routine refunds are outside the business policy. Add ExchangeRequest/ExchangeItem and inspection/approval states for unused perfume. Returned stock is quarantined until inspection; price differences, transport cost and approval rules remain owner decisions. An exchange is not another full-price sale. Duplicate charges and other payment errors require an auditable exception-resolution process even when routine merchandise refunds are unavailable; never treat excess payment as revenue.
+
+## Go implementation boundaries
+
+[ADR 002](adr/002-go-backend-and-vanilla-frontend.md) defines the accepted language direction. [Infrastructure](infrastructure.md) defines module ownership and extraction gates. HTTP handlers call domain services; services coordinate parameterized repositories and bounded provider/broker adapters. Use context deadlines, pgx pools, structured logs and graceful shutdown. One Go module produces API, worker and migration binaries; workers are part of the monolith release train.
+
+Proposed layout (not yet implemented):
+
+```text
+backend/
+  go.mod, go.sum
+  cmd/api/                 # wiring, HTTP lifecycle
+  cmd/worker/              # bounded job/event consumers
+  cmd/migrate/             # explicit deployment migrations
+  internal/
+    catalog/, inventory/, orders/, payments/
+    admin/, delivery/, exchanges/, analytics/
+    platform/              # config, PostgreSQL, HTTP middleware, telemetry, broker adapters
+  migrations/              # versioned SQL with documented legacy baseline
+api/openapi.yaml           # contract added during rewrite
+infra/docker/, infra/kubernetes/, infra/observability/
+frontend/                  # HTML, CSS, JavaScript retained
+```
+
+Domain packages use consumer-owned interfaces; platform adapters do not own business rules. The checkout transaction coordinator remains local while order/payment/inventory modules share atomic operations. Exact folder subdivisions grow with code rather than empty abstraction layers. Migration/deployment procedures are linked in the documentation index.

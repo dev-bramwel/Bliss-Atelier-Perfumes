@@ -1,6 +1,6 @@
 # ADR 001: Application runtime and messaging
 
-Status: proposed architecture; infrastructure inclusion confirmed by owner. Date: 6 October 2026.
+Status: messaging design proposed; infrastructure inclusion confirmed by owner. Runtime direction superseded by ADR 002 on 8 October 2026. Original date: 6 October 2026.
 
 ## Context
 
@@ -8,7 +8,7 @@ The owner wants Redis, RabbitMQ, Kafka, Docker and Kubernetes, alongside a relia
 
 ## Proposed decision
 
-Keep a modular Express application and PostgreSQL as the source of truth. Add Redis for cache/limits, RabbitMQ for durable work, and a transactional outbox. Use Docker throughout. Kafka is required for learning; introduce it for replayable analytics after the checkout pipeline is reliable. Kubernetes is required for learning; deploy a local environment and pass recovery exercises before using it for production.
+Build a modular Go application and PostgreSQL as the source of truth. Add Redis for cache/limits, RabbitMQ for durable work, and a transactional outbox. Use Docker throughout. Kafka is required for learning; introduce it for replayable analytics after the checkout pipeline is reliable. Kubernetes is required for learning; deploy a local environment and pass recovery exercises before using it for production.
 
 RabbitMQ jobs and Kafka events have separate contracts and consumers. No circular broker bridge; no shared assumption of exactly-once delivery. Deduplicate consumers with durable inbox/event IDs, and track outbox delivery independently per broker.
 
@@ -22,3 +22,5 @@ RabbitMQ jobs and Kafka events have separate contracts and consumers. No circula
 ## Consequences
 
 This approach supports phased learning while keeping payment correctness independent of broker availability. Kafka/Kubernetes cannot be declared production-ready simply because containers start. All tools must be implemented and tested locally by the deadline. Customer production hosting is unresolved; HA cannot be claimed from a single local instance. Document upgrades, storage, monitoring and recovery even for the learning environment.
+
+Runtime decision: [ADR 002](002-go-backend-and-vanilla-frontend.md). Messaging design remains applicable to the Go implementation.
