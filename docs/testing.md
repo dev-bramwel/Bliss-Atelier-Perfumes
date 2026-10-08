@@ -6,11 +6,11 @@ Status: proposed. Existing tests cover selected pure pricing and M-Pesa helpers 
 
 | Layer | Required evidence |
 | --- | --- |
-| Unit | Money calculations, delivery fees, validation, payment state machine, stock transitions, analytics definitions |
+| Unit | Money calculations, accepted delivery quotes and fee recipient, validation, payment state machine, stock transitions, analytics definitions |
 | API integration | Real disposable PostgreSQL with migrations; input failures, auth/RBAC, scoped order lookup, idempotency conflict and simultaneous requests |
 | Payment contract | Fake Daraja server; token expiry, rejection, malformed response, timeout before/after acceptance, callback before mapping save, duplicates, late failure, missing callback and query reconciliation |
-| Data concurrency | Concurrent last-item purchase, reservation expiry versus successful payment, concurrent payment retries, unique receipt, crash before/after commit |
-| Messaging | Real Redis/RabbitMQ; outbox publish/ack crash windows, redelivery, poison event, DLQ/redrive, cache failure; Kafka replay if enabled |
+| Data concurrency | Concurrent last-item purchase, existing-system stock reconciliation, exchange inspection/quarantine and price adjustments, reservation expiry versus successful payment, concurrent payment retries, unique receipt, crash before/after commit |
+| Messaging | Real Redis/RabbitMQ; outbox publish/ack crash windows, redelivery, poison event, DLQ/redrive, cache failure; required Kafka replay |
 | Browser E2E | Search/filter/detail/cart, guest checkout, delivery/pickup, pay later/pay now, network retry, failure, timeout, resumed order; admin role and fulfillment flows |
 | Accessibility | Keyboard, labels/errors, focus trap/restore, screen reader payment states, contrast, touch targets and 320px layout; automate and manually verify |
 | Security | Ownership bypass, privilege escalation, CSRF/session behavior, rate-limit abuse, unsafe rendering, secret/PII leakage, dependency/container findings |
@@ -25,7 +25,7 @@ PR: clean dependency install, formatting/lint, unit/API tests, schema generation
 
 ## Performance protocol
 
-Confirm the traffic model in scope.md first. Seed representative catalog, orders/payment attempts and analytics history (provisional 50,000 customers and 500,000 orders); anonymized synthetic data only. Run from a separate load generator and record its saturation as well as application resources.
+Use the lower initial benchmark proposed in scope.md once agreed; 50,000 is a future growth goal. Seed representative catalog, orders/payment attempts and analytics history (initial 23 products and 10,000 synthetic guest orders; expand for later scale experiments); anonymized synthetic data only. Run from a separate load generator and record its saturation as well as application resources.
 
 Use k6 or equivalent: warm-up, 30-minute steady run at approved peak, ten-minute 3x burst, two-hour soak, then failure/recovery tests. Cover catalog, order lookup/polling, checkout writes, callback and admin reads. Provisional API mix: 70% reads, 20% status polls, 5% order writes, 3% simulated callbacks, 2% admin; adjust from expected business traffic. Also benchmark static/CDN delivery separately. Distinguish attempted requests, achieved throughput, concurrent sessions and completed orders.
 

@@ -1,10 +1,10 @@
 # Operations, delivery and launch
 
-Status: proposed; nothing in this document implies deployed infrastructure.
+Status: proposed; nothing in this document implies deployed infrastructure. Budget is zero; no hosting provider or domain is selected. Local Docker/Kubernetes implementation is required; production availability and recovery targets need a feasible hosting plan.
 
 ## Service objectives
 
-Initial proposed SLO: 99.9% monthly internal API availability, excluding clearly classified rejected user requests. Provider outages remain visible in a separate end-to-end checkout/payment completion measure; do not conceal them by exclusion. Initial RPO ≤15 minutes and RTO ≤2 hours, subject to database plan and budget. A restore drill must demonstrate both. Set latency gates from testing.md and revise from measured traffic.
+Future production proposed SLO: 99.9% monthly internal API availability, excluding clearly classified rejected user requests. Provider outages remain visible in a separate end-to-end checkout/payment completion measure; do not conceal them by exclusion. Initial RPO ≤15 minutes and RTO ≤2 hours, subject to database plan and budget. A restore drill must demonstrate both. Set latency gates from testing.md and revise from measured traffic.
 
 ## Monitoring
 
@@ -14,7 +14,7 @@ Dashboards: HTTP throughput/error/duration by route template; CPU/memory/event-l
 
 Alerts: sustained API error/latency budget burn; failing readiness; DB pool/storage pressure; accepted payment lacking outcome beyond the reconciler window; growing outbox/queue age; dead letters; stale/failed backups. Define thresholds from staging baselines, responder, escalation and runbook URL. Page on urgent actionable failures; report business trends separately. Test delivery with a synthetic incident before launch.
 
-Business analytics: net paid revenue minus refunds, order volume, average order value, popular products, stock movement and funnel conversion. Define time zone (merchant decision; planning context Africa/Mogadishu), deduplication and retention. Never count STK acceptance or order creation as paid revenue.
+Business analytics: settled product sales adjusted for exchanges and exceptional payment corrections; transport collections reported separately, order volume, average order value, popular products, stock movement and funnel conversion. Define time zone (merchant decision; planning context Africa/Mogadishu), deduplication and retention. Never count STK acceptance or order creation as paid revenue.
 
 ## Environments and Docker
 
@@ -30,7 +30,7 @@ Separate development, staging and production credentials/databases. Reproducible
 
 Workflow code belongs in `.github/workflows/` if GitHub remains the source host. Environment secrets and protected release settings are configured through the selected platform, with ownership documented. Automation must not share sandbox/production payment keys.
 
-## Kubernetes, if retained
+## Kubernetes: required local implementation
 
 API/worker Deployments, Services, ingress/TLS, ConfigMaps, external secret integration, liveness/readiness, resource requests/limits, disruption budgets and autoscaling based on measured CPU/latency/queue pressure. Account for cluster-wide DB pool totals when scaling. Restrict network access and service accounts; test pod termination, rollout and worker redelivery. Prefer managed data services until the team can operate replicated stateful clusters. Document single-node limitations if a budget demo uses them; do not claim HA.
 
@@ -47,7 +47,7 @@ Each runbook needs responsible owner, diagnosis commands/dashboard links, safe a
 
 ## Search and launch
 
-Deliver stable crawlable product/category URLs, unique accurate titles/descriptions, canonical tags, internal links, optimized images, sitemap.xml and robots.txt. Validate accurate Product/Offer and Organization structured data; no invented ratings. Exclude admin/checkout/private order pages from indexing and protect staging. Configure public domain, HTTPS, Search Console ownership, sitemap submission and URL inspection after deployment. Merchant Center is optional depending on eligibility and business choice.
+Deliver stable crawlable product/category URLs, unique accurate titles/descriptions, canonical tags, internal links, optimized images, sitemap.xml and robots.txt. Validate accurate Product/Offer and Organization structured data; no invented ratings. Exclude admin/checkout/private order pages from indexing and protect staging. Configure public domain or suitable host subdomain, HTTPS, Search Console ownership, sitemap submission and URL inspection after deployment. Merchant Center is optional depending on eligibility and business choice.
 
 Google decides indexing and ranking; the acceptance gate is technical readiness, submission and recorded inspection results, followed by index monitoring. See [Google ecommerce guidance](https://developers.google.com/search/docs/specialty/ecommerce) and [Product structured data](https://developers.google.com/search/docs/appearance/structured-data/product).
 

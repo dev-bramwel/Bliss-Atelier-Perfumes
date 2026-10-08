@@ -1,6 +1,6 @@
 # Development documentation
 
-Planning baseline: 6 October 2026. Status: draft for joint review.
+Planning baseline: 6 October 2026; updated with owner constraints. Deadline: 10 December 2026, 14 hours/week, zero infrastructure budget. Status: scope constraints confirmed; architecture and timeboxed delivery plan remain draft.
 
 | Document | Purpose |
 | --- | --- |
