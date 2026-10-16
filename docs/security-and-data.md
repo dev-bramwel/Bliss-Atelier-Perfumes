@@ -16,9 +16,9 @@ Separate routine no-refund merchandise policy from duplicate/incorrect-charge co
 
 ## Data lifecycle
 
-Collect minimum contact/location needed for fulfillment. Replace full browser-local customer/order backups with a scoped reference when guest lookup is implemented. Never publish customer data to Kafka analytics by default. Audit actor/action/entity/time/reason without storing secrets. Define retention durations with business owner for orders, contact data, logs, audit and events before production; enforcement includes exports, backups and replayed events.
+Collect minimum contact/location needed for fulfillment. Replace full browser-local customer/order backups with a scoped reference when guest lookup is implemented. Never publish customer data to Kafka analytics by default. Audit actor/action/entity/time/reason without storing secrets. Apply the owner-approved defaults in [R01](release-scope-decisions.md#approved-retention-policy) for financial records, operational contact data, feedback, logs, audit and backups; finalize analytics/event retention before production; enforcement includes exports, backups and replayed events.
 
-Public catalog is distinct from private financial/operational records. Transport fees, product sales, exchanges and exceptional corrections have explicit ledger/report definitions. Use UTC persistence; confirm merchant reporting timezone. Parameterized SQL, output escaping and constrained uploads protect query/template/media boundaries. Inventory imports are validated and auditable; reject malformed mapping instead of corrupting stock.
+Public catalog is distinct from private financial/operational records. Transport fees, product sales, exchanges and exceptional corrections have explicit ledger/report definitions. Use UTC persistence; use the approved Africa/Nairobi reporting timezone. Parameterized SQL, output escaping and constrained uploads protect query/template/media boundaries. Inventory imports are validated and auditable; reject malformed mapping instead of corrupting stock.
 
 ## Release evidence
 

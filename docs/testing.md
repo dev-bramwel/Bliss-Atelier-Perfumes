@@ -25,7 +25,7 @@ PR: clean dependency install, formatting/lint, unit/API tests, SQL migration and
 
 ## Performance protocol
 
-Use the lower initial benchmark proposed in scope.md once agreed; 50,000 is a future growth goal. Seed representative catalog, orders/payment attempts and analytics history (initial 23 products and 10,000 synthetic guest orders; expand for later scale experiments); anonymized synthetic data only. Run from a separate load generator and record its saturation as well as application resources.
+Use the owner-approved initial benchmark in scope.md and the R01 decision record; 50,000 is a future growth goal. Seed representative catalog, orders/payment attempts and analytics history (initial 23 products and 10,000 synthetic guest orders; expand for later scale experiments); anonymized synthetic data only. Run from a separate load generator and record its saturation as well as application resources.
 
 Use k6 or equivalent: warm-up, 30-minute steady run at approved peak, ten-minute 3x burst, two-hour soak, then failure/recovery tests. Cover catalog, order lookup/polling, checkout writes, callback and admin reads. Provisional API mix: 70% reads, 20% status polls, 5% order writes, 3% simulated callbacks, 2% admin; adjust from expected business traffic. Also benchmark static/CDN delivery separately. Distinguish attempted requests, achieved throughput, concurrent sessions and completed orders.
 
