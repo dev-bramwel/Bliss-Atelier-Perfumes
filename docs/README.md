@@ -1,9 +1,10 @@
 # Development documentation
 
-Planning baseline: 6 October 2026; updated with owner constraints. Deadline: 10 December 2026, 14 hours/week, zero infrastructure budget. Updated 8 October: Go backend and HTML/CSS/JS frontend confirmed. Status: language/scope choices accepted; implementation and delivery plan remain draft.
+Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 December 2026, zero infrastructure budget. On 16 October the owner removed the fixed hours cap; see the R01 decision record. Updated 8 October: Go backend and HTML/CSS/JS frontend confirmed. Status: language/scope choices accepted; implementation and delivery plan remain draft.
 
 | Document | Purpose |
 | --- | --- |
+| [R01 decisions](release-scope-decisions.md) | Confirmed owner policies, current capacity decision and unresolved closure gates |
 | [Scope](scope.md) | Product boundaries, open decisions, and completion criteria |
 | [Current assessment](current-assessment.md) | Evidence from the code and improvement priorities |
 | [Architecture](architecture.md) | Proposed components, data model, workflows, and API contracts |

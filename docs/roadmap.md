@@ -2,6 +2,10 @@
 
 Status: draft. All issues below are planned, not completed. IDs are local identifiers; transfer them to the selected tracker after review. Owner defaults to project developer, with merchant decisions owned by business owner. Dependencies are explicit issue IDs.
 
+## Current R01 planning update
+
+On 16 October 2026 the owner replaced the fixed 14-hours/week cap with progress based on completed work; total actual effort to date is no more than five hours. The 10 December target and full scope remain. Historical allocations below are reference estimates, not current capacity commitments. Review remaining acceptance criteria weekly and reforecast after the first tested Go/database slice. See the [decision record](release-scope-decisions.md) for approvals and outstanding gates.
+
 ## Calendar and effort budget
 
 Confirmed availability: 14 hours/week from 6 October to 10 December 2026, approximately 130 hours. The previous estimate (65–100 engineering days plus infrastructure) exceeds this budget and is superseded as a scheduling baseline; it remains evidence that the broad production/HA vision cannot be promised in this interval.
