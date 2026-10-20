@@ -1,6 +1,6 @@
 # CI/CD design
 
-Status: target workflow specification; no workflow is installed by this document. Owner has selected Go backend and vanilla frontend. The source host/registry and zero-budget hosting still need confirmation.
+Status: target workflow specification; no workflow is installed by this document. Owner has selected Go backend and vanilla frontend. The source repository is public on GitHub. The [R03 assessment](hosting-feasibility.md) recommends GHCR and standard public-repository runners subject to billing/access verification during implementation; no registry publication or sustainable public hosting has been established.
 
 ## PR pipeline
 
