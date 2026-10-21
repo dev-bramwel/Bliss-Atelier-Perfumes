@@ -5,6 +5,9 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | Document | Purpose |
 | --- | --- |
 | [R01 decisions](release-scope-decisions.md) | Confirmed owner policies, current capacity decision and unresolved closure gates |
+| [R04 inventory reconciliation](inventory-reconciliation.md) | Current stock workflow, proposed opening-count rules and remaining sign-off gates |
+| [Research decision 005](adr/005-opening-stock-and-product-images.md) | Open comparison of Excel intake, PostgreSQL opening entry and product-image storage |
+| [ADR 004](adr/004-inventory-authority.md) | Owner-approved replacement of MyAccurateBooks as stock authority at future cutover |
 | [Scope](scope.md) | Product boundaries, open decisions, and completion criteria |
 | [Current assessment](current-assessment.md) | Evidence from the code and improvement priorities |
 | [Architecture](architecture.md) | Proposed components, data model, workflows, and API contracts |
@@ -38,4 +41,4 @@ Read in order: scope → architecture → ADR 002 → backend migration → deve
 
 ## Next decision records
 
-Record ADRs when decisions are made: SQL migration runner/Prisma baseline; hosting and supported runtime versions; admin identity/session strategy; authoritative inventory integration; NCBA-authorized STK route and settlement identifiers; delivery fee acceptance/recipient; exchange price/stock policy; analytics retention. Consult R01 for approved business policy. ADR 003 records a conditional hosting direction; final public selection and its evidence remain open.
+Record ADRs when decisions are made: SQL migration runner/Prisma baseline; hosting and supported runtime versions; admin identity/session strategy; inventory cutover and opening-stock intake; NCBA-authorized STK route and settlement identifiers; delivery fee acceptance/recipient; exchange price/stock policy; analytics retention. Consult R01 for approved business policy. ADR 003 records a conditional hosting direction; final public selection and its evidence remain open.
