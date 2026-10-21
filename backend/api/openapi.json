@@ -1,5 +1,5 @@
 {
-  "openapi": "0.0.0",
+  "openapi": "3.0.3",
   "info": {
     "title": "Bliss Atelier legacy compatibility draft",
     "version": "0.1.0",
