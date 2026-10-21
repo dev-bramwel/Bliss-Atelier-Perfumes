@@ -8,6 +8,8 @@ Start with [the documentation index](docs/README.md). The production architectur
 
 See [the Go migration plan](docs/backend-migration.md) and [development workflow](docs/development-workflow.md) for the target setup. Go, Docker and CI commands in the design docs are planned until their files are delivered.
 
+The [Go foundation](backend/README.md) now provides separate API/worker/read-only migration commands, health checks and local test harnesses. It does not replace the Express order/payment backend.
+
 ## Current local setup (legacy backend)
 
 1. Install Node compatible with the locked backend dependencies and PostgreSQL.

@@ -23,6 +23,7 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | [Security and data](security-and-data.md) | Access, secrets, payment trust and data lifecycle requirements |
 | [API and event contracts](api-and-event-contracts.md) | Compatibility, errors, idempotency and message evolution |
 | [Backend migration](backend-migration.md) | Compatibility, database baseline and Go cutover |
+| [Go foundation](../backend/README.md) | Implemented command/config/health surface, isolated harnesses and current limits |
 | [ADR 002](adr/002-go-backend-and-vanilla-frontend.md) | Accepted Go/vanilla direction and proposed technical defaults |
 | [ADR 001](adr/001-runtime-and-messaging.md) | Proposed runtime and messaging boundaries |
 
@@ -32,7 +33,7 @@ For each implementation issue: link its ID in the PR, update affected docs, reco
 
 ## Decision and implementation status
 
-Current runtime: Express/Prisma/PostgreSQL plus HTML/CSS/JS. Target runtime: Go modular monolith plus SQL/PostgreSQL; frontend remains HTML/CSS/JS. This documentation update does not add runnable Go, Docker, Kubernetes or CI configuration. Executable files belong to BAP-022/010/014/020 and must be verified when delivered.
+Current storefront runtime: Express/Prisma/PostgreSQL plus HTML/CSS/JS. A separate Go foundation is available locally; target runtime remains Go modular monolith plus SQL/PostgreSQL with HTML/CSS/JS frontend. Full application Docker, Kubernetes and CI configuration remain planned under BAP-010/014/020.
 
 Read in order: scope → architecture → ADR 002 → backend migration → development workflow → naming → Docker → CI/CD → deployment → testing/operations. Detailed pipeline/config/runbook ownership lives in the specialized docs; architecture summarizes boundaries.
 
