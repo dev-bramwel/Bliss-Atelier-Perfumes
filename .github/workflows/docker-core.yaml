@@ -62,4 +62,24 @@ jobs:
 
       - name: Build and exercise Docker core acceptance gates
         shell: pwsh
-        run: ./scripts/Test-DockerCore.ps1
+        run: ./scripts/Test-DockerCore.ps1 -EvidenceDirectory .local/ci-build
+
+      - name: Install checksum-verified image scanner
+        shell: bash
+        run: |
+          bash scripts/ci/install-scanners.sh "$RUNNER_TEMP/scanners"
+          echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
+
+      - name: Scan built images and generate SBOMs
+        shell: bash
+        run: bash scripts/ci/scan-images.sh .local/ci-build
+
+      - name: Retain commit-addressed images and test evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: docker-build-${{ github.sha }}
+          path: .local/ci-build/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: error
