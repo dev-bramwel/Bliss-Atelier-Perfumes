@@ -11,7 +11,7 @@ Push-Location backend
 go run ./cmd/devstack secrets ../.local/dev
 Pop-Location
 docker compose config --quiet
-docker compose build api frontend
+docker compose build db api frontend
 docker compose up -d --wait --wait-timeout 120
 ```
 
@@ -25,7 +25,7 @@ With GNU Make, use `make setup build up`; other targets are `down`, `logs`, `tes
 | --- | --- |
 | Backend Dockerfile | Digest-pinned Go 1.27.3 builder, module verification, static trimmed binaries; scratch runtime with CA bundle, UID/GID 10001. |
 | Frontend Dockerfile | Same pinned builder, Go static server/proxy/probe; scratch runtime, CA bundle, local assets, UID/GID 10001. |
-| PostgreSQL | Digest-pinned PostgreSQL 17 Alpine, its native UID/GID 70, persistent named volume, no host DB port. |
+| PostgreSQL | Derived from digest-pinned PostgreSQL 17 Alpine with unused `gosu` removed; native UID/GID 70, persistent named volume, no host DB port. Root startup is not supported by this local image. |
 | Migration job | Empty/current local database only; verifies/runs baseline, installs runtime grants and a restricted readiness function; exits before API starts. Legacy adoption is deliberately rejected. |
 | API | Runtime-role DSN, opt-in schema readiness, no host port, no live-provider egress. |
 | Fake provider | Private, bounded deterministic fixture on 8090, no live credentials or external calls. |

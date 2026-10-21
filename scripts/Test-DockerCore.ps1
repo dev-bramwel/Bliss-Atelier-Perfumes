@@ -45,7 +45,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Local credential generation failed' }
     } finally {Pop-Location}
     Compose config --quiet
-    Compose build api frontend
+    Compose build db api frontend
     Compose up -d --wait --wait-timeout 120
     $privateNetwork = (docker network inspect ($project + '_private') | ConvertFrom-Json)[0]
     if (-not $privateNetwork.Internal) {throw 'Private service network allows external egress'}
@@ -71,7 +71,7 @@ try {
     docker cp "$(Container api):/etc/ssl/certs/ca-certificates.crt" $certificatePath
     if ($LASTEXITCODE -ne 0 -or (Get-Item -LiteralPath $certificatePath).Length -lt 1000) {throw 'Runtime CA store missing'}
     # Inspect final image layers, not mounted running files, for generated secrets.
-    foreach ($image in @("bliss-backend:$suffix", "bliss-frontend:$suffix")) {
+    foreach ($image in @("bliss-backend:$suffix", "bliss-frontend:$suffix", "bliss-postgres:$suffix")) {
         $archive = Join-Path $secretDirectory 'image.tar'
         if ($evidence) {
             $archive = Join-Path $evidence (($image.Split(':')[0]) + '.tar')
@@ -116,7 +116,7 @@ VALUES ('r07-persistence',now(),'Synthetic Customer','254700000000','Synthetic p
     Compose up -d --wait --wait-timeout 120
     if ((Status ($origin + '/api/health/ready')) -ne 200) {throw 'Recovery failed'}
     if ($evidence) {
-        $imageRecords = foreach ($kind in @('backend','frontend')) {
+        $imageRecords = foreach ($kind in @('backend','frontend','postgres')) {
             $image = "bliss-${kind}:$suffix"
             $detail = (docker image inspect $image | ConvertFrom-Json)[0]
             $archive = Join-Path $evidence ("bliss-$kind.tar")
