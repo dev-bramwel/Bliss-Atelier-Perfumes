@@ -2,6 +2,8 @@
 
 Status: development policy for the planned Go rewrite. Updated 8 October 2026. Commands marked target become runnable when BAP-022 adds the Go module/tooling. Current runtime remains Express/Prisma; see the root README.
 
+R05 update, 21 October 2026: the module, foundation commands and isolated PostgreSQL harness are now runnable; see [actual setup and limits](../backend/README.md). Full Go business routes, root Make targets, application Compose and CI remain planned. The [R01 decision record](release-scope-decisions.md) supersedes the older fixed 14-hour capacity references below.
+
 ## Working cycle
 
 1. Select one Ready issue from the roadmap. Resolve its contract, business decisions and dependencies; split work exceeding one week's 14-hour budget.

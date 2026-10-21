@@ -1,6 +1,6 @@
 # Express/Prisma to Go migration plan
 
-Status: planned rewrite, approved language direction on 8 October 2026. This document does not claim Go code exists. Issue BAP-022 owns the executable foundation and parity cutover.
+Status: rewrite in progress, approved language direction on 8 October 2026. The [R05 Go foundation](../backend/README.md) adds process/config/health plumbing and local harnesses; order/database/provider parity and cutover remain planned. Issue BAP-022 owns the full rewrite.
 
 ## Compatibility target
 
