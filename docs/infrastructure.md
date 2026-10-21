@@ -2,6 +2,8 @@
 
 Status: target design. Modular Go monolith is the initial application architecture. Hosting, capacity and production topology are not yet established.
 
+20 October 2026: [R03 hosting assessment](hosting-feasibility.md) records local hardware observations, provider restrictions and remaining measurements. The owner confirms the Oracle account is on Always Free. [ADR 003](adr/003-zero-budget-hosting.md) proposes verifying its actual allocation and eligibility; no public topology or measured full-stack capacity is approved.
+
 ## Initial deployment units
 
 One Go module and one release train. API, worker and migration commands share business packages and versioned artifacts. Separately running workers improve scheduling/isolation without making them independently owned microservices. PostgreSQL is authoritative; Redis handles cache/limits; RabbitMQ handles durable jobs; Kafka handles replayable analytics. Their roles do not overlap by accident.

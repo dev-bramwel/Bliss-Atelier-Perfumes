@@ -1,0 +1,82 @@
+﻿{
+    "runId":  "bap-r03-39c416b7",
+    "capturedUtc":  "2026-10-20T15:21:19.1635432Z",
+    "evidence":  "local isolated sequential baseline",
+    "engine":  {
+                   "cpus":  8,
+                   "architecture":  "x86_64",
+                   "memoryBytes":  4003127296,
+                   "version":  "29.9.1"
+               },
+    "limitations":  [
+                        "No simultaneous stack or application traffic",
+                        "Samples are not continuous peaks",
+                        "Restart is same-container, not restore/recreation",
+                        "No public ports, provider calls or customer data",
+                        "Versions are probe inputs, not approved production pins"
+                    ],
+    "services":  [
+                     {
+                         "service":  "rabbitmq",
+                         "imageTag":  "rabbitmq:4",
+                         "memoryLimit":  "512m",
+                         "cpuLimit":  1,
+                         "status":  "passed",
+                         "samples":  [
+                                         {
+                                             "sample":  1,
+                                             "cpu":  "0.57%",
+                                             "memory":  "145.9MiB / 512MiB",
+                                             "memoryPercent":  "28.50%",
+                                             "blockIO":  "12.6MB / 430kB",
+                                             "pids":  "37"
+                                         },
+                                         {
+                                             "sample":  2,
+                                             "cpu":  "0.47%",
+                                             "memory":  "139.6MiB / 512MiB",
+                                             "memoryPercent":  "27.26%",
+                                             "blockIO":  "12.6MB / 446kB",
+                                             "pids":  "37"
+                                         },
+                                         {
+                                             "sample":  3,
+                                             "cpu":  "0.37%",
+                                             "memory":  "135MiB / 512MiB",
+                                             "memoryPercent":  "26.37%",
+                                             "blockIO":  "12.6MB / 446kB",
+                                             "pids":  "37"
+                                         },
+                                         {
+                                             "sample":  4,
+                                             "cpu":  "0.52%",
+                                             "memory":  "132MiB / 512MiB",
+                                             "memoryPercent":  "25.79%",
+                                             "blockIO":  "12.6MB / 446kB",
+                                             "pids":  "37"
+                                         },
+                                         {
+                                             "sample":  5,
+                                             "cpu":  "1.08%",
+                                             "memory":  "127.1MiB / 512MiB",
+                                             "memoryPercent":  "24.83%",
+                                             "blockIO":  "12.6MB / 446kB",
+                                             "pids":  "37"
+                                         }
+                                     ],
+                         "pullSeconds":  2.67,
+                         "imageDigest":  "rabbitmq@sha256:71be6ca71cd3ad92f29b354ec381b1ee587894aaaac21f185b8cf43fb50d3feb",
+                         "imageSizeBytes":  427610304,
+                         "hostFreeMemoryBeforeMiB":  884,
+                         "readySeconds":  16.23,
+                         "readiness":  "service-specific readiness",
+                         "dataDirectoryKiB":  "232\t/var/lib/rabbitmq",
+                         "oomKilledBeforeRestart":  false,
+                         "restartCountBefore":  0,
+                         "postRestartReadySeconds":  14.86,
+                         "restartCheck":  "passed",
+                         "persistence":  "Not tested",
+                         "oomKilledAfterRestart":  false
+                     }
+                 ]
+}

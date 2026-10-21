@@ -1,6 +1,6 @@
 # Deployment and rollback runbook
 
-Status: target runbook template. No hosting account, public server, domain, live merchant API route or Kubernetes deployment currently exists. Commands/provider details will be added with tested infrastructure; this is not a runnable production deployment claim.
+Status: target runbook template. As of 20 October 2026 the owner confirms the Oracle Cloud account is on Always Free; its region, resource allocation and resource-specific free-tier eligibility remain unverified. No public deployment, domain, live merchant API route or Kubernetes deployment has been verified. Commands/provider details will be added with tested infrastructure; this is not a runnable production deployment claim. See the [R03 feasibility report](hosting-feasibility.md) and [conditional hosting ADR](adr/003-zero-budget-hosting.md).
 
 ## Environment contract
 
