@@ -1,0 +1,15 @@
+.PHONY: setup build up down logs test docker-test
+setup:
+	cd backend && go run ./cmd/devstack secrets ../.local/dev
+build:
+	docker compose build api frontend
+up:
+	docker compose up -d --wait
+down:
+	docker compose down
+logs:
+	docker compose logs --tail=100
+test:
+	cd backend && go vet ./... && go test ./...
+docker-test:
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-DockerCore.ps1
