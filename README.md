@@ -12,6 +12,8 @@ The [Go foundation](backend/README.md) provides API/worker commands, health chec
 
 ## Current local setup (legacy backend)
 
+For the containerized Go foundation and static checkout, use the [Docker core setup](docs/docker-core.md). It provides same-origin routing, private PostgreSQL, migrations and a fake-provider fixture; order/payment submission remains on the legacy backend until later migration slices.
+
 1. Install Node compatible with the locked backend dependencies and PostgreSQL.
 2. In `backend/`, run `npm ci`.
 3. Copy `backend/.env.example` to `backend/.env` and configure your database. Never commit secrets.

@@ -26,6 +26,8 @@ docker run --rm --mount "type=bind,source=$($PWD.Path),target=/app,readonly" --w
 
 ## Configuration and operational behavior
 
+The [Docker core stack](../docs/docker-core.md) adds non-root images and private local services. `GO_DATABASE_URL_FILE` reads a mounted DSN secret and is mutually exclusive with `GO_DATABASE_URL`. `GO_REQUIRE_SCHEMA=true` enables read-only catalog/ledger-attestation readiness and requires a configured DB plus the local bootstrap's restricted function. Both settings are opt-in; standalone foundation defaults are unchanged.
+
 Export variables in the process environment; Go does not load `.env`. The independent names in [.env.go.example](.env.go.example) prevent accidentally reusing legacy production settings.
 
 | Variable | Default / validation |
