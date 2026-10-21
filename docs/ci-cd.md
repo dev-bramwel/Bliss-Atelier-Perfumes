@@ -4,6 +4,8 @@ Status: the [Docker core CI workflow](../.github/workflows/docker-core.yaml) imp
 
 ## PR pipeline
 
+The [R08 implementation](pr-checks.md) extends Docker core CI with security/contract checks, a real mobile browser smoke, redacted retained evidence, SBOMs and commit-addressed image exports. Release publishing and full product scenarios below remain future gates.
+
 Trigger on pull requests and main changes; minimal `contents: read` permissions. Pin third-party actions to reviewed commit SHAs, and choose the same supported Go version used in go.mod and Docker. Cancel superseded PR checks; do not cancel a production migration or deployment midway. Never execute untrusted PR code with deployment secrets or privileged self-hosted runners.
 
 Required jobs:
