@@ -3,6 +3,8 @@ package migration
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -301,6 +304,9 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatalf("cancel left partial changes: %v", err)
 		}
 	})
+	t.Run("dedicated migration owner and runtime DML grants", func(t *testing.T) {
+		testRuntimeGrants(t, pool)
+	})
 	t.Run("approved schema contract matches SQL", func(t *testing.T) {
 		reset(t, pool)
 		legacy(t, pool, false)
@@ -331,6 +337,70 @@ func TestDisposableMigrations(t *testing.T) {
 		}
 	})
 	reset(t, pool)
+}
+
+func testRuntimeGrants(t *testing.T, admin *pgxpool.Pool) {
+	t.Helper()
+	reset(t, admin)
+	suffix := fmt.Sprint(time.Now().UnixNano())
+	migrator, runtime := "r06_migrator_"+suffix, "r06_runtime_"+suffix
+	identifier := func(role string) string { return pgx.Identifier{role}.Sanitize() }
+	for _, role := range []string{migrator, runtime} {
+		execSQL(t, admin, "CREATE ROLE "+identifier(role)+" NOLOGIN NOSUPERUSER NOINHERIT")
+	}
+	t.Cleanup(func() {
+		reset(t, admin)
+		for _, role := range []string{runtime, migrator} {
+			execSQL(t, admin, "DROP OWNED BY "+identifier(role))
+			execSQL(t, admin, "DROP ROLE "+identifier(role))
+		}
+	})
+	execSQL(t, admin, "REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE, CREATE ON SCHEMA public TO "+identifier(migrator))
+	execSQL(t, admin, "GRANT CREATE ON DATABASE bliss_foundation_test TO "+identifier(migrator))
+	rolePool := func(role string) *pgxpool.Pool {
+		cfg := admin.Config().Copy()
+		cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+			_, err := conn.Exec(ctx, "SET ROLE "+identifier(role))
+			return err
+		}
+		pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(pool.Close)
+		return pool
+	}
+	migrationPool, runtimePool := rolePool(migrator), rolePool(runtime)
+	run(t, migrationPool, "init")
+	denied := func(sql string) {
+		t.Helper()
+		_, err := runtimePool.Exec(context.Background(), sql)
+		var pgError *pgconn.PgError
+		if !errors.As(err, &pgError) || pgError.Code != "42501" {
+			t.Fatalf("expected insufficient privilege, got %v", err)
+		}
+	}
+	// Demonstrate the review finding without preconfigured default privileges.
+	execSQL(t, admin, "GRANT USAGE ON SCHEMA public TO "+identifier(runtime))
+	denied(`SELECT * FROM public."Order"`)
+	denied(`SELECT * FROM public."MpesaTransaction"`)
+	// Same explicit business-table grant as the operator runbook; no ledger grant.
+	execSQL(t, admin, `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."Order", public."MpesaTransaction" TO `+identifier(runtime))
+	execSQL(t, runtimePool, `INSERT INTO public."Order"(id,"updatedAt","customerName","customerPhone","deliveryLocation","totalKes",items)
+ VALUES ('runtime-order',now(),'Synthetic','254700000000','Test',2000,'[]');
+ INSERT INTO public."MpesaTransaction"(id,"updatedAt","orderId") VALUES ('runtime-payment',now(),'runtime-order');
+ UPDATE public."Order" SET "paymentStatus"='PAID' WHERE id='runtime-order';
+ UPDATE public."MpesaTransaction" SET status='SUCCESS' WHERE id='runtime-payment'`)
+	var status, payment string
+	if err := runtimePool.QueryRow(context.Background(), `SELECT o."paymentStatus",m.status FROM public."Order" o JOIN public."MpesaTransaction" m ON m."orderId"=o.id WHERE o.id='runtime-order'`).Scan(&status, &payment); err != nil || status != "PAID" || payment != "SUCCESS" {
+		t.Fatalf("runtime read/write failed: %v", err)
+	}
+	execSQL(t, runtimePool, `DELETE FROM public."MpesaTransaction" WHERE id='runtime-payment'; DELETE FROM public."Order" WHERE id='runtime-order'`)
+	denied(`CREATE TABLE public.runtime_ddl(id int)`)
+	denied(`ALTER TABLE public."Order" ADD COLUMN surprise text`)
+	denied(`SELECT * FROM public.bliss_schema_migrations`)
+	denied(`UPDATE public.bliss_schema_migrations SET checksum='tampered'`)
+	run(t, migrationPool, "status")
 }
 
 // Called only by the disposable PowerShell harness, around pg_dump/pg_restore.

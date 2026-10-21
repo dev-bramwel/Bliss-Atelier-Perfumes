@@ -6,6 +6,8 @@ Implemented locally on 21 October 2026. See [ADR 004](adr/004-sql-migration-base
 
 Run from `backend/`, with `GO_DATABASE_URL` explicitly exported. Go does not load `.env`. Use a direct PostgreSQL connection, not transaction-pooling PgBouncer. Supply a dedicated migration role; runtime roles should have DML only and no schema ownership/DDL. Never put credentials in committed command examples or paste raw PostgreSQL errors into public evidence.
 
+For `init`, provision the migration role with CONNECT and CREATE on the target database plus USAGE and CREATE on `public`. The archived baseline contains `CREATE SCHEMA IF NOT EXISTS`, which requires database CREATE even when the schema already exists. These are migration-role privileges, not runtime-role privileges. For legacy adoption, arrange the appropriate ownership/role membership for locking and managing the existing tables and Prisma history.
+
 ```powershell
 go run ./cmd/migrate status
 # Choose exactly one initial path, based on the inspected database:
@@ -38,6 +40,19 @@ The supported scope is PostgreSQL 17's dedicated `public` schema. Additional pub
 Missing/failed/unknown Prisma history, `db push` databases without history, partial schemas and drift all fail closed. Preserve evidence and investigate against a restored clone; never force a ledger row or overwrite a checksum. Historical SQL remains in `backend/prisma/migrations/`; its embedded copy is checked against that archive by tests.
 
 ## Migration ownership and legacy startup
+
+After `init`, before starting Express or another runtime, the table owner or database administrator must grant the runtime role schema usage and DML on the two business tables. A dedicated migration role owns newly initialized tables; PostgreSQL does not automatically grant a separate runtime role access. In a restricted `psql` session, set `runtime_role` to the existing application role (example name below), then run:
+
+```sql
+\set runtime_role bliss_runtime
+GRANT USAGE ON SCHEMA public TO :"runtime_role";
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON TABLE public."Order", public."MpesaTransaction" TO :"runtime_role";
+```
+
+Provision runtime login/CONNECT separately using the environment's secret-management process. The runtime must not own these tables, inherit the migration role, or have superuser/DDL privileges. Ensure neither it nor `PUBLIC` can CREATE in the application schema; for a dedicated application schema, an administrator can run `REVOKE CREATE ON SCHEMA public FROM PUBLIC` and revoke any direct runtime CREATE grant. Do not grant access to `bliss_schema_migrations` or use grants/default privileges covering every public table. This baseline uses client-generated text IDs and needs no sequence grants.
+
+For `adopt-legacy`, existing ownership and grants are preserved: verify the same business-table DML access for the active runtime and apply missing grants as the appropriate owner. If the runtime currently owns legacy tables, arrange an explicit ownership/role-hardening procedure before claiming DML-only isolation. Future migrations that create business tables must include a reviewed grant step. Smoke-test order/payment reads and writes using the actual runtime credentials after provisioning, and confirm schema changes and ledger access remain denied before restarting traffic.
 
 `npm start` generates the Prisma client and starts Express; it no longer deploys migrations. For an explicitly legacy-only database before adoption, run `npx prisma migrate deploy` manually using its legacy `DATABASE_URL`, then inspect it. Never run that command on an adopted or Go-initialized database. Go-initialized databases intentionally have no fabricated `_prisma_migrations` history.
 

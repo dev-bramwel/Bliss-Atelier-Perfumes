@@ -38,6 +38,8 @@ Final Linux Go 1.27.3 `go test -race ./...` passed against a fixed source snapsh
 
 ## Change and operational review
 
+PR #43 [Codex finding on runtime grants](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/pull/43#discussion_r4341781521): the runbook now requires explicit post-init schema USAGE and business-table DML grants before starting the runtime. It also records the database CREATE prerequisite for the migration role's archived CREATE SCHEMA statement. A disposable regression test initializes under a separate nonsuperuser migration role with no runtime default privileges, reproduces denied runtime reads, applies the documented grants, and proves runtime INSERT/SELECT/UPDATE/DELETE for both business tables. Runtime CREATE/ALTER and ledger SELECT/UPDATE remain denied. The complete PostgreSQL integration suite and backup/restore/re-adoption harness passed again; migration vet, unit tests, formatting and diff checks passed. The immutable historical SQL remains unchanged; environment-specific role names and credentials are provisioned outside the baseline.
+
 - Schema: existing business tables and Prisma history remain intact; adds only the Go migration ledger during initialization/adoption. Empty initialization creates the historical business schema without inventing Prisma history.
 - Configuration: no new application variable; all migration commands require `GO_DATABASE_URL`. Existing `GO_IO_TIMEOUT` also bounds the migration attempt. PostgreSQL 17 is the tested migration target.
 - API/payment behavior: no endpoint, pricing, payment writer, callback or settlement changes.
