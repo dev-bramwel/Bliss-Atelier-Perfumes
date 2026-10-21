@@ -3,8 +3,10 @@ package config
 
 import (
 	"errors"
+	"io"
 	"net"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,6 +19,7 @@ type Config struct {
 	IOTimeout       time.Duration
 	ShutdownTimeout time.Duration
 	MaxConnections  int32
+	RequireSchema   bool
 }
 
 // Load uses separate GO_ settings so the legacy backend remains independent.
@@ -50,6 +53,33 @@ func Load(get func(string) string) (Config, error) {
 		c.MaxConnections = int32(n)
 	}
 	c.DatabaseURL = get("GO_DATABASE_URL")
+	if path := get("GO_DATABASE_URL_FILE"); path != "" {
+		if c.DatabaseURL != "" {
+			return Config{}, errors.New("set only one of GO_DATABASE_URL and GO_DATABASE_URL_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_DATABASE_URL_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_DATABASE_URL_FILE could not be read")
+		}
+		c.DatabaseURL = strings.TrimSpace(string(data))
+		if c.DatabaseURL == "" {
+			return Config{}, errors.New("GO_DATABASE_URL_FILE is empty")
+		}
+	}
+	if v := get("GO_REQUIRE_SCHEMA"); v != "" {
+		if v != "true" && v != "false" {
+			return Config{}, errors.New("GO_REQUIRE_SCHEMA must be true or false")
+		}
+		c.RequireSchema = v == "true"
+	}
+	if c.RequireSchema && c.DatabaseURL == "" {
+		return Config{}, errors.New("GO_REQUIRE_SCHEMA requires database configuration")
+	}
 	if c.DatabaseURL != "" {
 		u, e := url.Parse(c.DatabaseURL)
 		if e != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Hostname() == "" || strings.ContainsAny(u.Hostname(), "% /\\") || (net.ParseIP(u.Hostname()) == nil && !regexp.MustCompile(`^[a-zA-Z0-9.-]+$`).MatchString(u.Hostname())) || u.Path == "" || u.Path == "/" {
