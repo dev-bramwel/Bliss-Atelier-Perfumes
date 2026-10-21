@@ -14,6 +14,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/httpapi"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/migration"
 )
 
 func Main(command string) {
@@ -38,12 +39,11 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		return err
 	}
 	if command == "migrate" {
-		// Deliberately read-only until the verified Prisma baseline is delivered.
-		if len(args) != 1 || args[0] != "status" {
-			return errors.New("usage: migrate status; schema writes are disabled until Prisma baseline adoption")
+		if len(args) != 1 || !migration.ValidCommand(args[0]) {
+			return errors.New("usage: migrate status|init|adopt-legacy|up")
 		}
 		if cfg.DatabaseURL == "" {
-			return errors.New("GO_DATABASE_URL is required for migrate status")
+			return errors.New("GO_DATABASE_URL is required for migrate")
 		}
 	} else if len(args) != 0 {
 		return errors.New("unexpected command arguments")
@@ -55,6 +55,14 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return e
 		}
 		defer pool.Close()
+		if command == "migrate" {
+			result, e := migration.Run(ctx, pool, args[0], cfg.IOTimeout)
+			if e != nil {
+				return e
+			}
+			logger.Info("migration_status", "command", args[0], "state", result.State, "orders", result.Orders, "payments", result.Payments)
+			return nil
+		}
 		ping = pool.Ping
 	}
 	switch command {
@@ -69,9 +77,6 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		logger.Info("worker_idle", "mode", "foundation_no_jobs")
 		<-ctx.Done()
 		logger.Info("worker_stopped")
-		return nil
-	case "migrate":
-		logger.Info("migration_status", "schema_owner", "prisma", "go_migrations", "disabled")
 		return nil
 	default:
 		return errors.New("unknown command")

@@ -22,10 +22,15 @@ func TestConfigFailsWithoutSecretDisclosure(t *testing.T) {
 	}
 }
 
-func TestMigrationWritesDisabled(t *testing.T) {
-	var log bytes.Buffer
-	if Run(context.Background(), "migrate", []string{"up"}, func(string) string { return "" }, &log) != 1 {
-		t.Fatal("migration writes accepted")
+func TestMigrationCommandValidation(t *testing.T) {
+	for _, args := range [][]string{nil, {"down"}, {"force"}, {"up", "extra"}, {"init"}, {"adopt-legacy"}, {"up"}, {"status"}} {
+		var log bytes.Buffer
+		if Run(context.Background(), "migrate", args, func(string) string { return "" }, &log) != 1 {
+			t.Fatal("invalid command or missing database accepted")
+		}
+		if !strings.Contains(log.String(), "usage:") && !strings.Contains(log.String(), "GO_DATABASE_URL is required") {
+			t.Fatal(log.String())
+		}
 	}
 }
 
