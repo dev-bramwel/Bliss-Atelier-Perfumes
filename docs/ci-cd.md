@@ -1,6 +1,6 @@
 # CI/CD design
 
-Status: target workflow specification; no workflow is installed by this document. Owner has selected Go backend and vanilla frontend. The source repository is public on GitHub. The [R03 assessment](hosting-feasibility.md) recommends GHCR and standard public-repository runners subject to billing/access verification during implementation; no registry publication or sustainable public hosting has been established.
+Status: the [Docker core CI workflow](../.github/workflows/docker-core.yaml) implements Go formatting/module/vet/race/build checks, frontend CSS reproducibility/dependency checks, disposable SQL migration/restore checks and Docker core acceptance tests. The remaining release, security, browser and infrastructure jobs below remain target specifications. Owner has selected Go backend and vanilla frontend. The source repository is public on GitHub. The [R03 assessment](hosting-feasibility.md) recommends GHCR and standard public-repository runners subject to billing/access verification during implementation; no registry publication or sustainable public hosting has been established.
 
 ## PR pipeline
 

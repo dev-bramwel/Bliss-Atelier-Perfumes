@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+# The migration-failure drill deliberately expects a nonzero native exit code.
+$PSNativeCommandUseErrorActionPreference = $false
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $suffix = [guid]::NewGuid().ToString('N').Substring(0, 10)
 $project = 'bliss-r07-check-' + $suffix
@@ -37,6 +39,8 @@ try {
     Compose config --quiet
     Compose build api frontend
     Compose up -d --wait --wait-timeout 120
+    $privateNetwork = (docker network inspect ($project + '_private') | ConvertFrom-Json)[0]
+    if (-not $privateNetwork.Internal) {throw 'Private service network allows external egress'}
     $origin = 'http://127.0.0.1:' + $env:BLISS_HTTP_PORT
     $checkout = Invoke-WebRequest -UseBasicParsing ($origin + '/checkout.html')
     if ($checkout.StatusCode -ne 200 -or $checkout.Content -notmatch 'api-base-url" content=""') {throw 'Same-origin checkout was not served'}
@@ -49,6 +53,11 @@ try {
         if ($detail.Config.User -eq '' -or $detail.Config.User -match '^0(:|$)') {throw 'Root container detected'}
         if ($service -ne 'frontend' -and $null -ne $detail.HostConfig.PortBindings -and @($detail.HostConfig.PortBindings.PSObject.Properties).Count -gt 0) {throw 'Internal service published a host port'}
         if ($service -ne 'db' -and -not $detail.HostConfig.ReadonlyRootfs) {throw 'Application root filesystem is writable'}
+        if ($service -eq 'frontend') {
+            foreach ($binding in $detail.HostConfig.PortBindings.'8080/tcp') {
+                if ($binding.HostIp -ne '127.0.0.1') {throw 'Frontend is exposed beyond loopback'}
+            }
+        }
     }
     $certificatePath = Join-Path $secretDirectory 'ca.crt'
     docker cp "$(Container api):/etc/ssl/certs/ca-certificates.crt" $certificatePath

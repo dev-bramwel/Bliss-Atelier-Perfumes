@@ -62,6 +62,8 @@ Inspect a failed migration and correct the actual cause or apply a reviewed forw
 
 ## Provider fixture and repeat checks
 
+The [Docker core CI workflow](../.github/workflows/docker-core.yaml) runs on PRs targeting `develop`/`main`, pushes to those branches, and manual dispatch. Its `Docker core validation` check builds and exercises this stack on Ubuntu, runs Go race/build checks and the migration/restore harness, and verifies committed frontend CSS matches a locked clean build. High/critical frontend dependency advisories fail the job. It uses pinned actions and read-only repository permissions, with no deployment secrets or registry publication. Required-check enforcement is a separate branch-protection setting.
+
 Private `POST http://fake-provider:8090/payments` accepts synthetic `{"amount":2500}`. `X-Fixture-Mode` selects acceptance, `reject` (422), or `malformed` JSON. Responses/IDs are fixed synthetic values. This is neither a Daraja nor NCBA emulator and never marks actual orders paid.
 
 ```powershell
