@@ -15,6 +15,8 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | [Naming and code rules](naming-and-code-rules.md) | Go, frontend, SQL, API, messaging and configuration conventions |
 | [CI/CD](ci-cd.md) | Check/build/release pipelines, artifacts and credentials |
 | [Docker and environments](docker-and-local-environments.md) | Planned files, container/service contracts and verification |
+| [Docker core setup](docker-core.md) | Implemented R07 setup, local credentials, readiness and safe shutdown |
+| [R07 Docker evidence](evidence/r07-docker-core.md) | Local container, persistence, failure and image checks |
 | [Infrastructure](infrastructure.md) | Module ownership, topology and microservice extraction criteria |
 | [R03 hosting feasibility](hosting-feasibility.md) | Host inventory, individual-service measurements, provider restrictions, staged plan and unresolved capacity gates |
 | [R03 service evidence](evidence/r03-service-summary.md) | Seven individual service baselines, raw results, retry evidence and repeat commands |
@@ -36,7 +38,7 @@ For each implementation issue: link its ID in the PR, update affected docs, reco
 
 ## Decision and implementation status
 
-Current storefront runtime: Express/Prisma/PostgreSQL plus HTML/CSS/JS. A separate Go foundation is available locally; target runtime remains Go modular monolith plus SQL/PostgreSQL with HTML/CSS/JS frontend. Full application Docker, Kubernetes and CI configuration remain planned under BAP-010/014/020.
+Current storefront runtime: Express/Prisma/PostgreSQL plus HTML/CSS/JS. A separate Go foundation and Docker core stack are available locally; target runtime remains Go modular monolith plus SQL/PostgreSQL with HTML/CSS/JS frontend. Full order/payment migration, Kubernetes and CI configuration remain planned under their roadmap slices.
 
 Read in order: scope → architecture → ADR 002 → backend migration → development workflow → naming → Docker → CI/CD → deployment → testing/operations. Detailed pipeline/config/runbook ownership lives in the specialized docs; architecture summarizes boundaries.
 

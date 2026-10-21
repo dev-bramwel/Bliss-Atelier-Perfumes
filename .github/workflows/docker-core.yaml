@@ -1,0 +1,65 @@
+name: Docker core CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-core-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-core:
+    name: Docker core validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up matching Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+
+      - name: Check Go formatting, modules, tests and commands
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted=$(gofmt -l cmd internal)
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
+          go mod download
+          go mod verify
+          go vet ./...
+          go test -race ./...
+          go build ./cmd/...
+
+      - name: Check frontend CSS reproducibility and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --mount "type=bind,source=$PWD/frontend,target=/source,readonly" \
+            node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 \
+            sh -ec 'cp -R /source /tmp/assets; cd /tmp/assets; npm ci --ignore-scripts; npm audit --audit-level=high; npm run build:css; cmp tailwind.css /source/tailwind.css'
+
+      - name: Exercise SQL migration and restore fixtures
+        shell: pwsh
+        run: ./backend/scripts/test-integration.ps1
+
+      - name: Build and exercise Docker core acceptance gates
+        shell: pwsh
+        run: ./scripts/Test-DockerCore.ps1

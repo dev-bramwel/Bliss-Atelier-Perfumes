@@ -64,6 +64,11 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return nil
 		}
 		ping = pool.Ping
+		if cfg.RequireSchema {
+			ping = func(ctx context.Context) error {
+				return migration.RuntimeReady(ctx, pool)
+			}
+		}
 	}
 	switch command {
 	case "api":

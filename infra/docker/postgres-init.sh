@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+BLISS_MIGRATOR_PASSWORD=$(cat /run/secrets/migrator_password)
+BLISS_RUNTIME_PASSWORD=$(cat /run/secrets/runtime_password)
+export BLISS_MIGRATOR_PASSWORD BLISS_RUNTIME_PASSWORD
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+\getenv migrator_password BLISS_MIGRATOR_PASSWORD
+\getenv runtime_password BLISS_RUNTIME_PASSWORD
+CREATE ROLE bliss_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'migrator_password';
+CREATE ROLE bliss_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'runtime_password';
+ALTER DATABASE bliss_dev OWNER TO bliss_migrator;
+REVOKE ALL ON DATABASE bliss_dev FROM PUBLIC;
+GRANT CONNECT ON DATABASE bliss_dev TO bliss_runtime;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+SQL
+unset BLISS_MIGRATOR_PASSWORD BLISS_RUNTIME_PASSWORD
