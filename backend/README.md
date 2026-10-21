@@ -1,4 +1,4 @@
-# Go foundation (R05 / #11)
+# Go foundation and SQL baseline (R05 / #11, R06 / #12)
 
 The active storefront backend remains Express/Prisma. Go exposes root status and foundation health only; order/payment routes are not implemented. See [migration boundaries](../docs/backend-migration.md) and [legacy observations](testdata/legacy/README.md).
 
@@ -22,7 +22,7 @@ go run ./cmd/api
 docker run --rm --mount "type=bind,source=$($PWD.Path),target=/app,readonly" --workdir /app golang:1.27.3 go test -race ./...
 ```
 
-`go run ./cmd/worker` waits for termination without processing jobs. `go run ./cmd/migrate status` checks the configured DB connection and reports that Prisma owns migrations. All write/subcommand attempts fail; SQL runner selection and verified Prisma-history adoption belong to the SQL baseline slice. This command does not inspect schema history or assert schema compatibility.
+`go run ./cmd/worker` waits for termination without processing jobs. `go run ./cmd/migrate status` verifies supported schema/history and reports empty, legacy or current state with aggregate counts. Use `init` only for an empty public schema, `adopt-legacy` only for verified Prisma history, and `up` after initialization/adoption. The [SQL migration runbook](../docs/sql-migrations.md) documents locking, maintenance windows, ownership, backup and compatible rollback. `npm start` now generates the Prisma client without automatically deploying migrations.
 
 ## Configuration and operational behavior
 
@@ -31,8 +31,8 @@ Export variables in the process environment; Go does not load `.env`. The indepe
 | Variable | Default / validation |
 | --- | --- |
 | `GO_HTTP_ADDR` | `127.0.0.1:5001`; IP or localhost plus port 1–65535 |
-| `GO_DATABASE_URL` | Optional PostgreSQL URL for API/worker; required by migrate status |
-| `GO_IO_TIMEOUT` | `5s`; 1ms–1m for DB connection/readiness and provider transport when wired |
+| `GO_DATABASE_URL` | Optional PostgreSQL URL for API/worker; required by every migrate command |
+| `GO_IO_TIMEOUT` | `5s`; 1ms–1m for DB connection/readiness, a complete migration attempt and provider transport when wired |
 | `GO_SHUTDOWN_TIMEOUT` | `10s`; 1ms–1m |
 | `GO_DB_MAX_CONNECTIONS` | `4`; 1–32 |
 
@@ -50,17 +50,17 @@ From repository root on Windows:
 powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/test-integration.ps1
 ```
 
-The process-local execution-policy flag permits this reviewed script without changing machine policy. It starts an isolated, digest-pinned PostgreSQL image on a random loopback port, waits for readiness, runs the test and removes only its uniquely named container. The fixture password is public disposable test data. It never reads `DATABASE_URL` or `GO_DATABASE_URL`. `GO_TEST_DATABASE_URL` must target loopback, user `bliss_test` and database `bliss_foundation_test`; the harness supplies it. The test creates only a temporary table, round-trips an opaque ID and proves query cancellation. Unconfigured normal unit runs explicitly skip that DB test.
+The process-local execution-policy flag permits this script without changing machine policy. It starts an isolated, digest-pinned PostgreSQL image on a random loopback port, waits for readiness, runs the tests and removes only its uniquely named container. The fixture password is public disposable test data. It never reads `DATABASE_URL` or `GO_DATABASE_URL`. `GO_TEST_DATABASE_URL` must target loopback, user `bliss_test` and database `bliss_foundation_test`; the harness supplies it. Foundation checks round-trip an opaque ID and prove query cancellation. Migration checks create/drop the disposable public schema, verify empty/populated upgrades and mismatch/concurrency failures, and rehearse backup/restore/re-adoption with synthetic records. Unconfigured normal unit runs explicitly skip DB tests.
 
 Fake-provider tests are ordinary Go tests: acceptance, rejection, malformed/oversized JSON, timeout, cancellation and redirects. Existing JavaScript helper and fixture checks run with `npm test` after `npm ci` (no live payments). The [OpenAPI draft](api/openapi.json) records observed legacy DTOs/statuses and policy/security exclusions; it does not enable those routes in Go.
 
 ## Dependency review and rollback
 
-The only direct runtime dependency is MIT-licensed [pgx/v5 v5.11.0](https://github.com/jackc/pgx), compatible with this toolchain. Its pgpassfile, pgservicefile and puddle dependencies use MIT; Go x/sync and x/text use BSD-style licenses. Checksums and the full graph are committed in `go.sum`/`go.mod`. Standard library handles routing, JSON, logs, signals and provider IO. Redis/AMQP/Kafka clients and a SQL migration runner are deferred until their consumers/baseline exist. Record vulnerability-scan results separately; dependency selection alone is not a security audit.
+The only direct runtime dependency is MIT-licensed [pgx/v5 v5.11.0](https://github.com/jackc/pgx), compatible with this toolchain. Its pgpassfile, pgservicefile and puddle dependencies use MIT; Go x/sync and x/text use BSD-style licenses. Checksums and the full graph are committed in `go.sum`/`go.mod`. Standard library handles routing, JSON, logs, signals and provider IO. The repository-owned transactional SQL runner uses pgx without new dependencies; see [ADR 004](../docs/adr/004-sql-migration-baseline.md). Redis/AMQP/Kafka clients remain deferred. Record vulnerability-scan results separately; dependency selection alone is not a security audit.
 
 `x/text` is explicitly raised to v0.41.0 (and its required x/sync v0.22.0) to address the reachable [GO-2026-6629](https://pkg.go.dev/vuln/GO-2026-6629) and [GO-2026-5970](https://pkg.go.dev/vuln/GO-2026-5970) findings from the initial pgx dependency graph.
 
-No production schema, legacy start command, API traffic or payment writer changes. Stop the foundation processes and revert the added files to roll back. Never run two live order/payment writers during later cutover. Historical KES 2,000/pay-on-delivery observations must not override approved R01 policy.
+No production schema, API traffic or payment writer changes were performed. R06 removes automatic Prisma deployment from legacy startup; use the [migration ownership and rollback procedure](../docs/sql-migrations.md) when adopting a database. Never run two live order/payment writers during later cutover. Historical KES 2,000/pay-on-delivery observations must not override approved R01 policy.
 
 ## Local verification, 21 October 2026
 

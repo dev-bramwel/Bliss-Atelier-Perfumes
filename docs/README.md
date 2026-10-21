@@ -23,6 +23,9 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | [Security and data](security-and-data.md) | Access, secrets, payment trust and data lifecycle requirements |
 | [API and event contracts](api-and-event-contracts.md) | Compatibility, errors, idempotency and message evolution |
 | [Backend migration](backend-migration.md) | Compatibility, database baseline and Go cutover |
+| [SQL migration runbook](sql-migrations.md) | Implemented R06 commands, verified Prisma adoption, ownership and recovery |
+| [R06 SQL evidence](evidence/r06-sql-baseline.md) | Local upgrade, mismatch, concurrency and backup/restore verification |
+| [ADR 004](adr/004-sql-migration-baseline.md) | Selected transactional pgx SQL runner and baseline policy |
 | [Go foundation](../backend/README.md) | Implemented command/config/health surface, isolated harnesses and current limits |
 | [ADR 002](adr/002-go-backend-and-vanilla-frontend.md) | Accepted Go/vanilla direction and proposed technical defaults |
 | [ADR 001](adr/001-runtime-and-messaging.md) | Proposed runtime and messaging boundaries |
@@ -39,4 +42,4 @@ Read in order: scope → architecture → ADR 002 → backend migration → deve
 
 ## Next decision records
 
-Record ADRs when decisions are made: SQL migration runner/Prisma baseline; hosting and supported runtime versions; admin identity/session strategy; authoritative inventory integration; NCBA-authorized STK route and settlement identifiers; delivery fee acceptance/recipient; exchange price/stock policy; analytics retention. Consult R01 for approved business policy. ADR 003 records a conditional hosting direction; final public selection and its evidence remain open.
+ADR 004 records the SQL migration runner/Prisma baseline. Record further ADRs when decisions are made: hosting and supported runtime versions; admin identity/session strategy; authoritative inventory integration; NCBA-authorized STK route and settlement identifiers; delivery fee acceptance/recipient; exchange price/stock policy; analytics retention. Consult R01 for approved business policy. ADR 003 records a conditional hosting direction; final public selection and its evidence remain open.

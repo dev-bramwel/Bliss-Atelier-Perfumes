@@ -1,6 +1,6 @@
 # Express/Prisma to Go migration plan
 
-Status: rewrite in progress, approved language direction on 8 October 2026. The [R05 Go foundation](../backend/README.md) adds process/config/health plumbing and local harnesses; order/database/provider parity and cutover remain planned. Issue BAP-022 owns the full rewrite.
+Status: rewrite in progress, approved language direction on 8 October 2026. The [R05 Go foundation](../backend/README.md) adds process/config/health plumbing and local harnesses. [R06 SQL baseline](sql-migrations.md) adds explicit initialization and verified Prisma adoption with local upgrade/recovery tests; order/provider parity and application cutover remain planned. Issue BAP-022 owns the full rewrite.
 
 ## Compatibility target
 
@@ -22,7 +22,7 @@ Contract tests capture existing successful behavior; known unsafe behavior is no
 2. Add one Go module at `backend/`, `cmd/api`, `cmd/worker`, `cmd/migrate`, feature packages, DB/config/HTTP adapters and tests. During transition legacy source can remain at its current paths; don't move it until references/tooling are updated.
 3. Implement pgx-backed repositories against legacy quoted tables, server-side pricing, orders and payment status. Add context cancellation, bounded pools and graceful shutdown.
 4. Port provider transport, callback correlation and transaction processing with mocked acceptance/recovery scenarios. Trace/audit sensitive state without leaking secrets.
-5. Baseline SQL runner recognizes verified Prisma history: do not rerun CREATE TABLE over existing data, silently mark unmatched schema as migrated, or have two active migration owners. Choose an explicit tested baseline/import procedure.
+5. Implemented locally in R06: the [SQL runner and adoption procedure](sql-migrations.md) recognize verified Prisma history without rerunning historical CREATE TABLE or accepting mismatched schema. Automatic Prisma deployment is removed from Express startup. Use explicit migration ownership; real-environment inventory/adoption remains a deployment prerequisite.
 6. Run frontend/browser contracts against Go, upgrade fixture tests and restart/recovery scenarios. Add missing safety gates through linked issues.
 7. Controlled single-writer cutover in development/staging then production only after launch prerequisites. Keep callback endpoint stable so in-flight accepted payments route to the active reconciler.
 8. Remove Node backend source, Prisma runtime/config/package files only once Go parity/migrations pass. Preserve historical SQL migration evidence in the adopted migration baseline/archive. Update root instructions, CI and Docker to Go in the same cutover PR.
