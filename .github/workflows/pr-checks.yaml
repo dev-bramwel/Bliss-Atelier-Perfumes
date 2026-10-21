@@ -46,7 +46,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: security-contracts-${{ github.sha }}
+          name: security-contracts-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: .local/ci-security/
           include-hidden-files: true
           retention-days: 7

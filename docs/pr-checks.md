@@ -25,7 +25,7 @@ Image/Go/CI-tool/frontend scans block the supported Go container stack. The reta
 
 ## Enforcement and regression proof
 
-Repository rulesets should require both stable contexts above, with current-base enforcement, on develop and main/default branch. Preserve existing review/force-push/deletion rules. Check branch patterns carefully: a literal quote inside a ref pattern does not match the actual branch. Required-check configuration and hosted run results are recorded in the R08 evidence when verified.
+Repository rulesets require both stable contexts above, with current-base enforcement, on develop and main/default branch when applied. `scripts/ci/require-checks.ps1` previews the changes and stores before/proposed snapshots in ignored `.local/ruleset-backups`; pass `-Apply` only from an authorized maintainer session. It preserves existing review/force-push/deletion rules and corrects the quoted develop ref pattern. A literal quote inside a ref pattern does not match the actual branch. Hosted run results and application evidence are recorded with the PR.
 
 The security job exercises a synthetic key-like value entirely in temporary storage and requires the scanner's detection exit code. The contract job replaces a temporary schema with an invalid document and requires nonzero exit. These controls never commit secrets or weaken the real checks. A separate reviewed negative CI run establishes actual red/green status behavior. Do not merge intentional broken fixtures.
 

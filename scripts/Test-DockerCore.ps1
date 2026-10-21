@@ -122,7 +122,7 @@ VALUES ('r07-persistence',now(),'Synthetic Customer','254700000000','Synthetic p
             $archive = Join-Path $evidence ("bliss-$kind.tar")
             [ordered]@{service=$kind; imageId=$detail.Id; archive=(Split-Path $archive -Leaf); sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()}
         }
-        $manifest = [ordered]@{sourceCommit=(git rev-parse HEAD); platform='linux/amd64'; environment='disposable-local'; status='passed'; images=@($imageRecords)}
+        $manifest = [ordered]@{sourceCommit=(git rev-parse HEAD); runId=$env:GITHUB_RUN_ID; runAttempt=$env:GITHUB_RUN_ATTEMPT; platform='linux/amd64'; environment='disposable-local'; status='passed'; images=@($imageRecords)}
         [System.IO.File]::WriteAllText((Join-Path $evidence 'build-manifest.json'),($manifest | ConvertTo-Json -Depth 6),[System.Text.UTF8Encoding]::new($false))
         [System.IO.File]::WriteAllText((Join-Path $evidence 'acceptance.json'),' {"checkout":true,"persistence":true,"migrationFailure":true,"privateServices":true,"credentialLayers":true,"providerFixture":true} ',[System.Text.UTF8Encoding]::new($false))
     }
