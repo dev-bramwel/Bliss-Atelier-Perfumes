@@ -1,4 +1,4 @@
-// Package database owns bounded PostgreSQL connections. Prisma remains the schema owner.
+// Package database owns bounded PostgreSQL connections.
 package database
 
 import (
