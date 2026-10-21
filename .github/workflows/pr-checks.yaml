@@ -1,0 +1,53 @@
+name: PR checks
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pr-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  security-contracts:
+    name: Security and contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: backend/go.mod
+          cache: false
+      - name: Install checksum-verified scanners
+        run: |
+          bash scripts/ci/install-scanners.sh "$RUNNER_TEMP/scanners"
+          echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
+      - name: Scan tracked history and Go dependencies
+        run: bash scripts/ci/security.sh .local/ci-security
+      - name: Validate contracts and prove a broken contract fails
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .local/ci-security
+          docker run --rm --mount "type=bind,source=$PWD,target=/source,readonly" node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 sh -ec '
+            mkdir -p /workspace/tools; cp -R /source/tools/ci /workspace/tools/ci; cp -R /source/backend /workspace/backend
+            cd /workspace/tools/ci; npm ci --ignore-scripts; npm audit --audit-level=high; npm run contracts
+            node -e "const fs=require(\"fs\"); fs.writeFileSync(\"/tmp/broken.json\", JSON.stringify({openapi:\"3.0.3\"}));"
+            if node contracts.mjs /tmp/broken.json > /tmp/negative-control.log 2>&1; then exit 1; fi
+            cd /workspace/backend; npm ci --ignore-scripts --no-audit; npm test
+          ' | tee .local/ci-security/contracts.log
+      - name: Retain redacted check evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: security-contracts-${{ github.sha }}
+          path: .local/ci-security/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: error
