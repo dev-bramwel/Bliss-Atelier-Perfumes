@@ -12,9 +12,9 @@ Deliver a real, maintainable perfume commerce application with reliable payments
 - Deadline: 10 December 2026; planning starts 6 October 2026. Capacity decision updated 16 October: the owner removed the fixed 14-hours/week cap and prioritizes completed work; actual effort to date is ≤5 hours total. The original 130-hour allocation is historical, not a current limit or feasibility commitment. Planning assumes one developer assisted by coding tools.
 - Current infrastructure budget: zero. No domain, hosting, server, cloud credits, or Daraja access. Existing collection method: NCBA bank paybill 880100 with a business collection reference supplied by the owner. Keep the actual collection reference in deployment configuration, not committed documentation.
 - Go backend rewrite selected 8 October 2026; frontend stays HTML/CSS/JavaScript. Begin with a modular monolith, with evidence-based microservice extraction later.
-- Guest checkout with delivery and pickup. M-Pesa STK must work at customer launch.
+- Guest checkout with delivery and pickup remains available. Optional customer account creation/sign-in uses Google; admins and employees also use Google identity. See [ADR 005](adr/005-google-identity-and-sessions.md). M-Pesa STK must work at customer launch.
 - Owner replenishes stock; local managers handle fulfillment, delivery and cancellations. Business policy: no routine refunds; exchanges only for unused perfume.
-- Admin scope: products, stock, orders and sales reports. Supplier payments are excluded; implement only after a separately scoped request. Customer accounts and cards are outside this release baseline.
+- Admin scope: products, stock, orders and sales reports. Supplier payments are excluded; implement only after a separately scoped request. Optional Google customer accounts were added by the owner on 23 October 2026; cards remain outside this release baseline.
 - Redis, RabbitMQ, Kafka, Docker and Kubernetes are required implementation/learning deliverables by the deadline. Learn monolith versus microservices through an ADR and real component boundaries; a microservice rewrite is not required.
 - 50,000 users is a future scalability direction, not a December load acceptance target.
 

@@ -27,7 +27,7 @@ This is a candidate allocation, not an estimate proving feasibility. Weekly hour
 | Dec 1–7 | 14h | M5: browser/security/load/recovery tests, crawlable product pages and SEO, merchant STK verification if enabled | 016, 018, 021 |
 | Dec 8–10 | ~4h | Release evidence, documentation, sign-off or explicit unmet-gate report | 021 |
 
-Total approximately 130h. There is little contingency; each row is a tightly constrained working budget. These windows replace the earlier sequential milestone assumptions. Authentication/guest access, CI and monitoring will be built incrementally rather than left entirely to their named week. Production HA, microservice extraction, advanced funnel analytics, automated refund disbursement, customer accounts, supplier payments and additional payment providers are outside the December baseline. Unused-perfume exchanges, auditable exceptional payment corrections and accurate sales reporting remain in scope.
+Total approximately 130h. There is little contingency; each row is a tightly constrained working budget. These windows replace the earlier sequential milestone assumptions. Authentication/guest access, CI and monitoring will be built incrementally rather than left entirely to their named week. Production HA, microservice extraction, advanced funnel analytics, automated refund disbursement, supplier payments and additional payment providers are outside the December baseline. Unused-perfume exchanges, auditable exceptional payment corrections and accurate sales reporting remain in scope.
 
 ## Decision checkpoints
 
@@ -77,3 +77,7 @@ Workflow: Backlog → Ready (decisions/dependencies resolved) → In progress �
 Resolve remaining BAP-001 business gates, finalize Go/migration decisions in BAP-002, then implement BAP-022 foundation with BAP-010 and BAP-003. Establish CI/database integration evidence before changing payment persistence. Next implement BAP-004/005/006 together as small dependent changes, then durable workers/reconciliation. Cosmetic redesign must not delay fixing duplicate-payment risks.
 
 BAP-022 subissues: 022a foundation/config/health/toolchain; 022b SQL baseline and order/status parity; 022c provider/callback safety and compatibility; 022d tested cutover/legacy retirement. Re-estimate after 022b with actual hours; no extra hours assumed.
+
+## Google identity scope update - 23 October 2026
+
+The owner selected Google account creation/login for admin, employee and customer users, with guest checkout retained. Optional customer accounts supersede the former exclusion above. R18 / #24 owns identity, roles, sessions and audit; coordinate guest order authorization with R12 / #18 and the optional-account checkout experience with R20 / #26. See [ADR 005](adr/005-google-identity-and-sessions.md). Re-estimate affected delivery slices; this decision is not implemented authentication or a revised feasibility commitment.

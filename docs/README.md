@@ -23,6 +23,7 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | [R03 service evidence](evidence/r03-service-summary.md) | Seven individual service baselines, raw results, retry evidence and repeat commands |
 | [ADR 003](adr/003-zero-budget-hosting.md) | Conditional hosting direction; public selection remains blocked pending evidence |
 | [Deployment](deployment.md) | Environment requirements, release/rollback and evidence |
+| [ADR 005](adr/005-google-identity-and-sessions.md) | Google identity decision, optional customer accounts and proposed session/storage design |
 | [Security and data](security-and-data.md) | Access, secrets, payment trust and data lifecycle requirements |
 | [API and event contracts](api-and-event-contracts.md) | Compatibility, errors, idempotency and message evolution |
 | [Backend migration](backend-migration.md) | Compatibility, database baseline and Go cutover |
@@ -45,4 +46,4 @@ Read in order: scope → architecture → ADR 002 → backend migration → deve
 
 ## Next decision records
 
-ADR 004 records the SQL migration runner/Prisma baseline. Record further ADRs when decisions are made: hosting and supported runtime versions; admin identity/session strategy; authoritative inventory integration; NCBA-authorized STK route and settlement identifiers; delivery fee acceptance/recipient; exchange price/stock policy; analytics retention. Consult R01 for approved business policy. ADR 003 records a conditional hosting direction; final public selection and its evidence remain open.
+ADR 004 records the SQL migration runner/Prisma baseline. Record further ADRs when decisions are made: hosting and supported runtime versions; Google identity/session implementation following ADR 005; authoritative inventory integration; NCBA-authorized STK route and settlement identifiers; delivery fee acceptance/recipient; exchange price/stock policy; analytics retention. Consult R01 for approved business policy. ADR 003 records a conditional hosting direction; final public selection and its evidence remain open.
