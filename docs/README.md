@@ -14,6 +14,7 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | [Development workflow](development-workflow.md) | Local checks, branches, PRs, review and completion rules |
 | [Naming and code rules](naming-and-code-rules.md) | Go, frontend, SQL, API, messaging and configuration conventions |
 | [CI/CD](ci-cd.md) | Check/build/release pipelines, artifacts and credentials |
+| [Required PR checks](pr-checks.md) | R08 security/contracts/browser gates and commit-addressed build evidence |
 | [Docker and environments](docker-and-local-environments.md) | Planned files, container/service contracts and verification |
 | [Docker core setup](docker-core.md) | Implemented R07 setup, local credentials, readiness and safe shutdown |
 | [R07 Docker evidence](evidence/r07-docker-core.md) | Local container, persistence, failure and image checks |

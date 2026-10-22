@@ -2,7 +2,7 @@
 setup:
 	cd backend && go run ./cmd/devstack secrets ../.local/dev
 build:
-	docker compose build api frontend
+	docker compose build db api frontend
 up:
 	docker compose up -d --wait
 down:

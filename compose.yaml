@@ -18,7 +18,10 @@ x-app: &app
 
 services:
   db:
-    image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: bliss-postgres:${BLISS_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: infra/docker/postgres.Dockerfile
     user: "70:70"
     environment:
       POSTGRES_USER: bliss_admin
