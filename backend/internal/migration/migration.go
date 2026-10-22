@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed sql/*.sql schema.sql schema.json ledger.sql prisma.sql
+//go:embed sql/*.sql schema.sql schema.json schema-v2.json ledger.sql prisma.sql
 var assets embed.FS
 
 const LockID int64 = 477418744910
@@ -44,7 +44,9 @@ func read(name string) string {
 }
 func normalized(s string) string { return strings.ReplaceAll(s, "\r\n", "\n") }
 func checksum(s string) string   { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
-func steps() []step              { return []step{{1, normalized(read("sql/0001_legacy.sql"))}} }
+func steps() []step {
+	return []step{{1, normalized(read("sql/0001_legacy.sql"))}, {2, normalized(read("sql/0002_catalog.sql"))}}
+}
 
 // ValidCommand prevents misspelled/unsafe commands before database IO.
 func ValidCommand(s string) bool {
@@ -110,7 +112,7 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 	}
 	// Stabilize existing relations against DDL and writes for consistent inventory/adoption.
 	for name := range tables {
-		if name != "Order" && name != "MpesaTransaction" && name != "_prisma_migrations" && name != "bliss_schema_migrations" {
+		if name != "Order" && name != "MpesaTransaction" && name != "_prisma_migrations" && name != "bliss_schema_migrations" && name != "catalog_settings" && name != "catalog_product" && name != "stock_control" && name != "stock_batch" && name != "stock_entry" && name != "stock_approval" {
 			return Result{}, reject("unrecognized public schema; no changes applied")
 		}
 		if _, err = tx.Exec(ctx, "LOCK TABLE public."+pgx.Identifier{name}.Sanitize()+" IN SHARE ROW EXCLUSIVE MODE NOWAIT"); err != nil {
@@ -122,7 +124,7 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 		return Result{}, err
 	}
 	expected := map[string]json.RawMessage{}
-	if err = json.Unmarshal([]byte(read("schema.json")), &expected); err != nil {
+	if err = json.Unmarshal([]byte(read("schema-v2.json")), &expected); err != nil {
 		return Result{}, err
 	}
 	for name, actual := range tables {
@@ -180,6 +182,33 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 			return Result{}, reject("empty Go migration ledger; no changes applied")
 		}
 		result.State = "current"
+	}
+	// Validate the exact schema for the applied version, including missing tables.
+	contract := "schema.json"
+	if applied >= 2 {
+		contract = "schema-v2.json"
+	}
+	versionSchema := map[string]json.RawMessage{}
+	if err = json.Unmarshal([]byte(read(contract)), &versionSchema); err != nil {
+		return Result{}, err
+	}
+	if len(tables) > 0 {
+		for name, body := range tables {
+			if !sameJSON(body, versionSchema[name]) {
+				return Result{}, reject("schema/version mismatch; no changes applied")
+			}
+		}
+		for name := range versionSchema {
+			if name == "_prisma_migrations" || name == "bliss_schema_migrations" {
+				continue
+			}
+			if _, exists := tables[name]; !exists {
+				return Result{}, reject("incomplete version schema; no changes applied")
+			}
+		}
+	}
+	if ledger && applied < len(migrations) {
+		result.State = "pending"
 	}
 	switch command {
 	case "status":

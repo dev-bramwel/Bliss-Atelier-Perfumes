@@ -18,7 +18,7 @@ try {
     $env:GO_TEST_RECOVERY_PHASE = $null
     Push-Location (Join-Path $PSScriptRoot '..')
     try {
-        go test -count=1 ./internal/database ./internal/migration
+        go test -count=1 ./internal/database ./internal/migration ./internal/catalog
         if ($LASTEXITCODE -ne 0) { throw 'Database integration checks failed' }
         $env:GO_TEST_RECOVERY_PHASE = 'seed'
         go test -count=1 -run '^TestRecoveryFixture$' ./internal/migration
