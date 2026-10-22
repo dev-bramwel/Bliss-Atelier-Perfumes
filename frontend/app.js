@@ -91,6 +91,11 @@ function getFilters() {
 }
 
 function renderProducts() {
+  if (catalogState !== "ready") {
+    resultsCount.textContent = "0";
+    productGrid.textContent = catalogState === "loading" ? "Loading collection..." : "Collection unavailable. Please try again shortly.";
+    return;
+  }
   const { search, category, gender } = getFilters();
   let filtered = PRODUCTS.slice();
 
@@ -141,8 +146,8 @@ function renderProducts() {
           </div>
         </div>
         <div class="mt-5 flex flex-col sm:flex-row gap-2">
-          <button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}">
-            Add to cart
+          <button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}" ${p.available ? "" : "disabled"}>
+            ${p.available ? "Add to cart" : "Currently unavailable"}
           </button>
           <a class="w-full sm:w-auto py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 text-center hover:bg-white/10"
              href="${wa}" target="_blank" rel="noreferrer">
@@ -274,6 +279,7 @@ function getOrCreateModal() {
 }
 
 function openProductModal(id) {
+  if (!catalogFresh()) return;
   const p = getProduct(id);
   if (!p) return;
 
@@ -285,6 +291,8 @@ function openProductModal(id) {
   document.getElementById("modalBadge").textContent =
     `${p.gender ?? "Unisex"} \u2022 ${p.category}`;
   document.getElementById("modalName").textContent = p.name;
+  document.getElementById("modalAddToCart").disabled = !p.available;
+  document.getElementById("modalAddToCart").textContent = p.available ? "Add to Cart" : "Currently unavailable";
   document.getElementById("modalPrice").textContent =
     `KES ${formatKes(p.priceKes)}`;
   document.getElementById("modalMeta").textContent =
@@ -433,3 +441,9 @@ renderFilterOptions();
 renderProducts();
 updateCartBadges();
 updateBackToTopVisibility();
+
+let catalogFiltersInitialized = false;
+document.addEventListener("catalogUpdated", () => {
+  if (!catalogFiltersInitialized && catalogState === "ready") { renderFilterOptions(); catalogFiltersInitialized = true; }
+  renderProducts();
+});

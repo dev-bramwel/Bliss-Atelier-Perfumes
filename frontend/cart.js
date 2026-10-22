@@ -12,6 +12,12 @@ const whatsappLink = document.getElementById("whatsappLink");
 // RENDER CART
 // --------------------
 function renderCart() {
+  if (catalogState !== "ready") {
+    if (cartItemsEl) cartItemsEl.textContent = catalogState === "loading" ? "Loading current prices..." : "Current prices unavailable. Please try again shortly.";
+    if (cartTotalEl) cartTotalEl.textContent = "-";
+    if (toCheckoutBtn) toCheckoutBtn.disabled = true;
+    return;
+  }
   const count = cartCount();
   const total = cartTotal();
 
@@ -25,7 +31,7 @@ function renderCart() {
 
   // Toggle checkout button
   if (toCheckoutBtn) {
-    toCheckoutBtn.disabled = count === 0;
+    toCheckoutBtn.disabled = count === 0 || !cartAvailable();
     toCheckoutBtn.classList.toggle("opacity-40", count === 0);
     toCheckoutBtn.classList.toggle("cursor-not-allowed", count === 0);
   }
@@ -118,12 +124,12 @@ function renderCart() {
 // NAVIGATION
 // --------------------
 toCheckoutBtn?.addEventListener("click", () => {
-  if (cartCount() === 0) return;
+  if (cartCount() === 0 || !cartAvailable()) return;
   window.location.href = "checkout.html";
 });
 
 clearCartBtn?.addEventListener("click", () => {
-  if (cartCount() === 0) return;
+  if (cartCount() === 0 || !cartAvailable()) return;
   clearCart();
 });
 
@@ -154,3 +160,5 @@ document.addEventListener("cartUpdated", renderCart);
 // --------------------
 renderCart();
 updateBackToTopVisibility();
+
+document.addEventListener("catalogUpdated", renderCart);
