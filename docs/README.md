@@ -23,7 +23,7 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | [R03 service evidence](evidence/r03-service-summary.md) | Seven individual service baselines, raw results, retry evidence and repeat commands |
 | [ADR 003](adr/003-zero-budget-hosting.md) | Conditional hosting direction; public selection remains blocked pending evidence |
 | [Deployment](deployment.md) | Environment requirements, release/rollback and evidence |
-| [ADR 005](adr/005-google-identity-and-sessions.md) | Google identity decision, optional customer accounts and proposed session/storage design |
+| [ADR 005](adr/005-google-identity-and-sessions.md) | Google-only sign-in, Bliss-managed sessions, proposed expiry limits and restricted owner bootstrap |
 | [Security and data](security-and-data.md) | Access, secrets, payment trust and data lifecycle requirements |
 | [API and event contracts](api-and-event-contracts.md) | Compatibility, errors, idempotency and message evolution |
 | [Backend migration](backend-migration.md) | Compatibility, database baseline and Go cutover |
