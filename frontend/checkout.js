@@ -25,7 +25,16 @@ const stkSubText = document.getElementById("stkSubText");
 // --------------------
 // RENDER ORDER SUMMARY
 // --------------------
+let checkoutBusy = false;
 function renderCheckoutSummary() {
+  if (checkoutBusy) return;
+  const submit = checkoutForm?.querySelector("[type='submit']");
+  if (submit) submit.disabled = checkoutBusy || !cartAvailable();
+  if (catalogState !== "ready") {
+    if (checkoutTotalEl) checkoutTotalEl.textContent = "-";
+    if (checkoutItemsEl) checkoutItemsEl.textContent = catalogState === "loading" ? "Loading current prices..." : "Current prices unavailable. Please try again shortly.";
+    return;
+  }
   const count = cartCount();
   const total = cartTotal();
 
@@ -46,8 +55,8 @@ function renderCheckoutSummary() {
       return `
         <div class="flex items-center justify-between py-2 border-b border-white/5">
           <div class="min-w-0 mr-3">
-            <span class="text-white text-sm font-medium">${p.name}</span>
-            <span class="text-gray-400 text-xs ml-1.5">${p.size} × ${qty}</span>
+            <span class="text-white text-sm font-medium">${escapeHTML(p.name)}</span>
+            <span class="text-gray-400 text-xs ml-1.5">${escapeHTML(p.size)} × ${qty}</span>
           </div>
           <span class="text-[var(--gold-soft)] text-sm shrink-0">KES ${formatKes(p.priceKes * qty)}</span>
         </div>`;
@@ -77,75 +86,88 @@ window.addEventListener("scroll", updateBackToTopVisibility, { passive: true });
 // --------------------
 checkoutForm?.addEventListener("submit", async (e) => {
   e.preventDefault();
-  if (cartCount() === 0) return;
-
-  const fd = new FormData(checkoutForm);
-  const customer = {
-    name: String(fd.get("name") || ""),
-    phone: String(fd.get("phone") || ""),
-    location: String(fd.get("location") || ""),
-    delivery: String(fd.get("delivery") || "delivery"),
-    notes: String(fd.get("notes") || ""),
-    payment: String(fd.get("payment") || "on_delivery"),
-  };
-
-  const orderPayload = {
-    customer,
-    items: Object.entries(cart).map(([id, qty]) => {
-      const p = getProduct(id);
-      return { id, name: p?.name, size: p?.size, priceKes: p?.priceKes, qty };
-    }),
-    totalKes: cartTotal(),
-  };
-
-  // Disable submit while processing
-  const submitBtn = checkoutForm.querySelector("[type='submit']");
-  if (submitBtn) {
-    submitBtn.disabled = true;
-    submitBtn.textContent = "Placing order…";
-  }
-
+  if (checkoutBusy) return;
+  checkoutBusy = true;
   try {
-    const res = await fetch(`${API_BASE}/api/orders`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(orderPayload),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.error || "Order submission failed.");
+    await loadCatalog();
+    if (!cartAvailable()) {
+      alert("Some items are unavailable. Please review your cart.");
+      return;
     }
+    if (cartCount() === 0) return;
 
-    // Save order locally as a backup copy
-    const localOrder = { ...data.order, _savedAt: new Date().toISOString() };
-    orders.unshift(localOrder);
-    saveOrders(orders);
+    const fd = new FormData(checkoutForm);
+    const customer = {
+      name: String(fd.get("name") || ""),
+      phone: String(fd.get("phone") || ""),
+      location: String(fd.get("location") || ""),
+      delivery: String(fd.get("delivery") || "delivery"),
+      notes: String(fd.get("notes") || ""),
+      payment: String(fd.get("payment") || "on_delivery"),
+    };
 
-    clearCart();
-    checkoutForm.reset();
+    const orderPayload = {
+      customer,
+      items: Object.entries(cart).map(([id, qty]) => {
+        const p = getProduct(id);
+        return { id, name: p?.name, size: p?.size, priceKes: p?.priceKes, qty };
+      }),
+      totalKes: cartTotal(),
+    };
 
-    if (customer.payment === "pay_now") {
-      if (data.stkPush) {
-        showStkOverlay();
-        await pollPaymentStatus(data.order.id);
-      } else {
-        showPaymentInitiationFailure(data.warning);
-      }
-    } else {
-      showOrderSuccess();
-    }
-  } catch (err) {
-    console.error("[checkout submit]", err);
-    alert(
-      `Could not place order: ${err.message}\n\nPlease try again or contact us on WhatsApp.`,
-    );
-  } finally {
+    // Disable submit while processing
+    const submitBtn = checkoutForm.querySelector("[type='submit']");
     if (submitBtn) {
-      submitBtn.disabled = false;
-      submitBtn.textContent = "Place Order";
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Placing order…";
     }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderPayload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Order submission failed.");
+      }
+
+      // Save order locally as a backup copy
+      const localOrder = { ...data.order, _savedAt: new Date().toISOString() };
+      orders.unshift(localOrder);
+      saveOrders(orders);
+
+      clearCart();
+      checkoutForm.reset();
+
+      if (customer.payment === "pay_now") {
+        if (data.stkPush) {
+          showStkOverlay();
+          await pollPaymentStatus(data.order.id);
+        } else {
+          showPaymentInitiationFailure(data.warning);
+        }
+      } else {
+        showOrderSuccess();
+      }
+    } catch (err) {
+      console.error("[checkout submit]", err);
+      alert(
+        `Could not place order: ${err.message}\n\nPlease try again or contact us on WhatsApp.`,
+      );
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = !cartAvailable();
+        submitBtn.textContent = "Place Order";
+      }
+    }
+  } finally {
+    checkoutBusy = false;
+    const submit = checkoutForm.querySelector("[type='submit']");
+    if (submit) submit.disabled = !cartAvailable();
   }
 });
 
@@ -307,3 +329,5 @@ function showOrderStatus(label, title, message) {
 // --------------------
 renderCheckoutSummary();
 updateBackToTopVisibility();
+
+document.addEventListener("catalogUpdated", renderCheckoutSummary);

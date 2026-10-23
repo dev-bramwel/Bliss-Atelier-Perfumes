@@ -1,0 +1,100 @@
+{
+  "id": "REPLACE-WITH-COUNT-REFERENCE",
+  "kind": "opening",
+  "actor": "REPLACE-WITH-OWNER-ID",
+  "evidence": "REPLACE-WITH-SIGNED-COUNT-REFERENCE",
+  "lines": [
+    {
+      "productId": "p1",
+      "quantity": null
+    },
+    {
+      "productId": "p2",
+      "quantity": null
+    },
+    {
+      "productId": "p3",
+      "quantity": null
+    },
+    {
+      "productId": "p4",
+      "quantity": null
+    },
+    {
+      "productId": "p5",
+      "quantity": null
+    },
+    {
+      "productId": "p6",
+      "quantity": null
+    },
+    {
+      "productId": "p7",
+      "quantity": null
+    },
+    {
+      "productId": "p8",
+      "quantity": null
+    },
+    {
+      "productId": "p9",
+      "quantity": null
+    },
+    {
+      "productId": "p10",
+      "quantity": null
+    },
+    {
+      "productId": "p11",
+      "quantity": null
+    },
+    {
+      "productId": "p12",
+      "quantity": null
+    },
+    {
+      "productId": "p13",
+      "quantity": null
+    },
+    {
+      "productId": "p14",
+      "quantity": null
+    },
+    {
+      "productId": "p15",
+      "quantity": null
+    },
+    {
+      "productId": "p16",
+      "quantity": null
+    },
+    {
+      "productId": "p17",
+      "quantity": null
+    },
+    {
+      "productId": "p18",
+      "quantity": null
+    },
+    {
+      "productId": "p19",
+      "quantity": null
+    },
+    {
+      "productId": "p20",
+      "quantity": null
+    },
+    {
+      "productId": "p21",
+      "quantity": null
+    },
+    {
+      "productId": "p22",
+      "quantity": null
+    },
+    {
+      "productId": "p23",
+      "quantity": null
+    }
+  ]
+}

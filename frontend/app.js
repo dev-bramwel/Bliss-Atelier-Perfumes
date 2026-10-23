@@ -1,4 +1,4 @@
-﻿// --------------------
+// --------------------
 // DOM (index page)
 // --------------------
 const productGrid = document.getElementById("productGrid");
@@ -91,6 +91,11 @@ function getFilters() {
 }
 
 function renderProducts() {
+  if (catalogState !== "ready") {
+    resultsCount.textContent = "0";
+    productGrid.textContent = catalogState === "loading" ? "Loading collection..." : "Collection unavailable. Please try again shortly.";
+    return;
+  }
   const { search, category, gender } = getFilters();
   let filtered = PRODUCTS.slice();
 
@@ -119,12 +124,18 @@ function renderProducts() {
         `Item: ${p.name} (${p.size})`,
         `Price: KES ${p.priceKes}`,
       ]);
+      const eName = escapeHTML(p.name);
+      const eGender = escapeHTML(p.gender ?? "Unisex");
+      const eCategory = escapeHTML(p.category);
+      const eSize = escapeHTML(p.size);
+      const eNotes = escapeHTML(p.notes);
+      const eThumb = escapeHTML(thumb);
       return `
     <div class="glass-panel rounded-3xl overflow-hidden border border-white/10 flex flex-col">
       <div class="product-card-img" data-open-product="${p.id}">
-        <img src="${thumb}" alt="${p.name}"
+        <img src="${eThumb}" alt="${eName}"
              onerror="this.onerror=null;this.classList.add('img-broken')" loading="lazy">
-        <div class="product-card-img-placeholder"><span>${p.name.charAt(0)}</span></div>
+        <div class="product-card-img-placeholder"><span>${eName.charAt(0)}</span></div>
         <div class="product-card-img-overlay">
           <span class="product-card-view-btn">View Details</span>
         </div>
@@ -132,17 +143,17 @@ function renderProducts() {
       <div class="p-5 flex flex-col flex-1">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">${p.gender ?? "Unisex"} &bull; ${p.category}</div>
-            <h3 class="text-xl font-semibold text-white">${p.name}</h3>
-            <p class="text-sm text-gray-400">${p.size} &bull; ${p.notes}</p>
+            <div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">${eGender} &bull; ${eCategory}</div>
+            <h3 class="text-xl font-semibold text-white">${eName}</h3>
+            <p class="text-sm text-gray-400">${eSize} &bull; ${eNotes}</p>
           </div>
           <div class="text-right shrink-0">
             <div class="font-semibold text-lg text-[var(--gold-soft)]">KES ${formatKes(p.priceKes)}</div>
           </div>
         </div>
         <div class="mt-5 flex flex-col sm:flex-row gap-2">
-          <button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}">
-            Add to cart
+          <button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}" ${p.available ? "" : "disabled"}>
+            ${p.available ? "Add to cart" : "Currently unavailable"}
           </button>
           <a class="w-full sm:w-auto py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 text-center hover:bg-white/10"
              href="${wa}" target="_blank" rel="noreferrer">
@@ -274,6 +285,7 @@ function getOrCreateModal() {
 }
 
 function openProductModal(id) {
+  if (!catalogFresh()) return;
   const p = getProduct(id);
   if (!p) return;
 
@@ -285,6 +297,8 @@ function openProductModal(id) {
   document.getElementById("modalBadge").textContent =
     `${p.gender ?? "Unisex"} \u2022 ${p.category}`;
   document.getElementById("modalName").textContent = p.name;
+  document.getElementById("modalAddToCart").disabled = !p.available;
+  document.getElementById("modalAddToCart").textContent = p.available ? "Add to Cart" : "Currently unavailable";
   document.getElementById("modalPrice").textContent =
     `KES ${formatKes(p.priceKes)}`;
   document.getElementById("modalMeta").textContent =
@@ -342,7 +356,7 @@ function renderModalImages() {
     .map(
       (src, i) =>
         `<button class="product-thumb-btn${i === _modalImageIdx ? " active" : ""}" data-tidx="${i}">
-          <img src="${src}" alt="Thumbnail ${i + 1}" onerror="this.onerror=null;this.classList.add('img-broken')" loading="lazy">
+          <img src="${escapeHTML(src)}" alt="Thumbnail ${i + 1}" onerror="this.onerror=null;this.classList.add('img-broken')" loading="lazy">
         </button>`,
     )
     .join("");
@@ -433,3 +447,9 @@ renderFilterOptions();
 renderProducts();
 updateCartBadges();
 updateBackToTopVisibility();
+
+let catalogFiltersInitialized = false;
+document.addEventListener("catalogUpdated", () => {
+  if (!catalogFiltersInitialized && catalogState === "ready") { renderFilterOptions(); catalogFiltersInitialized = true; }
+  renderProducts();
+});

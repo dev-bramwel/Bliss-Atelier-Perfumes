@@ -73,3 +73,7 @@ Final `go test -race ./...` passed in the Linux Go 1.27.3 container against the 
 Node 24 container: `npm ci --ignore-scripts` followed by `npm test` passed all seven helper/fixture tests. The install reported 22 existing legacy npm vulnerabilities (one critical); no Node runtime dependency changes are included here. OpenAPI 3.0.3 validation passed using `@apidevtools/swagger-parser@12.1.0` installed only inside a disposable Node container. Static response fixtures are source-derived; full route/browser parity is still a later migration gate.
 
 Evidence is local, including disposable containers; no sandbox provider or production verification is claimed. Authorization review: Go exposes no order/customer/payment routes, and legacy authorization gaps are explicitly excluded from target parity. Operational signals cover process start/stop, config failure and live/ready health; business metrics remain later work. No production schema migration or rollout occurred. PR/reviewer sign-off and issue closure have not been performed; total engineering effort has not been measured.
+
+## Database catalog and stock
+
+Go now serves `GET /catalog` (`/api/catalog` through the local web proxy). See the [stock workflow](../docs/stock-workflow.md) for the version 2 migration, trusted operator CLI, opening-count template, approval expiry and rollback limits. Orders/payments remain legacy and must not be connected to this catalog for live selling before the later checkout/stock integration.

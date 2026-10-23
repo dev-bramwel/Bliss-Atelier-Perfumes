@@ -1,0 +1,1009 @@
+{
+  "MpesaTransaction": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "createdAt",
+        "timestamp(3) without time zone",
+        true,
+        "CURRENT_TIMESTAMP",
+        "",
+        "",
+        null
+      ],
+      [
+        "updatedAt",
+        "timestamp(3) without time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "orderId",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "merchantRequestId",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "checkoutRequestId",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "resultCode",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "resultDesc",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "mpesaReceiptNumber",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "transactionDate",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "phoneNumber",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        "'PENDING'::text",
+        "",
+        "",
+        "default"
+      ]
+    ],
+    "indexes": [
+      [
+        "MpesaTransaction_checkoutRequestId_key",
+        "CREATE UNIQUE INDEX \"MpesaTransaction_checkoutRequestId_key\" ON public.\"MpesaTransaction\" USING btree (\"checkoutRequestId\")",
+        true,
+        true
+      ],
+      [
+        "MpesaTransaction_orderId_key",
+        "CREATE UNIQUE INDEX \"MpesaTransaction_orderId_key\" ON public.\"MpesaTransaction\" USING btree (\"orderId\")",
+        true,
+        true
+      ],
+      [
+        "MpesaTransaction_pkey",
+        "CREATE UNIQUE INDEX \"MpesaTransaction_pkey\" ON public.\"MpesaTransaction\" USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "MpesaTransaction_orderId_fkey",
+        "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE RESTRICT",
+        true
+      ],
+      [
+        "MpesaTransaction_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "Order": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "createdAt",
+        "timestamp(3) without time zone",
+        true,
+        "CURRENT_TIMESTAMP",
+        "",
+        "",
+        null
+      ],
+      [
+        "updatedAt",
+        "timestamp(3) without time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "customerName",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "customerPhone",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "deliveryLocation",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "deliveryOption",
+        "text",
+        true,
+        "'delivery'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "notes",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "paymentMethod",
+        "text",
+        true,
+        "'on_delivery'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "paymentStatus",
+        "text",
+        true,
+        "'PENDING'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "totalKes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "items",
+        "jsonb",
+        true,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "Order_pkey",
+        "CREATE UNIQUE INDEX \"Order_pkey\" ON public.\"Order\" USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "Order_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "bliss_schema_migrations": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "version",
+        "bigint",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "checksum",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "origin",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "applied_at",
+        "timestamp with time zone",
+        true,
+        "CURRENT_TIMESTAMP",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "bliss_schema_migrations_pkey",
+        "CREATE UNIQUE INDEX bliss_schema_migrations_pkey ON public.bliss_schema_migrations USING btree (version)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "bliss_schema_migrations_origin_check",
+        "CHECK ((origin = ANY (ARRAY['empty'::text, 'prisma'::text])))",
+        true
+      ],
+      [
+        "bliss_schema_migrations_pkey",
+        "PRIMARY KEY (version)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "catalog_product": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "slug",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "name",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "category",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "category_slug",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "gender",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "size",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "notes",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "description",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "images",
+        "jsonb",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "price_override_kes",
+        "integer",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "stock",
+        "integer",
+        true,
+        "0",
+        "",
+        "",
+        null
+      ],
+      [
+        "opened",
+        "boolean",
+        true,
+        "false",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "catalog_product_pkey",
+        "CREATE UNIQUE INDEX catalog_product_pkey ON public.catalog_product USING btree (id)",
+        true,
+        true
+      ],
+      [
+        "catalog_product_slug_key",
+        "CREATE UNIQUE INDEX catalog_product_slug_key ON public.catalog_product USING btree (slug)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "catalog_product_images_check",
+        "CHECK ((jsonb_typeof(images) = 'array'::text))",
+        true
+      ],
+      [
+        "catalog_product_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ],
+      [
+        "catalog_product_price_override_kes_check",
+        "CHECK ((price_override_kes > 0))",
+        true
+      ],
+      [
+        "catalog_product_slug_key",
+        "UNIQUE (slug)",
+        true
+      ],
+      [
+        "catalog_product_stock_check",
+        "CHECK ((stock >= 0))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "catalog_settings": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "singleton",
+        "boolean",
+        true,
+        "true",
+        "",
+        "",
+        null
+      ],
+      [
+        "common_price_kes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "catalog_settings_pkey",
+        "CREATE UNIQUE INDEX catalog_settings_pkey ON public.catalog_settings USING btree (singleton)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "catalog_settings_common_price_kes_check",
+        "CHECK ((common_price_kes > 0))",
+        true
+      ],
+      [
+        "catalog_settings_pkey",
+        "PRIMARY KEY (singleton)",
+        true
+      ],
+      [
+        "catalog_settings_singleton_check",
+        "CHECK (singleton)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_approval": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "uuid",
+        true,
+        "gen_random_uuid()",
+        "",
+        "",
+        null
+      ],
+      [
+        "actor",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "evidence",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "valid_until",
+        "timestamp with time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_approval_pkey",
+        "CREATE UNIQUE INDEX stock_approval_pkey ON public.stock_approval USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_approval_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_batch": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "digest",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "kind",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "actor",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "evidence",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_batch_pkey",
+        "CREATE UNIQUE INDEX stock_batch_pkey ON public.stock_batch USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_batch_kind_check",
+        "CHECK ((kind = ANY (ARRAY['opening'::text, 'receipt'::text, 'local_sale'::text, 'adjustment'::text, 'reconcile'::text])))",
+        true
+      ],
+      [
+        "stock_batch_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_control": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "singleton",
+        "boolean",
+        true,
+        "true",
+        "",
+        "",
+        null
+      ],
+      [
+        "authority",
+        "text",
+        true,
+        "'unconfirmed'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "reconciled_until",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "approved_by",
+        "text",
+        true,
+        "''::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "evidence",
+        "text",
+        true,
+        "''::text",
+        "",
+        "",
+        "default"
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_control_pkey",
+        "CREATE UNIQUE INDEX stock_control_pkey ON public.stock_control USING btree (singleton)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_control_authority_check",
+        "CHECK ((authority = ANY (ARRAY['unconfirmed'::text, 'replacement'::text])))",
+        true
+      ],
+      [
+        "stock_control_pkey",
+        "PRIMARY KEY (singleton)",
+        true
+      ],
+      [
+        "stock_control_singleton_check",
+        "CHECK (singleton)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_entry": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "batch_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "product_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "delta",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "balance",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_entry_pkey",
+        "CREATE UNIQUE INDEX stock_entry_pkey ON public.stock_entry USING btree (batch_id, product_id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_entry_balance_check",
+        "CHECK ((balance >= 0))",
+        true
+      ],
+      [
+        "stock_entry_batch_id_fkey",
+        "FOREIGN KEY (batch_id) REFERENCES stock_batch(id)",
+        true
+      ],
+      [
+        "stock_entry_pkey",
+        "PRIMARY KEY (batch_id, product_id)",
+        true
+      ],
+      [
+        "stock_entry_product_id_fkey",
+        "FOREIGN KEY (product_id) REFERENCES catalog_product(id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "_prisma_migrations": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "character varying(36)",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "checksum",
+        "character varying(64)",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "finished_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "migration_name",
+        "character varying(255)",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "logs",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "rolled_back_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "started_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "applied_steps_count",
+        "integer",
+        true,
+        "0",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "_prisma_migrations_pkey",
+        "CREATE UNIQUE INDEX _prisma_migrations_pkey ON public._prisma_migrations USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "_prisma_migrations_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  }
+}

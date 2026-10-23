@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/catalog"
 	"log/slog"
 	"net"
 	"net/http"
@@ -13,13 +14,16 @@ import (
 )
 
 type Ping func(context.Context) error
+type Catalog interface {
+	Products(context.Context) ([]catalog.Product, error)
+}
 
 type API struct {
 	server   *http.Server
 	draining atomic.Bool
 }
 
-func New(address string, timeout time.Duration, ping Ping) *API {
+func New(address string, timeout time.Duration, ping Ping, catalogs ...Catalog) *API {
 	a := &API{}
 	mux := http.NewServeMux()
 	respond := func(w http.ResponseWriter, code int, body any) {
@@ -27,6 +31,22 @@ func New(address string, timeout time.Duration, ping Ping) *API {
 		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(body)
 	}
+	mux.HandleFunc("GET /catalog", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		if a.draining.Load() || len(catalogs) == 0 || catalogs[0] == nil {
+			respond(w, 503, map[string]string{"error": "catalog unavailable"})
+			return
+		}
+		products, err := catalogs[0].Products(ctx)
+		if err != nil {
+			slog.Warn("catalog_unavailable")
+			respond(w, 503, map[string]string{"error": "catalog unavailable"})
+			return
+		}
+		respond(w, 200, map[string]any{"products": products})
+	})
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"status": "Bliss Atelier API running"})
 	})
