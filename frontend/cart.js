@@ -77,9 +77,9 @@ function renderCart() {
       return `
       <div class="glass-panel rounded-2xl p-4 flex items-center justify-between gap-3 border border-white/10">
         <div class="min-w-0">
-          <div class="font-medium text-white truncate">${p.name}</div>
-          <div class="text-sm text-gray-300">${p.size} • KES ${formatKes(p.priceKes)}</div>
-          <div class="text-xs text-gray-500">${p.gender ?? "Unisex"} • ${p.category} • ${p.notes}</div>
+          <div class="font-medium text-white truncate">${escapeHTML(p.name)}</div>
+          <div class="text-sm text-gray-300">${escapeHTML(p.size)} • KES ${formatKes(p.priceKes)}</div>
+          <div class="text-xs text-gray-500">${escapeHTML(p.gender ?? "Unisex")} • ${escapeHTML(p.category)} • ${escapeHTML(p.notes)}</div>
         </div>
 
         <div class="flex items-center gap-2 shrink-0">

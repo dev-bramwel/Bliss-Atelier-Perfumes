@@ -36,11 +36,10 @@ async function loadCatalog() {
       const safe = {...p};
       for (const field of ["name", "category", "gender", "size", "notes", "description"]) {
         if (typeof p[field] !== "string") throw new Error("Invalid product field");
-        safe[field] = escapeHTML(p[field]);
       }
       safe.images = p.images.map(url => {
         if (typeof url !== "string" || !/^img\/[a-zA-Z0-9% ._-]+\.jpeg$/.test(url)) throw new Error("Invalid media path");
-        return escapeHTML(url);
+        return url;
       });
       return safe;
     });

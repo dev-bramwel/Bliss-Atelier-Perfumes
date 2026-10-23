@@ -18,7 +18,7 @@ test('database prices load, unsafe media and failures clear products, stale cart
   response = {ok: true, json: async () => ({products: [product]})};
   await vm.runInContext('loadCatalog()', context);
   assert.equal(vm.runInContext('getProduct("p1").priceKes', context), 2500);
-  assert.equal(vm.runInContext('getProduct("p1").name', context), 'A &lt;perfume&gt;');
+  assert.equal(vm.runInContext('getProduct("p1").name', context), 'A <perfume>');
   vm.runInContext('cart = {p1: 2}', context);
   assert.equal(vm.runInContext('cartTotal()', context), 5000);
   assert.equal(vm.runInContext('cartAvailable()', context), true);

@@ -55,8 +55,8 @@ function renderCheckoutSummary() {
       return `
         <div class="flex items-center justify-between py-2 border-b border-white/5">
           <div class="min-w-0 mr-3">
-            <span class="text-white text-sm font-medium">${p.name}</span>
-            <span class="text-gray-400 text-xs ml-1.5">${p.size} × ${qty}</span>
+            <span class="text-white text-sm font-medium">${escapeHTML(p.name)}</span>
+            <span class="text-gray-400 text-xs ml-1.5">${escapeHTML(p.size)} × ${qty}</span>
           </div>
           <span class="text-[var(--gold-soft)] text-sm shrink-0">KES ${formatKes(p.priceKes * qty)}</span>
         </div>`;
