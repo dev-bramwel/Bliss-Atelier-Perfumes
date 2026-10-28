@@ -1,4 +1,4 @@
-.PHONY: setup build up down logs test docker-test
+.PHONY: setup build up down logs test docker-test format fmt
 setup:
 	cd backend && go run ./cmd/devstack secrets ../.local/dev
 build:
@@ -13,3 +13,7 @@ test:
 	cd backend && go vet ./... && go test ./...
 docker-test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-DockerCore.ps1
+format:
+	cd backend && gofmt -w cmd internal
+	npx prettier --write .
+fmt: format
