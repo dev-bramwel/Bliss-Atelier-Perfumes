@@ -18,7 +18,7 @@ Deliver a real, maintainable perfume commerce application with reliable payments
 - Redis, RabbitMQ, Kafka, Docker and Kubernetes are required implementation/learning deliverables by the deadline. Learn monolith versus microservices through an ADR and real component boundaries; a microservice rewrite is not required.
 - 50,000 users is a future scalability direction, not a December load acceptance target.
 
-- Existing inventory-only system is in use; this project must establish trustworthy monetary records alongside a deliberate stock integration or migration plan.
+- MyAccurateBooks remains in use until cutover. The owner chose replacement by Bliss Atelier as the single writable stock authority; see [ADR 004](adr/004-inventory-authority.md). Opening-stock entry and reconciliation remain implementation gates.
 
 ## Operating policies and deferred decisions
 
