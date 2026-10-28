@@ -5,6 +5,7 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | Document                                                    | Purpose                                                                                                           |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | [R01 decisions](release-scope-decisions.md)                 | Confirmed owner policies, current capacity decision and unresolved closure gates                                  |
+| [R02 NCBA payments](ncba-payments.md)                       | Bank-guide contracts, collection mapping, onboarding owners and unresolved authorization/reconciliation gates     |
 | [Scope](scope.md)                                           | Product boundaries, open decisions, and completion criteria                                                       |
 | [Current assessment](current-assessment.md)                 | Evidence from the code and improvement priorities                                                                 |
 | [Architecture](architecture.md)                             | Proposed components, data model, workflows, and API contracts                                                     |
