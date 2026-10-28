@@ -11,19 +11,7 @@
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              display: ['"Playfair Display"', "serif"],
-              sans: ['"Manrope"', "sans-serif"],
-            },
-          },
-        },
-      };
-    </script>
+    <link rel="stylesheet" href="tailwind.css" />
     <link rel="stylesheet" href="style.css" />
   </head>
 
@@ -281,7 +269,10 @@
                 >
                   Order Confirmed
                 </p>
-                <h4 id="orderStatusTitle" class="text-xl font-display text-white">
+                <h4
+                  id="orderStatusTitle"
+                  class="text-xl font-display text-white"
+                >
                   Thank you for shopping with us!
                 </h4>
                 <p id="orderStatusMessage" class="text-sm text-gray-400">

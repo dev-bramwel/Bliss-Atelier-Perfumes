@@ -12,6 +12,16 @@ const whatsappLink = document.getElementById("whatsappLink");
 // RENDER CART
 // --------------------
 function renderCart() {
+  if (catalogState !== "ready") {
+    if (cartItemsEl)
+      cartItemsEl.textContent =
+        catalogState === "loading"
+          ? "Loading current prices..."
+          : "Current prices unavailable. Please try again shortly.";
+    if (cartTotalEl) cartTotalEl.textContent = "-";
+    if (toCheckoutBtn) toCheckoutBtn.disabled = true;
+    return;
+  }
   const count = cartCount();
   const total = cartTotal();
 
@@ -25,7 +35,7 @@ function renderCart() {
 
   // Toggle checkout button
   if (toCheckoutBtn) {
-    toCheckoutBtn.disabled = count === 0;
+    toCheckoutBtn.disabled = count === 0 || !cartAvailable();
     toCheckoutBtn.classList.toggle("opacity-40", count === 0);
     toCheckoutBtn.classList.toggle("cursor-not-allowed", count === 0);
   }
@@ -71,9 +81,9 @@ function renderCart() {
       return `
       <div class="glass-panel rounded-2xl p-4 flex items-center justify-between gap-3 border border-white/10">
         <div class="min-w-0">
-          <div class="font-medium text-white truncate">${p.name}</div>
-          <div class="text-sm text-gray-300">${p.size} • KES ${formatKes(p.priceKes)}</div>
-          <div class="text-xs text-gray-500">${p.gender ?? "Unisex"} • ${p.category} • ${p.notes}</div>
+          <div class="font-medium text-white truncate">${escapeHTML(p.name)}</div>
+          <div class="text-sm text-gray-300">${escapeHTML(p.size)} • KES ${formatKes(p.priceKes)}</div>
+          <div class="text-xs text-gray-500">${escapeHTML(p.gender ?? "Unisex")} • ${escapeHTML(p.category)} • ${escapeHTML(p.notes)}</div>
         </div>
 
         <div class="flex items-center gap-2 shrink-0">
@@ -118,12 +128,12 @@ function renderCart() {
 // NAVIGATION
 // --------------------
 toCheckoutBtn?.addEventListener("click", () => {
-  if (cartCount() === 0) return;
+  if (cartCount() === 0 || !cartAvailable()) return;
   window.location.href = "checkout.html";
 });
 
 clearCartBtn?.addEventListener("click", () => {
-  if (cartCount() === 0) return;
+  if (cartCount() === 0 || !cartAvailable()) return;
   clearCart();
 });
 
@@ -154,3 +164,5 @@ document.addEventListener("cartUpdated", renderCart);
 // --------------------
 renderCart();
 updateBackToTopVisibility();
+
+document.addEventListener("catalogUpdated", renderCart);

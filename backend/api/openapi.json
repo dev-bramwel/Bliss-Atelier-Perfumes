@@ -1,0 +1,606 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Bliss Atelier legacy compatibility draft",
+    "version": "0.1.0",
+    "description": "Observed Express contracts for migration. Go implements root, health and the database catalog; orders/payments remain legacy. The local web proxy exposes /catalog as /api/catalog. Legacy KES 2000 and on_delivery behavior conflict with R01 and are not approved target policy. Guest authorization and callback settlement validation remain cutover gates."
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "rootStatus",
+        "responses": {
+          "200": {
+            "description": "API process status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["status"],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "Bliss Atelier API running"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "liveness",
+        "responses": {
+          "200": {
+            "description": "Go process alive"
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "readiness",
+        "responses": {
+          "200": {
+            "description": "Go foundation ready; configured DB reachable. Does not claim checkout readiness."
+          },
+          "503": {
+            "description": "Draining or configured database unavailable"
+          }
+        }
+      }
+    },
+    "/api/orders": {
+      "post": {
+        "operationId": "createLegacyOrder",
+        "description": "Legacy route only. Server ignores client amounts. R01 pricing and payment-policy changes require a coordinated rollout.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Checkout"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Order saved; payment is not verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderEnvelope"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Order saved with initiation or mapping warning; do not blindly retry payment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarningEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/payment-status": {
+      "get": {
+        "operationId": "legacyPaymentStatus",
+        "description": "Observed legacy route has no scoped authorization. This must be repaired with a coordinated frontend change before cutover.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Opaque ID, including legacy CUID; not UUID-only"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Order not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/api/mpesa/callback": {
+      "post": {
+        "operationId": "legacyCallback",
+        "description": "Observed legacy route. Signed order correlation or legacy token is required. These are not proof of settlement; deduplication, amount verification and no-paid-downgrade remain required dependent work.",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "signature",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-fA-F0-9]{64}$"
+            }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "deprecated": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Legacy shared-secret compatibility; never log query values"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["Body"],
+                "properties": {
+                  "Body": {
+                    "type": "object",
+                    "required": ["stkCallback"],
+                    "properties": {
+                      "stkCallback": {
+                        "type": "object",
+                        "required": ["CheckoutRequestID", "ResultCode"],
+                        "properties": {
+                          "MerchantRequestID": {
+                            "type": "string"
+                          },
+                          "CheckoutRequestID": {
+                            "type": "string"
+                          },
+                          "ResultCode": {
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "ResultDesc": {
+                            "type": "string"
+                          },
+                          "CallbackMetadata": {
+                            "type": "object",
+                            "properties": {
+                              "Item": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "Name": {
+                                      "type": "string"
+                                    },
+                                    "Value": {
+                                      "oneOf": [
+                                        {
+                                          "type": "string"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Callback processed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["ResultCode", "ResultDesc"],
+                  "properties": {
+                    "ResultCode": {
+                      "type": "integer",
+                      "enum": [0]
+                    },
+                    "ResultDesc": {
+                      "type": "string",
+                      "enum": ["Accepted"]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "description": "Unauthorized callback"
+          },
+          "503": {
+            "description": "Transaction mapping not yet available"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/catalog": {
+      "get": {
+        "operationId": "listCatalog",
+        "description": "Database metadata and effective integer KES prices. Availability requires approved, opened, positive stock before reconciliation expiry. No-store. Runtime has read-only catalog access.",
+        "responses": {
+          "200": {
+            "description": "Catalog products",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["products"],
+                  "properties": {
+                    "products": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "slug",
+                          "categorySlug",
+                          "priceKes",
+                          "available",
+                          "images"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "categorySlug": {
+                            "type": "string"
+                          },
+                          "priceKes": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "available": {
+                            "type": "boolean"
+                          },
+                          "images": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Catalog database unavailable; no fallback prices or availability"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "responses": {
+      "BadRequest": {
+        "description": "Invalid input",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "Safe internal error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "Checkout": {
+        "type": "object",
+        "required": ["customer", "items"],
+        "properties": {
+          "customer": {
+            "type": "object",
+            "required": ["name", "phone", "location"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "phone": {
+                "type": "string"
+              },
+              "location": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "delivery": {
+                "type": "string",
+                "enum": ["delivery", "pickup"],
+                "default": "delivery"
+              },
+              "payment": {
+                "type": "string",
+                "enum": ["pay_now", "on_delivery"],
+                "default": "on_delivery",
+                "description": "Historical only: R01 prohibits on_delivery"
+              }
+            }
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/ItemInput"
+            }
+          },
+          "totalKes": {
+            "type": "integer",
+            "description": "Ignored client hint"
+          }
+        }
+      },
+      "ItemInput": {
+        "type": "object",
+        "required": ["id", "qty"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^p([1-9]|1[0-9]|2[0-3])$"
+          },
+          "qty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "name": {
+            "type": "string",
+            "description": "Ignored client hint"
+          },
+          "size": {
+            "type": "string",
+            "description": "Ignored client hint"
+          },
+          "priceKes": {
+            "type": "integer",
+            "description": "Ignored client hint"
+          }
+        }
+      },
+      "PricedItem": {
+        "type": "object",
+        "required": ["id", "name", "size", "priceKes", "qty"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          },
+          "priceKes": {
+            "type": "integer"
+          },
+          "qty": {
+            "type": "integer"
+          }
+        }
+      },
+      "Order": {
+        "type": "object",
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "customerName",
+          "customerPhone",
+          "deliveryLocation",
+          "deliveryOption",
+          "notes",
+          "paymentMethod",
+          "paymentStatus",
+          "totalKes",
+          "items"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "customerPhone": {
+            "type": "string"
+          },
+          "deliveryLocation": {
+            "type": "string"
+          },
+          "deliveryOption": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "paymentMethod": {
+            "type": "string"
+          },
+          "paymentStatus": {
+            "type": "string"
+          },
+          "totalKes": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PricedItem"
+            }
+          }
+        }
+      },
+      "STKResult": {
+        "type": "object",
+        "nullable": true,
+        "required": [
+          "merchantRequestId",
+          "checkoutRequestId",
+          "responseDescription"
+        ],
+        "properties": {
+          "merchantRequestId": {
+            "type": "string"
+          },
+          "checkoutRequestId": {
+            "type": "string"
+          },
+          "responseDescription": {
+            "type": "string"
+          }
+        }
+      },
+      "OrderEnvelope": {
+        "type": "object",
+        "required": ["order", "stkPush"],
+        "properties": {
+          "order": {
+            "$ref": "#/components/schemas/Order"
+          },
+          "stkPush": {
+            "$ref": "#/components/schemas/STKResult"
+          }
+        }
+      },
+      "WarningEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OrderEnvelope"
+          },
+          {
+            "type": "object",
+            "required": ["warning"],
+            "properties": {
+              "warning": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "PaymentStatus": {
+        "type": "object",
+        "required": [
+          "orderId",
+          "paymentStatus",
+          "mpesaStatus",
+          "receiptNumber"
+        ],
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "paymentStatus": {
+            "type": "string"
+          },
+          "mpesaStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "receiptNumber": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,8 +1,10 @@
 # CI/CD design
 
-Status: target workflow specification; no workflow is installed by this document. Owner has selected Go backend and vanilla frontend. The source repository is public on GitHub. The [R03 assessment](hosting-feasibility.md) recommends GHCR and standard public-repository runners subject to billing/access verification during implementation; no registry publication or sustainable public hosting has been established.
+Status: the [Docker core CI workflow](../.github/workflows/docker-core.yaml) implements Go formatting/module/vet/race/build checks, frontend CSS reproducibility/dependency checks, disposable SQL migration/restore checks and Docker core acceptance tests. The remaining release, security, browser and infrastructure jobs below remain target specifications. Owner has selected Go backend and vanilla frontend. The source repository is public on GitHub. The [R03 assessment](hosting-feasibility.md) recommends GHCR and standard public-repository runners subject to billing/access verification during implementation; no registry publication or sustainable public hosting has been established.
 
 ## PR pipeline
+
+The [R08 implementation](pr-checks.md) extends Docker core CI with security/contract checks, a real mobile browser smoke, redacted retained evidence, SBOMs and commit-addressed image exports. Release publishing and full product scenarios below remain future gates.
 
 Trigger on pull requests and main changes; minimal `contents: read` permissions. Pin third-party actions to reviewed commit SHAs, and choose the same supported Go version used in go.mod and Docker. Cancel superseded PR checks; do not cancel a production migration or deployment midway. Never execute untrusted PR code with deployment secrets or privileged self-hosted runners.
 

@@ -1,0 +1,460 @@
+{
+  "MpesaTransaction": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "createdAt",
+        "timestamp(3) without time zone",
+        true,
+        "CURRENT_TIMESTAMP",
+        "",
+        "",
+        null
+      ],
+      [
+        "updatedAt",
+        "timestamp(3) without time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "orderId",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "merchantRequestId",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "checkoutRequestId",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "resultCode",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "resultDesc",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "mpesaReceiptNumber",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "transactionDate",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "phoneNumber",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        "'PENDING'::text",
+        "",
+        "",
+        "default"
+      ]
+    ],
+    "indexes": [
+      [
+        "MpesaTransaction_checkoutRequestId_key",
+        "CREATE UNIQUE INDEX \"MpesaTransaction_checkoutRequestId_key\" ON public.\"MpesaTransaction\" USING btree (\"checkoutRequestId\")",
+        true,
+        true
+      ],
+      [
+        "MpesaTransaction_orderId_key",
+        "CREATE UNIQUE INDEX \"MpesaTransaction_orderId_key\" ON public.\"MpesaTransaction\" USING btree (\"orderId\")",
+        true,
+        true
+      ],
+      [
+        "MpesaTransaction_pkey",
+        "CREATE UNIQUE INDEX \"MpesaTransaction_pkey\" ON public.\"MpesaTransaction\" USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "MpesaTransaction_orderId_fkey",
+        "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE RESTRICT",
+        true
+      ],
+      [
+        "MpesaTransaction_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "Order": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "createdAt",
+        "timestamp(3) without time zone",
+        true,
+        "CURRENT_TIMESTAMP",
+        "",
+        "",
+        null
+      ],
+      [
+        "updatedAt",
+        "timestamp(3) without time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "customerName",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "customerPhone",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "deliveryLocation",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "deliveryOption",
+        "text",
+        true,
+        "'delivery'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "notes",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "paymentMethod",
+        "text",
+        true,
+        "'on_delivery'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "paymentStatus",
+        "text",
+        true,
+        "'PENDING'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "totalKes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "items",
+        "jsonb",
+        true,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "Order_pkey",
+        "CREATE UNIQUE INDEX \"Order_pkey\" ON public.\"Order\" USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "Order_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "_prisma_migrations": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "character varying(36)",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "checksum",
+        "character varying(64)",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "finished_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "migration_name",
+        "character varying(255)",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "logs",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "rolled_back_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "started_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "applied_steps_count",
+        "integer",
+        true,
+        "0",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "_prisma_migrations_pkey",
+        "CREATE UNIQUE INDEX _prisma_migrations_pkey ON public._prisma_migrations USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "_prisma_migrations_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "bliss_schema_migrations": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "version",
+        "bigint",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "checksum",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "origin",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "applied_at",
+        "timestamp with time zone",
+        true,
+        "CURRENT_TIMESTAMP",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "bliss_schema_migrations_pkey",
+        "CREATE UNIQUE INDEX bliss_schema_migrations_pkey ON public.bliss_schema_migrations USING btree (version)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "bliss_schema_migrations_origin_check",
+        "CHECK ((origin = ANY (ARRAY['empty'::text, 'prisma'::text])))",
+        true
+      ],
+      [
+        "bliss_schema_migrations_pkey",
+        "PRIMARY KEY (version)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  }
+}
