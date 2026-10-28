@@ -25,7 +25,7 @@ async function loadCatalog() {
   catalogState = "loading";
   const base = (document.querySelector('meta[name="api-base-url"]')?.content.trim() || "").replace(/\/$/, "");
   try {
-    const response = await fetch(`${base}/api/catalog`, {cache: "no-store", signal: AbortSignal.timeout(5000)});
+    const response = await fetch(`${base}/api/catalog`, {cache: "no-store", signal: AbortSignal.timeout(15000)});
     if (!response.ok) throw new Error("Catalog unavailable");
     const data = await response.json();
     if (!Array.isArray(data.products) || !data.products.length) throw new Error("Invalid catalog");
@@ -48,6 +48,7 @@ async function loadCatalog() {
   } catch {
     PRODUCTS = [];
     catalogState = "unavailable";
+    setTimeout(loadCatalog, 1500);
   }
   document.dispatchEvent(new Event("catalogUpdated"));
 }

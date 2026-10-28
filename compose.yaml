@@ -63,6 +63,8 @@ services:
       GO_HTTP_ADDR: 0.0.0.0:5001
       GO_DATABASE_URL_FILE: /run/secrets/runtime_url
       GO_REQUIRE_SCHEMA: "true"
+      GO_IO_TIMEOUT: 15s
+      GO_DB_MAX_CONNECTIONS: "16"
     secrets: [runtime_url]
     depends_on:
       migrate: {condition: service_completed_successfully}

@@ -41,7 +41,7 @@ func New(address string, timeout time.Duration, ping Ping, catalogs ...Catalog) 
 		}
 		products, err := catalogs[0].Products(ctx)
 		if err != nil {
-			slog.Warn("catalog_unavailable")
+			slog.Warn("catalog_unavailable", "reason", err.Error())
 			respond(w, 503, map[string]string{"error": "catalog unavailable"})
 			return
 		}
