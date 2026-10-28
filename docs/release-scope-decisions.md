@@ -79,3 +79,10 @@ Documentation changes only. Schema/config/API changes and data migration: not ap
 ## R09 inventory decision update - 22 October 2026
 
 The owner confirmed in the project conversation that this database replaces the prior stock system; opening counts will be supplied. No external synchronization is selected. The owner also approved an owner reconciliation approval expiring within 24 hours: expired approval or database failure makes stock unavailable. Imports/corrections require renewed approval; recorded verified local sales deduct stock immediately without extending the deadline. This supersedes the open authority choice above. Actual opening counts, discrepancy sign-off and operational adoption remain outstanding; this decision does not assert that production stock has been reconciled.
+
+## R04 inventory lifecycle update - 28 October 2026
+
+The owner confirmed the operational boundary between the development phase and production launch:
+
+- Development operates against a mock/disposable database using synthetic batches to verify mapping validation, duplicate rejection, and ledger reconciliation.
+- At launch cutover, a brand-new production database will be provisioned. The live physical bottle count at the shop, the MyAccurateBooks discrepancy sign-off, and the production opening batch import are launch cutover procedures executed against that new production database.

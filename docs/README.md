@@ -2,39 +2,40 @@
 
 Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 December 2026, zero infrastructure budget. On 16 October the owner removed the fixed hours cap; see the R01 decision record. Updated 8 October: Go backend and HTML/CSS/JS frontend confirmed. Status: language/scope choices accepted; implementation and delivery plan remain draft.
 
-| Document                                                             | Purpose                                                                                                           |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| [R01 decisions](release-scope-decisions.md)                          | Confirmed owner policies, current capacity decision and unresolved closure gates                                  |
-| [R04 inventory reconciliation](inventory-reconciliation.md)          | Current stock workflow, proposed opening-count rules and remaining sign-off gates                                 |
-| [Research decision 005](adr/005-opening-stock-and-product-images.md) | Open comparison of Excel intake, PostgreSQL opening entry and product-image storage                               |
-| [ADR 004](adr/004-inventory-authority.md)                            | Owner-approved replacement of MyAccurateBooks as stock authority at future cutover                                |
-| [Scope](scope.md)                                                    | Product boundaries, open decisions, and completion criteria                                                       |
-| [Current assessment](current-assessment.md)                          | Evidence from the code and improvement priorities                                                                 |
-| [Architecture](architecture.md)                                      | Proposed components, data model, workflows, and API contracts                                                     |
-| [Roadmap and backlog](roadmap.md)                                    | Ordered milestones, issue IDs, dependencies, estimates, acceptance criteria                                       |
-| [Testing](testing.md)                                                | Correctness, security, performance, and recovery evidence                                                         |
-| [Operations](operations.md)                                          | Metrics, deployment, CI/CD, incident response, and launch                                                         |
-| [Development workflow](development-workflow.md)                      | Local checks, branches, PRs, review and completion rules                                                          |
-| [Naming and code rules](naming-and-code-rules.md)                    | Go, frontend, SQL, API, messaging and configuration conventions                                                   |
-| [CI/CD](ci-cd.md)                                                    | Check/build/release pipelines, artifacts and credentials                                                          |
-| [Required PR checks](pr-checks.md)                                   | R08 security/contracts/browser gates and commit-addressed build evidence                                          |
-| [Docker and environments](docker-and-local-environments.md)          | Planned files, container/service contracts and verification                                                       |
-| [Docker core setup](docker-core.md)                                  | Implemented R07 setup, local credentials, readiness and safe shutdown                                             |
-| [R07 Docker evidence](evidence/r07-docker-core.md)                   | Local container, persistence, failure and image checks                                                            |
-| [Infrastructure](infrastructure.md)                                  | Module ownership, topology and microservice extraction criteria                                                   |
-| [R03 hosting feasibility](hosting-feasibility.md)                    | Host inventory, individual-service measurements, provider restrictions, staged plan and unresolved capacity gates |
-| [R03 service evidence](evidence/r03-service-summary.md)              | Seven individual service baselines, raw results, retry evidence and repeat commands                               |
-| [ADR 003](adr/003-zero-budget-hosting.md)                            | Conditional hosting direction; public selection remains blocked pending evidence                                  |
-| [Deployment](deployment.md)                                          | Environment requirements, release/rollback and evidence                                                           |
-| [Security and data](security-and-data.md)                            | Access, secrets, payment trust and data lifecycle requirements                                                    |
-| [API and event contracts](api-and-event-contracts.md)                | Compatibility, errors, idempotency and message evolution                                                          |
-| [Backend migration](backend-migration.md)                            | Compatibility, database baseline and Go cutover                                                                   |
-| [SQL migration runbook](sql-migrations.md)                           | Implemented R06 commands, verified Prisma adoption, ownership and recovery                                        |
-| [R06 SQL evidence](evidence/r06-sql-baseline.md)                     | Local upgrade, mismatch, concurrency and backup/restore verification                                              |
-| [ADR 004](adr/004-sql-migration-baseline.md)                         | Selected transactional pgx SQL runner and baseline policy                                                         |
-| [Go foundation](../backend/README.md)                                | Implemented command/config/health surface, isolated harnesses and current limits                                  |
-| [ADR 002](adr/002-go-backend-and-vanilla-frontend.md)                | Accepted Go/vanilla direction and proposed technical defaults                                                     |
-| [ADR 001](adr/001-runtime-and-messaging.md)                          | Proposed runtime and messaging boundaries                                                                         |
+| Document                                                                | Purpose                                                                                                           |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [R01 decisions](release-scope-decisions.md)                             | Confirmed owner policies, current capacity decision and unresolved closure gates                                  |
+| [R04 inventory reconciliation](inventory-reconciliation.md)             | Current stock workflow, proposed opening-count rules and remaining sign-off gates                                 |
+| [R04 reconciliation evidence](evidence/r04-inventory-reconciliation.md) | Authority, mock DB validation, mapping rejection examples and launch boundary                                     |
+| [Research decision 005](adr/005-opening-stock-and-product-images.md)    | Open comparison of Excel intake, PostgreSQL opening entry and product-image storage                               |
+| [ADR 004](adr/004-inventory-authority.md)                               | Owner-approved replacement of MyAccurateBooks as stock authority at future cutover                                |
+| [Scope](scope.md)                                                       | Product boundaries, open decisions, and completion criteria                                                       |
+| [Current assessment](current-assessment.md)                             | Evidence from the code and improvement priorities                                                                 |
+| [Architecture](architecture.md)                                         | Proposed components, data model, workflows, and API contracts                                                     |
+| [Roadmap and backlog](roadmap.md)                                       | Ordered milestones, issue IDs, dependencies, estimates, acceptance criteria                                       |
+| [Testing](testing.md)                                                   | Correctness, security, performance, and recovery evidence                                                         |
+| [Operations](operations.md)                                             | Metrics, deployment, CI/CD, incident response, and launch                                                         |
+| [Development workflow](development-workflow.md)                         | Local checks, branches, PRs, review and completion rules                                                          |
+| [Naming and code rules](naming-and-code-rules.md)                       | Go, frontend, SQL, API, messaging and configuration conventions                                                   |
+| [CI/CD](ci-cd.md)                                                       | Check/build/release pipelines, artifacts and credentials                                                          |
+| [Required PR checks](pr-checks.md)                                      | R08 security/contracts/browser gates and commit-addressed build evidence                                          |
+| [Docker and environments](docker-and-local-environments.md)             | Planned files, container/service contracts and verification                                                       |
+| [Docker core setup](docker-core.md)                                     | Implemented R07 setup, local credentials, readiness and safe shutdown                                             |
+| [R07 Docker evidence](evidence/r07-docker-core.md)                      | Local container, persistence, failure and image checks                                                            |
+| [Infrastructure](infrastructure.md)                                     | Module ownership, topology and microservice extraction criteria                                                   |
+| [R03 hosting feasibility](hosting-feasibility.md)                       | Host inventory, individual-service measurements, provider restrictions, staged plan and unresolved capacity gates |
+| [R03 service evidence](evidence/r03-service-summary.md)                 | Seven individual service baselines, raw results, retry evidence and repeat commands                               |
+| [ADR 003](adr/003-zero-budget-hosting.md)                               | Conditional hosting direction; public selection remains blocked pending evidence                                  |
+| [Deployment](deployment.md)                                             | Environment requirements, release/rollback and evidence                                                           |
+| [Security and data](security-and-data.md)                               | Access, secrets, payment trust and data lifecycle requirements                                                    |
+| [API and event contracts](api-and-event-contracts.md)                   | Compatibility, errors, idempotency and message evolution                                                          |
+| [Backend migration](backend-migration.md)                               | Compatibility, database baseline and Go cutover                                                                   |
+| [SQL migration runbook](sql-migrations.md)                              | Implemented R06 commands, verified Prisma adoption, ownership and recovery                                        |
+| [R06 SQL evidence](evidence/r06-sql-baseline.md)                        | Local upgrade, mismatch, concurrency and backup/restore verification                                              |
+| [ADR 004](adr/004-sql-migration-baseline.md)                            | Selected transactional pgx SQL runner and baseline policy                                                         |
+| [Go foundation](../backend/README.md)                                   | Implemented command/config/health surface, isolated harnesses and current limits                                  |
+| [ADR 002](adr/002-go-backend-and-vanilla-frontend.md)                   | Accepted Go/vanilla direction and proposed technical defaults                                                     |
+| [ADR 001](adr/001-runtime-and-messaging.md)                             | Proposed runtime and messaging boundaries                                                                         |
 
 These documents describe proposed work unless explicitly marked as current. BAP IDs remain backlog references; roadmap work is also tracked in GitHub issues, including R01 #7 and R03 #9. Estimates are engineering effort, not delivery commitments. Decisions awaiting the owner are listed in scope.md.
 
