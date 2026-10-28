@@ -4,15 +4,15 @@ Status: rewrite in progress, approved language direction on 8 October 2026. The 
 
 ## Compatibility target
 
-| Existing surface | Go requirement |
-| --- | --- |
-| `GET /` | Preserve status JSON or document compatibility change |
-| `POST /api/orders` | Preserve customer/items input and order/stkPush/warning envelope, success and saved-order warning statuses |
+| Existing surface                     | Go requirement                                                                                                                           |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /`                              | Preserve status JSON or document compatibility change                                                                                    |
+| `POST /api/orders`                   | Preserve customer/items input and order/stkPush/warning envelope, success and saved-order warning statuses                               |
 | `GET /api/orders/:id/payment-status` | Preserve paymentStatus/mpesaStatus/receiptNumber consumed by frontend; introduce scoped authorization with a coordinated frontend update |
-| `POST /api/mpesa/callback` | Preserve provider response contract and signed callback routing; audit legacy token compatibility before removing it |
-| JS server pricing | Port all 23 product IDs and money/quantity rules first, then move catalog authority to DB |
-| PostgreSQL Prisma schema | Preserve order IDs, JSON items, timestamps, history and unique provider mapping while adding new schema |
-| Frontend | Plain HTML/CSS/JS preserved; contract/security fixes are coordinated rather than replaced by a framework |
+| `POST /api/mpesa/callback`           | Preserve provider response contract and signed callback routing; audit legacy token compatibility before removing it                     |
+| JS server pricing                    | Port all 23 product IDs and money/quantity rules first, then move catalog authority to DB                                                |
+| PostgreSQL Prisma schema             | Preserve order IDs, JSON items, timestamps, history and unique provider mapping while adding new schema                                  |
+| Frontend                             | Plain HTML/CSS/JS preserved; contract/security fixes are coordinated rather than replaced by a framework                                 |
 
 Contract tests capture existing successful behavior; known unsafe behavior is not a parity requirement. Reject malformed customer values safely; retain order after initiation failure; prevent paid-status downgrade; use HTTP deadlines and validate provider acceptance. Durable idempotency, inventory and reconciliation remain explicit dependent issues, not assumed benefits of changing language.
 

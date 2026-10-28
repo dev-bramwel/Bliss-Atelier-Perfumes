@@ -40,14 +40,14 @@ The owner approved 20 simultaneous browser sessions, 10 API requests/second stea
 
 Owner-approved defaults below are product policy; legal adequacy must be checked before production. Retention enforcement is implementation work, not delivered by this document.
 
-| Record | Retention |
-| --- | --- |
-| Sales, payments, exchanges and financial audit records | 7 years, subject to applicable legal requirements |
-| Operational customer phone/address | 90 days after completion; remove unless needed for an unresolved case |
-| Private feedback | 12 months, then delete or anonymize |
-| Operational logs | 30 days; redact phones and addresses |
-| Security/admin audit logs | 12 months |
-| Backups | Rolling 30 days; deleted data expires as backups age out |
+| Record                                                 | Retention                                                             |
+| ------------------------------------------------------ | --------------------------------------------------------------------- |
+| Sales, payments, exchanges and financial audit records | 7 years, subject to applicable legal requirements                     |
+| Operational customer phone/address                     | 90 days after completion; remove unless needed for an unresolved case |
+| Private feedback                                       | 12 months, then delete or anonymize                                   |
+| Operational logs                                       | 30 days; redact phones and addresses                                  |
+| Security/admin audit logs                              | 12 months                                                             |
+| Backups                                                | Rolling 30 days; deleted data expires as backups age out              |
 
 Separate retained financial facts from operational contact/location fields; long-lived financial retention does not authorize retaining all customer contact data for seven years. Financial audit retention takes precedence for audit entries supporting financial records. Feedback eligibility must remain bounded by retained purchase/verification data; an aged-out phone association must not be reconstructed without an approved purpose. Restores must reapply deletion rules before reopening access; track unresolved-case exceptions and remove them when resolved. Analytics/event retention and consent/provider handling require follow-up before production.
 
@@ -55,16 +55,16 @@ Separate retained financial facts from operational contact/location fields; long
 
 The owner approved business/payment-provider ownership for the owner and technical verification ownership for the developer, with review due **23 October 2026**. Open decisions are permitted by R01 when assigned an owner and date. They remain gates for dependent implementation/launch and are not silently approved defaults.
 
-| Decision / dependency | Owner | Review due | Required outcome |
-| --- | --- | --- | --- |
-| Delivery-fee collection, recipient, settlement and accounting | Owner | 23 Oct 2026 | Explicitly left unanswered at owner request; decide whether shop collects the full amount or provider collects fees. No collection mechanism is approved yet. |
-| Pickup arrangements and quote/payment verification details | Owner | 23 Oct 2026 | Pickup location/process, fee verification and handover responsibility |
-| Authorized NCBA/STK route and production onboarding | Owner | 23 Oct 2026 | Provider response and next action; no assumed approval |
-| Existing inventory system and stock authority | Owner, developer verifies integration | 23 Oct 2026 | One writable stock authority and import/integration approach |
-| Machine resources, hosting, HTTPS and durable storage | Developer | 23 Oct 2026 | Feasibility evidence under zero budget; identify live-launch blockers |
-| WhatsApp and phone-code delivery | Developer | 23 Oct 2026 | Provider, cost/consent/privacy, retry/failure behavior; in-app channel does not waive required WhatsApp delivery |
-| Sale-entry performance, corrections and stock/payment races | Developer; owner approves business corrections | 23 Oct 2026 | Measurable fast-entry criteria, auditable correction workflow and deterministic verification scenarios |
-| Detailed latency/error gates and analytics/event retention | Developer proposes; owner approves policy | 23 Oct 2026 | Final gates and data lifecycle before dependent release verification |
+| Decision / dependency                                         | Owner                                          | Review due  | Required outcome                                                                                                                                              |
+| ------------------------------------------------------------- | ---------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Delivery-fee collection, recipient, settlement and accounting | Owner                                          | 23 Oct 2026 | Explicitly left unanswered at owner request; decide whether shop collects the full amount or provider collects fees. No collection mechanism is approved yet. |
+| Pickup arrangements and quote/payment verification details    | Owner                                          | 23 Oct 2026 | Pickup location/process, fee verification and handover responsibility                                                                                         |
+| Authorized NCBA/STK route and production onboarding           | Owner                                          | 23 Oct 2026 | Provider response and next action; no assumed approval                                                                                                        |
+| Existing inventory system and stock authority                 | Owner, developer verifies integration          | 23 Oct 2026 | One writable stock authority and import/integration approach                                                                                                  |
+| Machine resources, hosting, HTTPS and durable storage         | Developer                                      | 23 Oct 2026 | Feasibility evidence under zero budget; identify live-launch blockers                                                                                         |
+| WhatsApp and phone-code delivery                              | Developer                                      | 23 Oct 2026 | Provider, cost/consent/privacy, retry/failure behavior; in-app channel does not waive required WhatsApp delivery                                              |
+| Sale-entry performance, corrections and stock/payment races   | Developer; owner approves business corrections | 23 Oct 2026 | Measurable fast-entry criteria, auditable correction workflow and deterministic verification scenarios                                                        |
+| Detailed latency/error gates and analytics/event retention    | Developer proposes; owner approves policy      | 23 Oct 2026 | Final gates and data lifecycle before dependent release verification                                                                                          |
 
 ## Completion and scope/date decision
 

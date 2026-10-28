@@ -93,7 +93,10 @@ function getFilters() {
 function renderProducts() {
   if (catalogState !== "ready") {
     resultsCount.textContent = "0";
-    productGrid.textContent = catalogState === "loading" ? "Loading collection..." : "Collection unavailable. Please try again shortly.";
+    productGrid.textContent =
+      catalogState === "loading"
+        ? "Loading collection..."
+        : "Collection unavailable. Please try again shortly.";
     return;
   }
   const { search, category, gender } = getFilters();
@@ -298,7 +301,9 @@ function openProductModal(id) {
     `${p.gender ?? "Unisex"} \u2022 ${p.category}`;
   document.getElementById("modalName").textContent = p.name;
   document.getElementById("modalAddToCart").disabled = !p.available;
-  document.getElementById("modalAddToCart").textContent = p.available ? "Add to Cart" : "Currently unavailable";
+  document.getElementById("modalAddToCart").textContent = p.available
+    ? "Add to Cart"
+    : "Currently unavailable";
   document.getElementById("modalPrice").textContent =
     `KES ${formatKes(p.priceKes)}`;
   document.getElementById("modalMeta").textContent =
@@ -450,6 +455,9 @@ updateBackToTopVisibility();
 
 let catalogFiltersInitialized = false;
 document.addEventListener("catalogUpdated", () => {
-  if (!catalogFiltersInitialized && catalogState === "ready") { renderFilterOptions(); catalogFiltersInitialized = true; }
+  if (!catalogFiltersInitialized && catalogState === "ready") {
+    renderFilterOptions();
+    catalogFiltersInitialized = true;
+  }
   renderProducts();
 });

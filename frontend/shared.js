@@ -12,33 +12,73 @@ let catalogLoadedAt = 0;
 const CATALOG_MAX_AGE_MS = 60000;
 
 function catalogFresh() {
-  return catalogState === "ready" && Date.now() - catalogLoadedAt < CATALOG_MAX_AGE_MS;
+  return (
+    catalogState === "ready" &&
+    Date.now() - catalogLoadedAt < CATALOG_MAX_AGE_MS
+  );
 }
 function cartAvailable() {
-  return catalogFresh() && Object.entries(cart).every(([id, qty]) =>
-    Number.isInteger(qty) && qty > 0 && getProduct(id)?.available === true);
+  return (
+    catalogFresh() &&
+    Object.entries(cart).every(
+      ([id, qty]) =>
+        Number.isInteger(qty) && qty > 0 && getProduct(id)?.available === true,
+    )
+  );
 }
 function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  return String(value).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
 }
 async function loadCatalog() {
   catalogState = "loading";
-  const base = (document.querySelector('meta[name="api-base-url"]')?.content.trim() || "").replace(/\/$/, "");
+  const base = (
+    document.querySelector('meta[name="api-base-url"]')?.content.trim() || ""
+  ).replace(/\/$/, "");
   try {
-    const response = await fetch(`${base}/api/catalog`, {cache: "no-store", signal: AbortSignal.timeout(15000)});
+    const response = await fetch(`${base}/api/catalog`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
     if (!response.ok) throw new Error("Catalog unavailable");
     const data = await response.json();
-    if (!Array.isArray(data.products) || !data.products.length) throw new Error("Invalid catalog");
+    if (!Array.isArray(data.products) || !data.products.length)
+      throw new Error("Invalid catalog");
     const ids = new Set();
-    PRODUCTS = data.products.map(p => {
-      if (!/^p[0-9]+$/.test(p.id) || ids.has(p.id) || !Number.isSafeInteger(p.priceKes) || p.priceKes <= 0 || typeof p.available !== "boolean" || !Array.isArray(p.images)) throw new Error("Invalid product");
+    PRODUCTS = data.products.map((p) => {
+      if (
+        !/^p[0-9]+$/.test(p.id) ||
+        ids.has(p.id) ||
+        !Number.isSafeInteger(p.priceKes) ||
+        p.priceKes <= 0 ||
+        typeof p.available !== "boolean" ||
+        !Array.isArray(p.images)
+      )
+        throw new Error("Invalid product");
       ids.add(p.id);
-      const safe = {...p};
-      for (const field of ["name", "category", "gender", "size", "notes", "description"]) {
-        if (typeof p[field] !== "string") throw new Error("Invalid product field");
+      const safe = { ...p };
+      for (const field of [
+        "name",
+        "category",
+        "gender",
+        "size",
+        "notes",
+        "description",
+      ]) {
+        if (typeof p[field] !== "string")
+          throw new Error("Invalid product field");
       }
-      safe.images = p.images.map(url => {
-        if (typeof url !== "string" || !/^img\/[a-zA-Z0-9% ._-]+\.jpeg$/.test(url)) throw new Error("Invalid media path");
+      safe.images = p.images.map((url) => {
+        if (
+          typeof url !== "string" ||
+          !/^img\/[a-zA-Z0-9% ._-]+\.jpeg$/.test(url)
+        )
+          throw new Error("Invalid media path");
         return url;
       });
       return safe;
@@ -159,7 +199,11 @@ function addToCart(id) {
 }
 
 function setQty(id, qty) {
-  if (qty > (cart[id] || 0) && (!catalogFresh() || getProduct(id)?.available !== true)) return;
+  if (
+    qty > (cart[id] || 0) &&
+    (!catalogFresh() || getProduct(id)?.available !== true)
+  )
+    return;
   if (!Number.isInteger(qty)) return;
   if (qty <= 0) {
     delete cart[id];

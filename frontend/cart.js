@@ -13,7 +13,11 @@ const whatsappLink = document.getElementById("whatsappLink");
 // --------------------
 function renderCart() {
   if (catalogState !== "ready") {
-    if (cartItemsEl) cartItemsEl.textContent = catalogState === "loading" ? "Loading current prices..." : "Current prices unavailable. Please try again shortly.";
+    if (cartItemsEl)
+      cartItemsEl.textContent =
+        catalogState === "loading"
+          ? "Loading current prices..."
+          : "Current prices unavailable. Please try again shortly.";
     if (cartTotalEl) cartTotalEl.textContent = "-";
     if (toCheckoutBtn) toCheckoutBtn.disabled = true;
     return;

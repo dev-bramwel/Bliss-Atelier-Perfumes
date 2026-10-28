@@ -140,9 +140,6 @@ export async function initiateStkPush(phone, amount, orderId) {
 function getCallbackUrl(orderId) {
   const callbackUrl = new URL(CALLBACK_URL);
   callbackUrl.searchParams.set("orderId", orderId);
-  callbackUrl.searchParams.set(
-    "signature",
-    createCallbackSignature(orderId),
-  );
+  callbackUrl.searchParams.set("signature", createCallbackSignature(orderId));
   return callbackUrl.toString();
 }

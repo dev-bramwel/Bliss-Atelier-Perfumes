@@ -12,14 +12,14 @@ Prefer same-origin frontend/API HTTP routing; public TLS endpoint exposes storef
 
 ## Module ownership
 
-| Module | Owns | Boundary |
-| --- | --- | --- |
-| catalog | Products/prices/images | Product lookup service |
-| inventory | Stock movements/reservations/exchange quarantine | Reserve/release/inspect use cases |
-| orders | Checkout snapshots/delivery quotes/order lifecycle | Coordinates checkout transaction |
-| payments | Attempts/provider correlation/reconciliation | Typed provider port and durable events |
-| admin | Identity/roles/audit access | Authorizes use cases, no direct stock bypass |
-| analytics | Read models and report definitions | Consumes settled events; cannot mutate payments |
+| Module    | Owns                                               | Boundary                                        |
+| --------- | -------------------------------------------------- | ----------------------------------------------- |
+| catalog   | Products/prices/images                             | Product lookup service                          |
+| inventory | Stock movements/reservations/exchange quarantine   | Reserve/release/inspect use cases               |
+| orders    | Checkout snapshots/delivery quotes/order lifecycle | Coordinates checkout transaction                |
+| payments  | Attempts/provider correlation/reconciliation       | Typed provider port and durable events          |
+| admin     | Identity/roles/audit access                        | Authorizes use cases, no direct stock bypass    |
+| analytics | Read models and report definitions                 | Consumes settled events; cannot mutate payments |
 
 Modules depend on explicit Go service contracts. Avoid cyclic imports and cross-module repository access. A checkout coordinator may intentionally perform a local DB transaction across order/reservation modules; document that boundary so extraction does not accidentally remove atomicity. No internal HTTP between modules solely to mimic microservices.
 
