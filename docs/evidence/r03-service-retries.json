@@ -1,100 +1,98 @@
 ﻿{
-    "runId":  "bap-r03-d45b6371",
-    "capturedUtc":  "2026-10-20T15:20:03.2217637Z",
-    "evidence":  "local isolated sequential baseline",
-    "engine":  {
-                   "cpus":  8,
-                   "architecture":  "x86_64",
-                   "memoryBytes":  4003127296,
-                   "version":  "29.9.1"
-               },
-    "limitations":  [
-                        "No simultaneous stack or application traffic",
-                        "Samples are not continuous peaks",
-                        "Restart is same-container, not restore/recreation",
-                        "No public ports, provider calls or customer data",
-                        "Versions are probe inputs, not approved production pins"
-                    ],
-    "services":  [
-                     {
-                         "service":  "rabbitmq",
-                         "imageTag":  "rabbitmq:4",
-                         "memoryLimit":  "512m",
-                         "cpuLimit":  1,
-                         "status":  "failed",
-                         "samples":  [
-
-                                     ],
-                         "pullSeconds":  2.5,
-                         "imageDigest":  "rabbitmq@sha256:71be6ca71cd3ad92f29b354ec381b1ee587894aaaac21f185b8cf43fb50d3feb",
-                         "imageSizeBytes":  427610304,
-                         "hostFreeMemoryBeforeMiB":  707,
-                         "error":  "Service exited before readiness",
-                         "diagnosticLog":  "2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                               {gen_server,init_it,6,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                [{file,\"gen_server.erl\"},{line,2236}]},\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                               {proc_lib,init_p_do_apply,3,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                [{file,\"proc_lib.erl\"},{line,333}]}]}}},\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                           {child,undefined,net_sup_dynamic,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                            {erl_distribution,start_link,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                             [#{name =\u003e rabbit_prelaunch_1@localhost,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                supervisor =\u003e net_sup_dynamic,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                net_tickintensity =\u003e 4,net_ticktime =\u003e 60,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                name_domain =\u003e shortnames,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                clean_halt =\u003e false}]},\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                            permanent,false,1000,supervisor,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                            [erl_distribution]}}}}}},\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                      {rabbit_prelaunch_app,start,[normal,[]]}}\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e       in function  application_master:init/3 (application_master.erl:147)\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     ancestors: [application_controller,\u003c0.10.0\u003e]\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     message_queue_len: 1\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     messages: [{\u0027EXIT\u0027,\u003c0.143.0\u003e,normal}]\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     links: [\u003c0.45.0\u003e]\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     dictionary: []\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     trap_exit: true\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     status: running\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     heap_size: 610\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     stack_size: 29\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     reductions: 107\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e   neighbours:\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e \r\nKernel pid terminated (application_controller) (\"{application_start_failure,rabbitmq_prelaunch,{{shutdown,{failed_to_start_child,prelaunch,{badmatch,{error,{{shutdown,{failed_to_start_child,auth,{\\\"Error when reading /var/lib/rabbitmq/.erlang.cookie: eacces\\\",[{auth,init_no_setcookie,0,[{file,\\\"auth.erl\\\"},{line,365}]},{auth,init,1,[{file,\\\"auth.erl\\\"},{line,212}]},{gen_server,init_it,2,[{file,\\\"gen_server.erl\\\"},{line,2276}]},{gen_server,init_it,6,[{file,\\\"gen_server.erl\\\"},{line,2236}]},{proc_lib,init_p_do_apply,3,[{file,\\\"proc_lib.erl\\\"},{line,333}]}]}}},{child,undefined,net_sup_dynamic,{erl_distribution,start_link,[#{name =\u003e rabbit_prelaunch_1@localhost,supervisor =\u003e net_sup_dynamic,net_tickintensity =\u003e 4,net_ticktime =\u003e 60,name_domain =\u003e shortnames,clean_halt =\u003e false}]},permanent,false,1000,supervisor,[erl_distribution]}}}}}},{rabbit_prelaunch_app,start,[normal,[]]}}}\")\r\nSystem.Management.Automation.RemoteException\r\nCrash dump is being written to: erl_crash.dump...",
-                         "exitCode":  1,
-                         "oomKilledAtFailure":  false
-                     },
-                     {
-                         "service":  "kafka",
-                         "imageTag":  "apache/kafka:4.0.1",
-                         "memoryLimit":  "1536m",
-                         "cpuLimit":  1,
-                         "status":  "passed",
-                         "samples":  [
-                                         {
-                                             "sample":  1,
-                                             "cpu":  "4.78%",
-                                             "memory":  "341.1MiB / 1.5GiB",
-                                             "memoryPercent":  "22.20%",
-                                             "blockIO":  "14.1MB / 348kB",
-                                             "pids":  "94"
-                                         },
-                                         {
-                                             "sample":  2,
-                                             "cpu":  "8.77%",
-                                             "memory":  "341.2MiB / 1.5GiB",
-                                             "memoryPercent":  "22.22%",
-                                             "blockIO":  "14.1MB / 373kB",
-                                             "pids":  "94"
-                                         },
-                                         {
-                                             "sample":  3,
-                                             "cpu":  "4.78%",
-                                             "memory":  "341.4MiB / 1.5GiB",
-                                             "memoryPercent":  "22.23%",
-                                             "blockIO":  "14.1MB / 397kB",
-                                             "pids":  "94"
-                                         },
-                                         {
-                                             "sample":  4,
-                                             "cpu":  "4.42%",
-                                             "memory":  "341.7MiB / 1.5GiB",
-                                             "memoryPercent":  "22.24%",
-                                             "blockIO":  "14.1MB / 426kB",
-                                             "pids":  "94"
-                                         },
-                                         {
-                                             "sample":  5,
-                                             "cpu":  "4.35%",
-                                             "memory":  "341.9MiB / 1.5GiB",
-                                             "memoryPercent":  "22.26%",
-                                             "blockIO":  "14.1MB / 451kB",
-                                             "pids":  "94"
-                                         }
-                                     ],
-                         "pullSeconds":  2.13,
-                         "imageDigest":  "apache/kafka@sha256:9a129e03121d46d74349a480f8f17082df3dd411b28281c9eabb95cf096370b9",
-                         "imageSizeBytes":  619840251,
-                         "hostFreeMemoryBeforeMiB":  782,
-                         "readySeconds":  32,
-                         "readiness":  "service-specific readiness",
-                         "dataDirectoryKiB":  "32\t/tmp/kraft-combined-logs",
-                         "oomKilledBeforeRestart":  false,
-                         "restartCountBefore":  0,
-                         "postRestartReadySeconds":  35.46,
-                         "restartCheck":  "passed",
-                         "persistence":  "Topic metadata survived same-container restart; message durability not tested",
-                         "oomKilledAfterRestart":  false
-                     }
-                 ]
+  "runId": "bap-r03-d45b6371",
+  "capturedUtc": "2026-10-20T15:20:03.2217637Z",
+  "evidence": "local isolated sequential baseline",
+  "engine": {
+    "cpus": 8,
+    "architecture": "x86_64",
+    "memoryBytes": 4003127296,
+    "version": "29.9.1"
+  },
+  "limitations": [
+    "No simultaneous stack or application traffic",
+    "Samples are not continuous peaks",
+    "Restart is same-container, not restore/recreation",
+    "No public ports, provider calls or customer data",
+    "Versions are probe inputs, not approved production pins"
+  ],
+  "services": [
+    {
+      "service": "rabbitmq",
+      "imageTag": "rabbitmq:4",
+      "memoryLimit": "512m",
+      "cpuLimit": 1,
+      "status": "failed",
+      "samples": [],
+      "pullSeconds": 2.5,
+      "imageDigest": "rabbitmq@sha256:71be6ca71cd3ad92f29b354ec381b1ee587894aaaac21f185b8cf43fb50d3feb",
+      "imageSizeBytes": 427610304,
+      "hostFreeMemoryBeforeMiB": 707,
+      "error": "Service exited before readiness",
+      "diagnosticLog": "2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                               {gen_server,init_it,6,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                [{file,\"gen_server.erl\"},{line,2236}]},\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                               {proc_lib,init_p_do_apply,3,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                [{file,\"proc_lib.erl\"},{line,333}]}]}}},\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                           {child,undefined,net_sup_dynamic,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                            {erl_distribution,start_link,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                             [#{name =\u003e rabbit_prelaunch_1@localhost,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                supervisor =\u003e net_sup_dynamic,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                net_tickintensity =\u003e 4,net_ticktime =\u003e 60,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                name_domain =\u003e shortnames,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                                clean_halt =\u003e false}]},\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                            permanent,false,1000,supervisor,\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                            [erl_distribution]}}}}}},\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e                      {rabbit_prelaunch_app,start,[normal,[]]}}\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e       in function  application_master:init/3 (application_master.erl:147)\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     ancestors: [application_controller,\u003c0.10.0\u003e]\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     message_queue_len: 1\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     messages: [{\u0027EXIT\u0027,\u003c0.143.0\u003e,normal}]\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     links: [\u003c0.45.0\u003e]\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     dictionary: []\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     trap_exit: true\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     status: running\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     heap_size: 610\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     stack_size: 29\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e     reductions: 107\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e   neighbours:\r\n2026-10-20 15:18:17.551394+00:00 [error] \u003c0.142.0\u003e \r\nKernel pid terminated (application_controller) (\"{application_start_failure,rabbitmq_prelaunch,{{shutdown,{failed_to_start_child,prelaunch,{badmatch,{error,{{shutdown,{failed_to_start_child,auth,{\\\"Error when reading /var/lib/rabbitmq/.erlang.cookie: eacces\\\",[{auth,init_no_setcookie,0,[{file,\\\"auth.erl\\\"},{line,365}]},{auth,init,1,[{file,\\\"auth.erl\\\"},{line,212}]},{gen_server,init_it,2,[{file,\\\"gen_server.erl\\\"},{line,2276}]},{gen_server,init_it,6,[{file,\\\"gen_server.erl\\\"},{line,2236}]},{proc_lib,init_p_do_apply,3,[{file,\\\"proc_lib.erl\\\"},{line,333}]}]}}},{child,undefined,net_sup_dynamic,{erl_distribution,start_link,[#{name =\u003e rabbit_prelaunch_1@localhost,supervisor =\u003e net_sup_dynamic,net_tickintensity =\u003e 4,net_ticktime =\u003e 60,name_domain =\u003e shortnames,clean_halt =\u003e false}]},permanent,false,1000,supervisor,[erl_distribution]}}}}}},{rabbit_prelaunch_app,start,[normal,[]]}}}\")\r\nSystem.Management.Automation.RemoteException\r\nCrash dump is being written to: erl_crash.dump...",
+      "exitCode": 1,
+      "oomKilledAtFailure": false
+    },
+    {
+      "service": "kafka",
+      "imageTag": "apache/kafka:4.0.1",
+      "memoryLimit": "1536m",
+      "cpuLimit": 1,
+      "status": "passed",
+      "samples": [
+        {
+          "sample": 1,
+          "cpu": "4.78%",
+          "memory": "341.1MiB / 1.5GiB",
+          "memoryPercent": "22.20%",
+          "blockIO": "14.1MB / 348kB",
+          "pids": "94"
+        },
+        {
+          "sample": 2,
+          "cpu": "8.77%",
+          "memory": "341.2MiB / 1.5GiB",
+          "memoryPercent": "22.22%",
+          "blockIO": "14.1MB / 373kB",
+          "pids": "94"
+        },
+        {
+          "sample": 3,
+          "cpu": "4.78%",
+          "memory": "341.4MiB / 1.5GiB",
+          "memoryPercent": "22.23%",
+          "blockIO": "14.1MB / 397kB",
+          "pids": "94"
+        },
+        {
+          "sample": 4,
+          "cpu": "4.42%",
+          "memory": "341.7MiB / 1.5GiB",
+          "memoryPercent": "22.24%",
+          "blockIO": "14.1MB / 426kB",
+          "pids": "94"
+        },
+        {
+          "sample": 5,
+          "cpu": "4.35%",
+          "memory": "341.9MiB / 1.5GiB",
+          "memoryPercent": "22.26%",
+          "blockIO": "14.1MB / 451kB",
+          "pids": "94"
+        }
+      ],
+      "pullSeconds": 2.13,
+      "imageDigest": "apache/kafka@sha256:9a129e03121d46d74349a480f8f17082df3dd411b28281c9eabb95cf096370b9",
+      "imageSizeBytes": 619840251,
+      "hostFreeMemoryBeforeMiB": 782,
+      "readySeconds": 32,
+      "readiness": "service-specific readiness",
+      "dataDirectoryKiB": "32\t/tmp/kraft-combined-logs",
+      "oomKilledBeforeRestart": false,
+      "restartCountBefore": 0,
+      "postRestartReadySeconds": 35.46,
+      "restartCheck": "passed",
+      "persistence": "Topic metadata survived same-container restart; message durability not tested",
+      "oomKilledAfterRestart": false
+    }
+  ]
 }

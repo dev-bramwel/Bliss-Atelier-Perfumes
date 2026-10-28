@@ -26,15 +26,17 @@ docker run --rm --mount "type=bind,source=$($PWD.Path),target=/app,readonly" --w
 
 ## Configuration and operational behavior
 
+The [Docker core stack](../docs/docker-core.md) adds non-root images and private local services. `GO_DATABASE_URL_FILE` reads a mounted DSN secret and is mutually exclusive with `GO_DATABASE_URL`. `GO_REQUIRE_SCHEMA=true` enables read-only catalog/ledger-attestation readiness and requires a configured DB plus the local bootstrap's restricted function. Both settings are opt-in; standalone foundation defaults are unchanged.
+
 Export variables in the process environment; Go does not load `.env`. The independent names in [.env.go.example](.env.go.example) prevent accidentally reusing legacy production settings.
 
-| Variable | Default / validation |
-| --- | --- |
-| `GO_HTTP_ADDR` | `127.0.0.1:5001`; IP or localhost plus port 1–65535 |
-| `GO_DATABASE_URL` | Optional PostgreSQL URL for API/worker; required by every migrate command |
-| `GO_IO_TIMEOUT` | `5s`; 1ms–1m for DB connection/readiness, a complete migration attempt and provider transport when wired |
-| `GO_SHUTDOWN_TIMEOUT` | `10s`; 1ms–1m |
-| `GO_DB_MAX_CONNECTIONS` | `4`; 1–32 |
+| Variable                | Default / validation                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GO_HTTP_ADDR`          | `127.0.0.1:5001`; IP or localhost plus port 1–65535                                                      |
+| `GO_DATABASE_URL`       | Optional PostgreSQL URL for API/worker; required by every migrate command                                |
+| `GO_IO_TIMEOUT`         | `5s`; 1ms–1m for DB connection/readiness, a complete migration attempt and provider transport when wired |
+| `GO_SHUTDOWN_TIMEOUT`   | `10s`; 1ms–1m                                                                                            |
+| `GO_DB_MAX_CONNECTIONS` | `4`; 1–32                                                                                                |
 
 Validation happens before IO. Missing optional database config enables a dependency-free foundation process. If a DB is configured, startup requires a successful bounded ping. `/health/live` means the HTTP process is alive. `/health/ready` checks the configured DB with a deadline; without DB config it means only the foundation is ready. Neither endpoint proves checkout functionality. Root JSON retains the legacy message. No CORS or public deployment is configured for this local foundation.
 
@@ -71,3 +73,7 @@ Final `go test -race ./...` passed in the Linux Go 1.27.3 container against the 
 Node 24 container: `npm ci --ignore-scripts` followed by `npm test` passed all seven helper/fixture tests. The install reported 22 existing legacy npm vulnerabilities (one critical); no Node runtime dependency changes are included here. OpenAPI 3.0.3 validation passed using `@apidevtools/swagger-parser@12.1.0` installed only inside a disposable Node container. Static response fixtures are source-derived; full route/browser parity is still a later migration gate.
 
 Evidence is local, including disposable containers; no sandbox provider or production verification is claimed. Authorization review: Go exposes no order/customer/payment routes, and legacy authorization gaps are explicitly excluded from target parity. Operational signals cover process start/stop, config failure and live/ready health; business metrics remain later work. No production schema migration or rollout occurred. PR/reviewer sign-off and issue closure have not been performed; total engineering effort has not been measured.
+
+## Database catalog and stock
+
+Go now serves `GET /catalog` (`/api/catalog` through the local web proxy). See the [stock workflow](../docs/stock-workflow.md) for the version 2 migration, trusted operator CLI, opening-count template, approval expiry and rollback limits. Orders/payments remain legacy and must not be connected to this catalog for live selling before the later checkout/stock integration.

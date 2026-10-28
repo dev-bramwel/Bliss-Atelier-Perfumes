@@ -18,12 +18,12 @@ go run ./cmd/migrate adopt-legacy
 go run ./cmd/migrate up
 ```
 
-| Command | Preconditions and behavior |
-| --- | --- |
-| `status` | Reports `empty`, `legacy`, or `current`, plus aggregate order/payment counts. Rejects schema/history mismatches. No schema/history changes; releases locks by rollback. |
-| `init` | Empty `public` schema only. Creates the exact legacy business schema and the Go checksum ledger atomically. Does not fabricate Prisma history. |
-| `adopt-legacy` | Exact supported business schema and one verified successful `20261006120000_init` history record. Records baseline adoption without executing historical table creation. |
-| `up` | Requires an existing, verified Go ledger. Validates applied SQL checksums before running pending embedded transactional steps. Currently there are no post-baseline steps. |
+| Command        | Preconditions and behavior                                                                                                                                                 |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`       | Reports `empty`, `legacy`, or `current`, plus aggregate order/payment counts. Rejects schema/history mismatches. No schema/history changes; releases locks by rollback.    |
+| `init`         | Empty `public` schema only. Creates the legacy baseline, catalog/stock schema and Go checksum ledger atomically. Does not fabricate Prisma history.                        |
+| `adopt-legacy` | Exact supported business schema and one verified successful `20261006120000_init` history record. Records baseline adoption without executing historical table creation.   |
+| `up`           | Requires an existing, verified Go ledger. Validates applied SQL checksums before running pending embedded transactional steps. Currently there are no post-baseline steps. |
 
 All commands acquire Go lock `477418744910` and Prisma lock `72707369`. Lock contention fails immediately. Existing tables are locked with `SHARE ROW EXCLUSIVE NOWAIT` to prevent data/schema changes during verification and inventory. Even `status` briefly excludes writes; perform inventory/adoption during a maintenance window with writers stopped. `GO_IO_TIMEOUT` bounds the whole migration attempt (default 5s, maximum 1m), with PostgreSQL 17 statement/transaction timeouts bounding server work too. Increase it within its supported range for the controlled operation. A canceled client's locks can remain briefly while the server finishes rollback; a busy retry must stop safely and be retried after release. Large future changes need a separately designed timeout/backfill strategy.
 
@@ -64,7 +64,7 @@ Before a real change, use approved secret injection (for example a restricted `P
 
 The R06 baseline leaves all business columns and Prisma history intact. To roll back application behavior, stop the new migration job and run the compatible Express application with the updated startup script (`node src/server.js` also bypasses the old npm prestart hook). Keep the Go ledger in place. Older Go foundation binaries cannot verify ownership; do not use their connectivity-only `status` as evidence. Never restart an old image that automatically deploys Prisma migrations against the adopted database.
 
-There is no destructive `down`, `reset` or `force` command. A failed SQL step rolls back its DDL and ledger entry together; correct an unapplied step and retry only after inspection. A commit connection failure can have an uncertain outcome: inspect `status` after reconnecting before retrying. An already committed migration is immutable; use a reviewed new compatible forward migration for repair, preserving evidence. New schema steps require ordered embedded registration, updated version-specific schema expectations and upgrade/failure tests; R06 ships only baseline version 1.
+There is no destructive `down`, `reset` or `force` command. A failed SQL step rolls back its DDL and ledger entry together; correct an unapplied step and retry only after inspection. A commit connection failure can have an uncertain outcome: inspect `status` after reconnecting before retrying. An already committed migration is immutable; use a reviewed new compatible forward migration for repair, preserving evidence. New schema steps require ordered embedded registration, updated version-specific schema expectations and upgrade/failure tests; R06 introduced baseline version 1. R09 now registers version 2 for catalog/stock; see the [stock workflow](stock-workflow.md) for the current schema, runtime grants and compatible rollback requirements.
 
 If application rollback is insufficient, restore the verified pre-change backup to a separate target, validate it, and coordinate switching the single application writer. Writes after the backup require reconciliation and may be lost on restore; stop writers and preserve the failed database before making that decision. Do not blindly restore over a live payment database. R06's disposable restore is a local mechanism drill, not an approved production RPO/RTO, retention plan or live recovery claim.
 

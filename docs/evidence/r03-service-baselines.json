@@ -1,359 +1,355 @@
 ﻿{
-    "runId":  "bap-r03-8700f622",
-    "capturedUtc":  "2026-10-20T15:17:48.3552335Z",
-    "evidence":  "local isolated sequential baseline",
-    "engine":  {
-                   "cpus":  8,
-                   "architecture":  "x86_64",
-                   "memoryBytes":  4003127296,
-                   "version":  "29.9.1"
-               },
-    "limitations":  [
-                        "No simultaneous stack or application traffic",
-                        "Samples are not continuous peaks",
-                        "Restart is same-container, not restore/recreation",
-                        "No public ports, provider calls or customer data",
-                        "Versions are probe inputs, not approved production pins"
-                    ],
-    "services":  [
-                     {
-                         "service":  "postgres",
-                         "imageTag":  "postgres:17-alpine",
-                         "memoryLimit":  "512m",
-                         "cpuLimit":  1,
-                         "status":  "passed",
-                         "samples":  [
-                                         {
-                                             "sample":  1,
-                                             "cpu":  "0.03%",
-                                             "memory":  "31.01MiB / 512MiB",
-                                             "memoryPercent":  "6.06%",
-                                             "blockIO":  "0B / 40.3MB",
-                                             "pids":  "6"
-                                         },
-                                         {
-                                             "sample":  2,
-                                             "cpu":  "0.05%",
-                                             "memory":  "31.01MiB / 512MiB",
-                                             "memoryPercent":  "6.06%",
-                                             "blockIO":  "0B / 40.3MB",
-                                             "pids":  "6"
-                                         },
-                                         {
-                                             "sample":  3,
-                                             "cpu":  "0.08%",
-                                             "memory":  "31.01MiB / 512MiB",
-                                             "memoryPercent":  "6.06%",
-                                             "blockIO":  "0B / 40.3MB",
-                                             "pids":  "6"
-                                         },
-                                         {
-                                             "sample":  4,
-                                             "cpu":  "0.04%",
-                                             "memory":  "30.95MiB / 512MiB",
-                                             "memoryPercent":  "6.05%",
-                                             "blockIO":  "0B / 40.3MB",
-                                             "pids":  "6"
-                                         },
-                                         {
-                                             "sample":  5,
-                                             "cpu":  "0.46%",
-                                             "memory":  "30.95MiB / 512MiB",
-                                             "memoryPercent":  "6.05%",
-                                             "blockIO":  "0B / 40.3MB",
-                                             "pids":  "6"
-                                         }
-                                     ],
-                         "pullSeconds":  2.95,
-                         "imageDigest":  "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
-                         "imageSizeBytes":  423189986,
-                         "hostFreeMemoryBeforeMiB":  833,
-                         "readySeconds":  5.59,
-                         "readiness":  "service-specific readiness",
-                         "dataDirectoryKiB":  "39424\t/var/lib/postgresql/data",
-                         "oomKilledBeforeRestart":  false,
-                         "restartCountBefore":  0,
-                         "postRestartReadySeconds":  0.21,
-                         "restartCheck":  "passed",
-                         "persistence":  "1000 rows survived same-container restart",
-                         "oomKilledAfterRestart":  false
-                     },
-                     {
-                         "service":  "redis",
-                         "imageTag":  "redis:7-alpine",
-                         "memoryLimit":  "256m",
-                         "cpuLimit":  1,
-                         "status":  "passed",
-                         "samples":  [
-                                         {
-                                             "sample":  1,
-                                             "cpu":  "0.66%",
-                                             "memory":  "4.672MiB / 256MiB",
-                                             "memoryPercent":  "1.82%",
-                                             "blockIO":  "0B / 8.19kB",
-                                             "pids":  "6"
-                                         },
-                                         {
-                                             "sample":  2,
-                                             "cpu":  "1.31%",
-                                             "memory":  "4.551MiB / 256MiB",
-                                             "memoryPercent":  "1.78%",
-                                             "blockIO":  "0B / 8.19kB",
-                                             "pids":  "6"
-                                         },
-                                         {
-                                             "sample":  3,
-                                             "cpu":  "1.21%",
-                                             "memory":  "4.551MiB / 256MiB",
-                                             "memoryPercent":  "1.78%",
-                                             "blockIO":  "0B / 8.19kB",
-                                             "pids":  "6"
-                                         },
-                                         {
-                                             "sample":  4,
-                                             "cpu":  "0.77%",
-                                             "memory":  "4.551MiB / 256MiB",
-                                             "memoryPercent":  "1.78%",
-                                             "blockIO":  "0B / 8.19kB",
-                                             "pids":  "6"
-                                         },
-                                         {
-                                             "sample":  5,
-                                             "cpu":  "0.89%",
-                                             "memory":  "4.551MiB / 256MiB",
-                                             "memoryPercent":  "1.78%",
-                                             "blockIO":  "0B / 8.19kB",
-                                             "pids":  "6"
-                                         }
-                                     ],
-                         "pullSeconds":  9.67,
-                         "imageDigest":  "redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499",
-                         "imageSizeBytes":  57300241,
-                         "hostFreeMemoryBeforeMiB":  747,
-                         "readySeconds":  0.95,
-                         "readiness":  "service-specific readiness",
-                         "dataDirectoryKiB":  "16\t/data",
-                         "oomKilledBeforeRestart":  false,
-                         "restartCountBefore":  0,
-                         "postRestartReadySeconds":  0.16,
-                         "restartCheck":  "passed",
-                         "persistence":  "AOF marker survived same-container restart",
-                         "oomKilledAfterRestart":  false
-                     },
-                     {
-                         "service":  "rabbitmq",
-                         "imageTag":  "rabbitmq:4",
-                         "memoryLimit":  "512m",
-                         "cpuLimit":  1,
-                         "status":  "failed",
-                         "samples":  [
-
-                                     ],
-                         "pullSeconds":  75.73,
-                         "imageDigest":  "rabbitmq@sha256:71be6ca71cd3ad92f29b354ec381b1ee587894aaaac21f185b8cf43fb50d3feb",
-                         "imageSizeBytes":  427610304,
-                         "hostFreeMemoryBeforeMiB":  752,
-                         "error":  "Service exited before readiness"
-                     },
-                     {
-                         "service":  "kafka",
-                         "imageTag":  "apache/kafka:4.0.1",
-                         "memoryLimit":  "1536m",
-                         "cpuLimit":  1,
-                         "status":  "failed",
-                         "samples":  [
-
-                                     ],
-                         "pullSeconds":  97.07,
-                         "imageDigest":  "apache/kafka@sha256:9a129e03121d46d74349a480f8f17082df3dd411b28281c9eabb95cf096370b9",
-                         "imageSizeBytes":  619840251,
-                         "hostFreeMemoryBeforeMiB":  637,
-                         "error":  "Service exited before readiness"
-                     },
-                     {
-                         "service":  "prometheus",
-                         "imageTag":  "prom/prometheus:v3.5.0",
-                         "memoryLimit":  "512m",
-                         "cpuLimit":  1,
-                         "status":  "passed",
-                         "samples":  [
-                                         {
-                                             "sample":  1,
-                                             "cpu":  "0.00%",
-                                             "memory":  "17.36MiB / 512MiB",
-                                             "memoryPercent":  "3.39%",
-                                             "blockIO":  "4.1kB / 0B",
-                                             "pids":  "11"
-                                         },
-                                         {
-                                             "sample":  2,
-                                             "cpu":  "0.00%",
-                                             "memory":  "17.34MiB / 512MiB",
-                                             "memoryPercent":  "3.39%",
-                                             "blockIO":  "4.1kB / 0B",
-                                             "pids":  "11"
-                                         },
-                                         {
-                                             "sample":  3,
-                                             "cpu":  "0.00%",
-                                             "memory":  "17.34MiB / 512MiB",
-                                             "memoryPercent":  "3.39%",
-                                             "blockIO":  "4.1kB / 0B",
-                                             "pids":  "11"
-                                         },
-                                         {
-                                             "sample":  4,
-                                             "cpu":  "0.11%",
-                                             "memory":  "17.34MiB / 512MiB",
-                                             "memoryPercent":  "3.39%",
-                                             "blockIO":  "4.1kB / 0B",
-                                             "pids":  "11"
-                                         },
-                                         {
-                                             "sample":  5,
-                                             "cpu":  "0.00%",
-                                             "memory":  "17.34MiB / 512MiB",
-                                             "memoryPercent":  "3.39%",
-                                             "blockIO":  "4.1kB / 0B",
-                                             "pids":  "11"
-                                         }
-                                     ],
-                         "pullSeconds":  60.13,
-                         "imageDigest":  "prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
-                         "imageSizeBytes":  439761253,
-                         "hostFreeMemoryBeforeMiB":  664,
-                         "readySeconds":  0.98,
-                         "readiness":  "service-specific readiness",
-                         "dataDirectoryKiB":  "16\t/prometheus",
-                         "oomKilledBeforeRestart":  false,
-                         "restartCountBefore":  0,
-                         "postRestartReadySeconds":  0.18,
-                         "restartCheck":  "passed",
-                         "persistence":  "Not tested",
-                         "oomKilledAfterRestart":  false
-                     },
-                     {
-                         "service":  "grafana",
-                         "imageTag":  "grafana/grafana:12.1.0",
-                         "memoryLimit":  "384m",
-                         "cpuLimit":  1,
-                         "status":  "passed",
-                         "samples":  [
-                                         {
-                                             "sample":  1,
-                                             "cpu":  "0.72%",
-                                             "memory":  "81.02MiB / 384MiB",
-                                             "memoryPercent":  "21.10%",
-                                             "blockIO":  "4.1kB / 27.4MB",
-                                             "pids":  "19"
-                                         },
-                                         {
-                                             "sample":  2,
-                                             "cpu":  "0.55%",
-                                             "memory":  "81.02MiB / 384MiB",
-                                             "memoryPercent":  "21.10%",
-                                             "blockIO":  "4.1kB / 27.4MB",
-                                             "pids":  "19"
-                                         },
-                                         {
-                                             "sample":  3,
-                                             "cpu":  "0.32%",
-                                             "memory":  "81.02MiB / 384MiB",
-                                             "memoryPercent":  "21.10%",
-                                             "blockIO":  "4.1kB / 27.4MB",
-                                             "pids":  "19"
-                                         },
-                                         {
-                                             "sample":  4,
-                                             "cpu":  "0.65%",
-                                             "memory":  "81.02MiB / 384MiB",
-                                             "memoryPercent":  "21.10%",
-                                             "blockIO":  "4.1kB / 27.4MB",
-                                             "pids":  "19"
-                                         },
-                                         {
-                                             "sample":  5,
-                                             "cpu":  "0.51%",
-                                             "memory":  "81.02MiB / 384MiB",
-                                             "memoryPercent":  "21.10%",
-                                             "blockIO":  "4.1kB / 27.4MB",
-                                             "pids":  "19"
-                                         }
-                                     ],
-                         "pullSeconds":  153.92,
-                         "imageDigest":  "grafana/grafana@sha256:6ac590e7cabc2fbe8d7b8fc1ce9c9f0582177b334e0df9c927ebd9670469440f",
-                         "imageSizeBytes":  959915953,
-                         "hostFreeMemoryBeforeMiB":  719,
-                         "readySeconds":  11.09,
-                         "readiness":  "service-specific readiness",
-                         "dataDirectoryKiB":  "1152\t/var/lib/grafana",
-                         "oomKilledBeforeRestart":  false,
-                         "restartCountBefore":  0,
-                         "postRestartReadySeconds":  2.51,
-                         "restartCheck":  "passed",
-                         "persistence":  "Not tested",
-                         "oomKilledAfterRestart":  false
-                     },
-                     {
-                         "service":  "collector",
-                         "imageTag":  "otel/opentelemetry-collector:0.133.0",
-                         "memoryLimit":  "128m",
-                         "cpuLimit":  1,
-                         "status":  "passed",
-                         "samples":  [
-                                         {
-                                             "sample":  1,
-                                             "cpu":  "0.53%",
-                                             "memory":  "17.75MiB / 128MiB",
-                                             "memoryPercent":  "13.86%",
-                                             "blockIO":  "0B / 0B",
-                                             "pids":  "11"
-                                         },
-                                         {
-                                             "sample":  2,
-                                             "cpu":  "3.57%",
-                                             "memory":  "18.5MiB / 128MiB",
-                                             "memoryPercent":  "14.45%",
-                                             "blockIO":  "0B / 0B",
-                                             "pids":  "11"
-                                         },
-                                         {
-                                             "sample":  3,
-                                             "cpu":  "0.24%",
-                                             "memory":  "18.5MiB / 128MiB",
-                                             "memoryPercent":  "14.45%",
-                                             "blockIO":  "0B / 0B",
-                                             "pids":  "11"
-                                         },
-                                         {
-                                             "sample":  4,
-                                             "cpu":  "0.23%",
-                                             "memory":  "18.5MiB / 128MiB",
-                                             "memoryPercent":  "14.45%",
-                                             "blockIO":  "0B / 0B",
-                                             "pids":  "11"
-                                         },
-                                         {
-                                             "sample":  5,
-                                             "cpu":  "0.20%",
-                                             "memory":  "18.5MiB / 128MiB",
-                                             "memoryPercent":  "14.45%",
-                                             "blockIO":  "0B / 0B",
-                                             "pids":  "11"
-                                         }
-                                     ],
-                         "pullSeconds":  21.53,
-                         "imageDigest":  "otel/opentelemetry-collector@sha256:01268c1bf7f561f1df20a0ea2875db8cb388508f1845a96c8e9ff83efe970a80",
-                         "imageSizeBytes":  173996078,
-                         "hostFreeMemoryBeforeMiB":  726,
-                         "readySeconds":  5.77,
-                         "readiness":  "process only",
-                         "oomKilledBeforeRestart":  false,
-                         "restartCountBefore":  0,
-                         "postRestartReadySeconds":  5.15,
-                         "restartCheck":  "passed",
-                         "persistence":  "Not tested",
-                         "oomKilledAfterRestart":  false
-                     }
-                 ]
+  "runId": "bap-r03-8700f622",
+  "capturedUtc": "2026-10-20T15:17:48.3552335Z",
+  "evidence": "local isolated sequential baseline",
+  "engine": {
+    "cpus": 8,
+    "architecture": "x86_64",
+    "memoryBytes": 4003127296,
+    "version": "29.9.1"
+  },
+  "limitations": [
+    "No simultaneous stack or application traffic",
+    "Samples are not continuous peaks",
+    "Restart is same-container, not restore/recreation",
+    "No public ports, provider calls or customer data",
+    "Versions are probe inputs, not approved production pins"
+  ],
+  "services": [
+    {
+      "service": "postgres",
+      "imageTag": "postgres:17-alpine",
+      "memoryLimit": "512m",
+      "cpuLimit": 1,
+      "status": "passed",
+      "samples": [
+        {
+          "sample": 1,
+          "cpu": "0.03%",
+          "memory": "31.01MiB / 512MiB",
+          "memoryPercent": "6.06%",
+          "blockIO": "0B / 40.3MB",
+          "pids": "6"
+        },
+        {
+          "sample": 2,
+          "cpu": "0.05%",
+          "memory": "31.01MiB / 512MiB",
+          "memoryPercent": "6.06%",
+          "blockIO": "0B / 40.3MB",
+          "pids": "6"
+        },
+        {
+          "sample": 3,
+          "cpu": "0.08%",
+          "memory": "31.01MiB / 512MiB",
+          "memoryPercent": "6.06%",
+          "blockIO": "0B / 40.3MB",
+          "pids": "6"
+        },
+        {
+          "sample": 4,
+          "cpu": "0.04%",
+          "memory": "30.95MiB / 512MiB",
+          "memoryPercent": "6.05%",
+          "blockIO": "0B / 40.3MB",
+          "pids": "6"
+        },
+        {
+          "sample": 5,
+          "cpu": "0.46%",
+          "memory": "30.95MiB / 512MiB",
+          "memoryPercent": "6.05%",
+          "blockIO": "0B / 40.3MB",
+          "pids": "6"
+        }
+      ],
+      "pullSeconds": 2.95,
+      "imageDigest": "postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+      "imageSizeBytes": 423189986,
+      "hostFreeMemoryBeforeMiB": 833,
+      "readySeconds": 5.59,
+      "readiness": "service-specific readiness",
+      "dataDirectoryKiB": "39424\t/var/lib/postgresql/data",
+      "oomKilledBeforeRestart": false,
+      "restartCountBefore": 0,
+      "postRestartReadySeconds": 0.21,
+      "restartCheck": "passed",
+      "persistence": "1000 rows survived same-container restart",
+      "oomKilledAfterRestart": false
+    },
+    {
+      "service": "redis",
+      "imageTag": "redis:7-alpine",
+      "memoryLimit": "256m",
+      "cpuLimit": 1,
+      "status": "passed",
+      "samples": [
+        {
+          "sample": 1,
+          "cpu": "0.66%",
+          "memory": "4.672MiB / 256MiB",
+          "memoryPercent": "1.82%",
+          "blockIO": "0B / 8.19kB",
+          "pids": "6"
+        },
+        {
+          "sample": 2,
+          "cpu": "1.31%",
+          "memory": "4.551MiB / 256MiB",
+          "memoryPercent": "1.78%",
+          "blockIO": "0B / 8.19kB",
+          "pids": "6"
+        },
+        {
+          "sample": 3,
+          "cpu": "1.21%",
+          "memory": "4.551MiB / 256MiB",
+          "memoryPercent": "1.78%",
+          "blockIO": "0B / 8.19kB",
+          "pids": "6"
+        },
+        {
+          "sample": 4,
+          "cpu": "0.77%",
+          "memory": "4.551MiB / 256MiB",
+          "memoryPercent": "1.78%",
+          "blockIO": "0B / 8.19kB",
+          "pids": "6"
+        },
+        {
+          "sample": 5,
+          "cpu": "0.89%",
+          "memory": "4.551MiB / 256MiB",
+          "memoryPercent": "1.78%",
+          "blockIO": "0B / 8.19kB",
+          "pids": "6"
+        }
+      ],
+      "pullSeconds": 9.67,
+      "imageDigest": "redis@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499",
+      "imageSizeBytes": 57300241,
+      "hostFreeMemoryBeforeMiB": 747,
+      "readySeconds": 0.95,
+      "readiness": "service-specific readiness",
+      "dataDirectoryKiB": "16\t/data",
+      "oomKilledBeforeRestart": false,
+      "restartCountBefore": 0,
+      "postRestartReadySeconds": 0.16,
+      "restartCheck": "passed",
+      "persistence": "AOF marker survived same-container restart",
+      "oomKilledAfterRestart": false
+    },
+    {
+      "service": "rabbitmq",
+      "imageTag": "rabbitmq:4",
+      "memoryLimit": "512m",
+      "cpuLimit": 1,
+      "status": "failed",
+      "samples": [],
+      "pullSeconds": 75.73,
+      "imageDigest": "rabbitmq@sha256:71be6ca71cd3ad92f29b354ec381b1ee587894aaaac21f185b8cf43fb50d3feb",
+      "imageSizeBytes": 427610304,
+      "hostFreeMemoryBeforeMiB": 752,
+      "error": "Service exited before readiness"
+    },
+    {
+      "service": "kafka",
+      "imageTag": "apache/kafka:4.0.1",
+      "memoryLimit": "1536m",
+      "cpuLimit": 1,
+      "status": "failed",
+      "samples": [],
+      "pullSeconds": 97.07,
+      "imageDigest": "apache/kafka@sha256:9a129e03121d46d74349a480f8f17082df3dd411b28281c9eabb95cf096370b9",
+      "imageSizeBytes": 619840251,
+      "hostFreeMemoryBeforeMiB": 637,
+      "error": "Service exited before readiness"
+    },
+    {
+      "service": "prometheus",
+      "imageTag": "prom/prometheus:v3.5.0",
+      "memoryLimit": "512m",
+      "cpuLimit": 1,
+      "status": "passed",
+      "samples": [
+        {
+          "sample": 1,
+          "cpu": "0.00%",
+          "memory": "17.36MiB / 512MiB",
+          "memoryPercent": "3.39%",
+          "blockIO": "4.1kB / 0B",
+          "pids": "11"
+        },
+        {
+          "sample": 2,
+          "cpu": "0.00%",
+          "memory": "17.34MiB / 512MiB",
+          "memoryPercent": "3.39%",
+          "blockIO": "4.1kB / 0B",
+          "pids": "11"
+        },
+        {
+          "sample": 3,
+          "cpu": "0.00%",
+          "memory": "17.34MiB / 512MiB",
+          "memoryPercent": "3.39%",
+          "blockIO": "4.1kB / 0B",
+          "pids": "11"
+        },
+        {
+          "sample": 4,
+          "cpu": "0.11%",
+          "memory": "17.34MiB / 512MiB",
+          "memoryPercent": "3.39%",
+          "blockIO": "4.1kB / 0B",
+          "pids": "11"
+        },
+        {
+          "sample": 5,
+          "cpu": "0.00%",
+          "memory": "17.34MiB / 512MiB",
+          "memoryPercent": "3.39%",
+          "blockIO": "4.1kB / 0B",
+          "pids": "11"
+        }
+      ],
+      "pullSeconds": 60.13,
+      "imageDigest": "prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996",
+      "imageSizeBytes": 439761253,
+      "hostFreeMemoryBeforeMiB": 664,
+      "readySeconds": 0.98,
+      "readiness": "service-specific readiness",
+      "dataDirectoryKiB": "16\t/prometheus",
+      "oomKilledBeforeRestart": false,
+      "restartCountBefore": 0,
+      "postRestartReadySeconds": 0.18,
+      "restartCheck": "passed",
+      "persistence": "Not tested",
+      "oomKilledAfterRestart": false
+    },
+    {
+      "service": "grafana",
+      "imageTag": "grafana/grafana:12.1.0",
+      "memoryLimit": "384m",
+      "cpuLimit": 1,
+      "status": "passed",
+      "samples": [
+        {
+          "sample": 1,
+          "cpu": "0.72%",
+          "memory": "81.02MiB / 384MiB",
+          "memoryPercent": "21.10%",
+          "blockIO": "4.1kB / 27.4MB",
+          "pids": "19"
+        },
+        {
+          "sample": 2,
+          "cpu": "0.55%",
+          "memory": "81.02MiB / 384MiB",
+          "memoryPercent": "21.10%",
+          "blockIO": "4.1kB / 27.4MB",
+          "pids": "19"
+        },
+        {
+          "sample": 3,
+          "cpu": "0.32%",
+          "memory": "81.02MiB / 384MiB",
+          "memoryPercent": "21.10%",
+          "blockIO": "4.1kB / 27.4MB",
+          "pids": "19"
+        },
+        {
+          "sample": 4,
+          "cpu": "0.65%",
+          "memory": "81.02MiB / 384MiB",
+          "memoryPercent": "21.10%",
+          "blockIO": "4.1kB / 27.4MB",
+          "pids": "19"
+        },
+        {
+          "sample": 5,
+          "cpu": "0.51%",
+          "memory": "81.02MiB / 384MiB",
+          "memoryPercent": "21.10%",
+          "blockIO": "4.1kB / 27.4MB",
+          "pids": "19"
+        }
+      ],
+      "pullSeconds": 153.92,
+      "imageDigest": "grafana/grafana@sha256:6ac590e7cabc2fbe8d7b8fc1ce9c9f0582177b334e0df9c927ebd9670469440f",
+      "imageSizeBytes": 959915953,
+      "hostFreeMemoryBeforeMiB": 719,
+      "readySeconds": 11.09,
+      "readiness": "service-specific readiness",
+      "dataDirectoryKiB": "1152\t/var/lib/grafana",
+      "oomKilledBeforeRestart": false,
+      "restartCountBefore": 0,
+      "postRestartReadySeconds": 2.51,
+      "restartCheck": "passed",
+      "persistence": "Not tested",
+      "oomKilledAfterRestart": false
+    },
+    {
+      "service": "collector",
+      "imageTag": "otel/opentelemetry-collector:0.133.0",
+      "memoryLimit": "128m",
+      "cpuLimit": 1,
+      "status": "passed",
+      "samples": [
+        {
+          "sample": 1,
+          "cpu": "0.53%",
+          "memory": "17.75MiB / 128MiB",
+          "memoryPercent": "13.86%",
+          "blockIO": "0B / 0B",
+          "pids": "11"
+        },
+        {
+          "sample": 2,
+          "cpu": "3.57%",
+          "memory": "18.5MiB / 128MiB",
+          "memoryPercent": "14.45%",
+          "blockIO": "0B / 0B",
+          "pids": "11"
+        },
+        {
+          "sample": 3,
+          "cpu": "0.24%",
+          "memory": "18.5MiB / 128MiB",
+          "memoryPercent": "14.45%",
+          "blockIO": "0B / 0B",
+          "pids": "11"
+        },
+        {
+          "sample": 4,
+          "cpu": "0.23%",
+          "memory": "18.5MiB / 128MiB",
+          "memoryPercent": "14.45%",
+          "blockIO": "0B / 0B",
+          "pids": "11"
+        },
+        {
+          "sample": 5,
+          "cpu": "0.20%",
+          "memory": "18.5MiB / 128MiB",
+          "memoryPercent": "14.45%",
+          "blockIO": "0B / 0B",
+          "pids": "11"
+        }
+      ],
+      "pullSeconds": 21.53,
+      "imageDigest": "otel/opentelemetry-collector@sha256:01268c1bf7f561f1df20a0ea2875db8cb388508f1845a96c8e9ff83efe970a80",
+      "imageSizeBytes": 173996078,
+      "hostFreeMemoryBeforeMiB": 726,
+      "readySeconds": 5.77,
+      "readiness": "process only",
+      "oomKilledBeforeRestart": false,
+      "restartCountBefore": 0,
+      "postRestartReadySeconds": 5.15,
+      "restartCheck": "passed",
+      "persistence": "Not tested",
+      "oomKilledAfterRestart": false
+    }
+  ]
 }

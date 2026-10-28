@@ -159,7 +159,7 @@ func TestDisposableMigrations(t *testing.T) {
 			}
 			var version int64
 			var hash, origin string
-			if err := pool.QueryRow(context.Background(), "SELECT version,checksum,origin FROM public.bliss_schema_migrations").Scan(&version, &hash, &origin); err != nil || version != 1 || hash != checksum(steps()[0].sql) || origin != "prisma" {
+			if err := pool.QueryRow(context.Background(), "SELECT version,checksum,origin FROM public.bliss_schema_migrations WHERE version=1").Scan(&version, &hash, &origin); err != nil || version != 1 || hash != checksum(steps()[0].sql) || origin != "prisma" {
 				t.Fatalf("bad ledger: %v", err)
 			}
 		})
@@ -205,7 +205,7 @@ func TestDisposableMigrations(t *testing.T) {
 		fails(t, pool, "status", "checksum mismatch")
 	})
 	for name, sql := range map[string]string{
-		"unknown version":     "UPDATE public.bliss_schema_migrations SET version=9",
+		"unknown version":     "UPDATE public.bliss_schema_migrations SET version=version+9",
 		"wrong origin":        "UPDATE public.bliss_schema_migrations SET origin='prisma'",
 		"empty ledger":        "DELETE FROM public.bliss_schema_migrations",
 		"ledger schema drift": "ALTER TABLE public.bliss_schema_migrations ADD COLUMN surprise text",
@@ -244,12 +244,12 @@ func TestDisposableMigrations(t *testing.T) {
 	t.Run("failed SQL rolls back DDL and ledger", func(t *testing.T) {
 		reset(t, pool)
 		run(t, pool, "init")
-		broken := append(steps(), step{2, `CREATE TABLE public.partial_change(id int); SELECT 1/0;`})
+		broken := append(steps(), step{3, `CREATE TABLE public.partial_change(id int); SELECT 1/0;`})
 		if _, err := execute(context.Background(), pool, "up", broken); err == nil {
 			t.Fatal("bad SQL accepted")
 		}
 		var clean bool
-		if err := pool.QueryRow(context.Background(), "SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=1 FROM public.bliss_schema_migrations)").Scan(&clean); err != nil || !clean {
+		if err := pool.QueryRow(context.Background(), "SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=2 FROM public.bliss_schema_migrations)").Scan(&clean); err != nil || !clean {
 			t.Fatalf("partial changes: %v", err)
 		}
 		run(t, pool, "up")
@@ -259,7 +259,7 @@ func TestDisposableMigrations(t *testing.T) {
 		legacy(t, pool, true)
 		run(t, pool, "adopt-legacy")
 		before := snapshot(t, pool)
-		forward := append(steps(), step{2, `COMMENT ON TABLE public."Order" IS 'compatible upgrade';`}, step{3, `COMMENT ON TABLE public."Order" IS 'forward repair';`})
+		forward := append(steps(), step{3, `COMMENT ON TABLE public."Order" IS 'compatible upgrade';`}, step{4, `COMMENT ON TABLE public."Order" IS 'forward repair';`})
 		for range 2 {
 			if _, err := execute(context.Background(), pool, "up", forward); err != nil {
 				t.Fatal(err)
@@ -269,7 +269,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal("forward repair changed legacy records/history")
 		}
 		var count int
-		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM public.bliss_schema_migrations").Scan(&count); err != nil || count != 3 {
+		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM public.bliss_schema_migrations").Scan(&count); err != nil || count != 4 {
 			t.Fatalf("repair ledger: %v", err)
 		}
 		forward[1].sql += " -- changed after application"
@@ -282,7 +282,7 @@ func TestDisposableMigrations(t *testing.T) {
 		run(t, pool, "init")
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		slow := append(steps(), step{2, `CREATE TABLE public.partial_change(id int); SELECT pg_sleep(10);`})
+		slow := append(steps(), step{3, `CREATE TABLE public.partial_change(id int); SELECT pg_sleep(10);`})
 		if _, err := execute(ctx, pool, "up", slow); err == nil {
 			t.Fatal("cancellation ignored")
 		}
@@ -300,7 +300,7 @@ func TestDisposableMigrations(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 		var clean bool
-		if err := pool.QueryRow(context.Background(), "SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=1 FROM public.bliss_schema_migrations)").Scan(&clean); err != nil || !clean {
+		if err := pool.QueryRow(context.Background(), "SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=2 FROM public.bliss_schema_migrations)").Scan(&clean); err != nil || !clean {
 			t.Fatalf("cancel left partial changes: %v", err)
 		}
 	})
@@ -396,6 +396,12 @@ func testRuntimeGrants(t *testing.T, admin *pgxpool.Pool) {
 		t.Fatalf("runtime read/write failed: %v", err)
 	}
 	execSQL(t, runtimePool, `DELETE FROM public."MpesaTransaction" WHERE id='runtime-payment'; DELETE FROM public."Order" WHERE id='runtime-order'`)
+	execSQL(t, admin, `GRANT SELECT ON public.catalog_product,public.catalog_settings,public.stock_control TO `+identifier(runtime))
+	execSQL(t, runtimePool, `SELECT id FROM public.catalog_product`)
+	denied(`UPDATE public.catalog_product SET stock=99`)
+	denied(`INSERT INTO public.stock_batch(id,digest,kind,actor,evidence) VALUES ('bad','bad','receipt','bad','bad')`)
+	denied(`UPDATE public.stock_control SET authority='replacement'`)
+	denied(`SELECT * FROM public.stock_approval`)
 	denied(`CREATE TABLE public.runtime_ddl(id int)`)
 	denied(`ALTER TABLE public."Order" ADD COLUMN surprise text`)
 	denied(`SELECT * FROM public.bliss_schema_migrations`)

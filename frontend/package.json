@@ -1,0 +1,12 @@
+{
+  "name": "bliss-frontend-assets",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./tailwind.input.css -o ./tailwind.css --minify",
+    "test": "node --test catalog.test.cjs"
+  },
+  "devDependencies": {
+    "tailwindcss": "4.3.0",
+    "@tailwindcss/cli": "4.3.0"
+  }
+}

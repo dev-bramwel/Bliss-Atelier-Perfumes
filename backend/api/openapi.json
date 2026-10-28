@@ -3,7 +3,7 @@
   "info": {
     "title": "Bliss Atelier legacy compatibility draft",
     "version": "0.1.0",
-    "description": "Observed Express contracts for migration. Go currently implements only root and health. Legacy KES 2000 and on_delivery behavior conflict with R01 and are not approved target policy. Guest authorization and callback settlement validation remain cutover gates."
+    "description": "Observed Express contracts for migration. Go implements root, health and the database catalog; orders/payments remain legacy. The local web proxy exposes /catalog as /api/catalog. Legacy KES 2000 and on_delivery behavior conflict with R01 and are not approved target policy. Guest authorization and callback settlement validation remain cutover gates."
   },
   "paths": {
     "/": {
@@ -16,9 +16,7 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "status"
-                  ],
+                  "required": ["status"],
                   "properties": {
                     "status": {
                       "type": "string",
@@ -177,22 +175,15 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "Body"
-                ],
+                "required": ["Body"],
                 "properties": {
                   "Body": {
                     "type": "object",
-                    "required": [
-                      "stkCallback"
-                    ],
+                    "required": ["stkCallback"],
                     "properties": {
                       "stkCallback": {
                         "type": "object",
-                        "required": [
-                          "CheckoutRequestID",
-                          "ResultCode"
-                        ],
+                        "required": ["CheckoutRequestID", "ResultCode"],
                         "properties": {
                           "MerchantRequestID": {
                             "type": "string"
@@ -255,22 +246,15 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "required": [
-                    "ResultCode",
-                    "ResultDesc"
-                  ],
+                  "required": ["ResultCode", "ResultDesc"],
                   "properties": {
                     "ResultCode": {
                       "type": "integer",
-                      "enum": [
-                        0
-                      ]
+                      "enum": [0]
                     },
                     "ResultDesc": {
                       "type": "string",
-                      "enum": [
-                        "Accepted"
-                      ]
+                      "enum": ["Accepted"]
                     }
                   }
                 }
@@ -288,6 +272,68 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/catalog": {
+      "get": {
+        "operationId": "listCatalog",
+        "description": "Database metadata and effective integer KES prices. Availability requires approved, opened, positive stock before reconciliation expiry. No-store. Runtime has read-only catalog access.",
+        "responses": {
+          "200": {
+            "description": "Catalog products",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["products"],
+                  "properties": {
+                    "products": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "slug",
+                          "categorySlug",
+                          "priceKes",
+                          "available",
+                          "images"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "categorySlug": {
+                            "type": "string"
+                          },
+                          "priceKes": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "available": {
+                            "type": "boolean"
+                          },
+                          "images": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Catalog database unavailable; no fallback prices or availability"
           }
         }
       }
@@ -319,9 +365,7 @@
     "schemas": {
       "Error": {
         "type": "object",
-        "required": [
-          "error"
-        ],
+        "required": ["error"],
         "properties": {
           "error": {
             "type": "string"
@@ -330,18 +374,11 @@
       },
       "Checkout": {
         "type": "object",
-        "required": [
-          "customer",
-          "items"
-        ],
+        "required": ["customer", "items"],
         "properties": {
           "customer": {
             "type": "object",
-            "required": [
-              "name",
-              "phone",
-              "location"
-            ],
+            "required": ["name", "phone", "location"],
             "properties": {
               "name": {
                 "type": "string"
@@ -357,18 +394,12 @@
               },
               "delivery": {
                 "type": "string",
-                "enum": [
-                  "delivery",
-                  "pickup"
-                ],
+                "enum": ["delivery", "pickup"],
                 "default": "delivery"
               },
               "payment": {
                 "type": "string",
-                "enum": [
-                  "pay_now",
-                  "on_delivery"
-                ],
+                "enum": ["pay_now", "on_delivery"],
                 "default": "on_delivery",
                 "description": "Historical only: R01 prohibits on_delivery"
               }
@@ -390,10 +421,7 @@
       },
       "ItemInput": {
         "type": "object",
-        "required": [
-          "id",
-          "qty"
-        ],
+        "required": ["id", "qty"],
         "properties": {
           "id": {
             "type": "string",
@@ -420,13 +448,7 @@
       },
       "PricedItem": {
         "type": "object",
-        "required": [
-          "id",
-          "name",
-          "size",
-          "priceKes",
-          "qty"
-        ],
+        "required": ["id", "name", "size", "priceKes", "qty"],
         "properties": {
           "id": {
             "type": "string"
@@ -528,10 +550,7 @@
       },
       "OrderEnvelope": {
         "type": "object",
-        "required": [
-          "order",
-          "stkPush"
-        ],
+        "required": ["order", "stkPush"],
         "properties": {
           "order": {
             "$ref": "#/components/schemas/Order"
@@ -548,9 +567,7 @@
           },
           {
             "type": "object",
-            "required": [
-              "warning"
-            ],
+            "required": ["warning"],
             "properties": {
               "warning": {
                 "type": "string"

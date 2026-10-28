@@ -121,8 +121,7 @@ function safeTokenMatch(providedToken, expectedToken) {
   const provided = Buffer.from(providedToken);
   const expected = Buffer.from(expectedToken);
   return (
-    provided.length === expected.length &&
-    timingSafeEqual(provided, expected)
+    provided.length === expected.length && timingSafeEqual(provided, expected)
   );
 }
 

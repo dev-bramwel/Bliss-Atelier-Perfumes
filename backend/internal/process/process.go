@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/httpapi"
@@ -49,6 +50,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		return errors.New("unexpected command arguments")
 	}
 	var ping httpapi.Ping
+	var catalogStore httpapi.Catalog
 	if cfg.DatabaseURL != "" {
 		pool, e := database.Open(ctx, cfg.DatabaseURL, cfg.MaxConnections, cfg.IOTimeout)
 		if e != nil {
@@ -63,7 +65,13 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			logger.Info("migration_status", "command", args[0], "state", result.State, "orders", result.Orders, "payments", result.Payments)
 			return nil
 		}
+		catalogStore = &catalog.Store{Pool: pool}
 		ping = pool.Ping
+		if cfg.RequireSchema {
+			ping = func(ctx context.Context) error {
+				return migration.RuntimeReady(ctx, pool)
+			}
+		}
 	}
 	switch command {
 	case "api":
@@ -72,7 +80,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return errors.New("HTTP listener unavailable")
 		}
 		defer listener.Close()
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		logger.Info("worker_idle", "mode", "foundation_no_jobs")
 		<-ctx.Done()
