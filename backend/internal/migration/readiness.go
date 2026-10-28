@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -30,10 +32,10 @@ func RuntimeReady(ctx context.Context, pool *pgxpool.Pool) error {
 		return errors.New("schema unavailable")
 	}
 	expected := map[string]json.RawMessage{}
-	if json.Unmarshal([]byte(read("schema.json")), &expected) != nil {
+	if json.Unmarshal([]byte(read("schema-v2.json")), &expected) != nil {
 		return errors.New("schema unavailable")
 	}
-	for _, name := range []string{"Order", "MpesaTransaction", "bliss_schema_migrations"} {
+	for _, name := range []string{"Order", "MpesaTransaction", "bliss_schema_migrations", "catalog_settings", "catalog_product", "stock_control", "stock_batch", "stock_entry", "stock_approval"} {
 		if !sameJSON(actual[name], expected[name]) {
 			return errors.New("schema unavailable")
 		}
@@ -55,3 +57,12 @@ func RuntimeReady(ctx context.Context, pool *pgxpool.Pool) error {
 
 // BaselineChecksum supplies the local deployment's exact ledger expectation.
 func BaselineChecksum() string { return checksum(steps()[0].sql) }
+
+// LedgerPredicate is used only by the local deployment attestation.
+func LedgerPredicate() string {
+	parts := []string{}
+	for _, s := range steps() {
+		parts = append(parts, fmt.Sprintf("(version=%d AND checksum='%s' AND origin='empty')", s.version, checksum(s.sql)))
+	}
+	return fmt.Sprintf("count(*)=%d AND coalesce(bool_and(%s),false)", len(parts), strings.Join(parts, " OR "))
+}

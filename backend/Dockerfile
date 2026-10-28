@@ -4,7 +4,7 @@ COPY backend/go.mod backend/go.sum ./
 RUN go mod download && go mod verify
 COPY backend/cmd ./cmd
 COPY backend/internal ./internal
-RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags="-s -w" -o /out/ ./cmd/api ./cmd/worker ./cmd/migrate ./cmd/devstack ./cmd/web ./cmd/fakeprovider ./cmd/probe
+RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags="-s -w" -o /out/ ./cmd/api ./cmd/worker ./cmd/migrate ./cmd/devstack ./cmd/web ./cmd/fakeprovider ./cmd/probe ./cmd/stock
 
 FROM scratch AS runtime
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

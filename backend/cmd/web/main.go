@@ -11,7 +11,7 @@ import (
 func handler() http.Handler {
 	target, _ := url.Parse("http://api:5001")
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.Transport = &http.Transport{Proxy: nil, ResponseHeaderTimeout: 5 * time.Second, MaxConnsPerHost: 8, IdleConnTimeout: 30 * time.Second}
+	proxy.Transport = &http.Transport{Proxy: nil, ResponseHeaderTimeout: 15 * time.Second, MaxConnsPerHost: 16, IdleConnTimeout: 30 * time.Second}
 	director := proxy.Director
 	proxy.Director = func(r *http.Request) {
 		r.Header.Del("Forwarded")

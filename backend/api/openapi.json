@@ -3,7 +3,7 @@
   "info": {
     "title": "Bliss Atelier legacy compatibility draft",
     "version": "0.1.0",
-    "description": "Observed Express contracts for migration. Go currently implements only root and health. Legacy KES 2000 and on_delivery behavior conflict with R01 and are not approved target policy. Guest authorization and callback settlement validation remain cutover gates."
+    "description": "Observed Express contracts for migration. Go implements root, health and the database catalog; orders/payments remain legacy. The local web proxy exposes /catalog as /api/catalog. Legacy KES 2000 and on_delivery behavior conflict with R01 and are not approved target policy. Guest authorization and callback settlement validation remain cutover gates."
   },
   "paths": {
     "/": {
@@ -288,6 +288,70 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/catalog": {
+      "get": {
+        "operationId": "listCatalog",
+        "description": "Database metadata and effective integer KES prices. Availability requires approved, opened, positive stock before reconciliation expiry. No-store. Runtime has read-only catalog access.",
+        "responses": {
+          "200": {
+            "description": "Catalog products",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "products"
+                  ],
+                  "properties": {
+                    "products": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "slug",
+                          "categorySlug",
+                          "priceKes",
+                          "available",
+                          "images"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "categorySlug": {
+                            "type": "string"
+                          },
+                          "priceKes": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "available": {
+                            "type": "boolean"
+                          },
+                          "images": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Catalog database unavailable; no fallback prices or availability"
           }
         }
       }

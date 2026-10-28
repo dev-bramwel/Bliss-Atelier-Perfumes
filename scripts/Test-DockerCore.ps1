@@ -89,7 +89,13 @@ try {
         $browserReports = Join-Path $evidence 'browser'
         New-Item -ItemType Directory -Force -Path $browserReports | Out-Null
         docker run --rm --network ($project + '_edge') --mount "type=bind,source=$repoRoot/tools/ci,target=/source,readonly" --mount "type=bind,source=$browserReports,target=/reports" mcr.microsoft.com/playwright:v1.64.1-noble@sha256:7852dc5a7d72f5fe458a597d690f6c42fbc8e9e26ddfa95f8e6ef552558d9bbf sh -ec 'cp -R /source /tmp/ci; cd /tmp/ci; npm ci --ignore-scripts; npm run browser'
-        if ($LASTEXITCODE -ne 0) {throw 'Real browser smoke failed'}
+        if ($LASTEXITCODE -ne 0) {
+            $reportFile = Join-Path $browserReports 'browser.json'
+            if (Test-Path -LiteralPath $reportFile) {
+                Write-Host "Browser smoke report:`n$((Get-Content -Raw -LiteralPath $reportFile))"
+            }
+            throw 'Real browser smoke failed'
+        }
     }
     Compose run --rm --no-deps --entrypoint /app/devstack api provider-check
     Sql @'
@@ -104,7 +110,7 @@ VALUES ('r07-persistence',now(),'Synthetic Customer','254700000000','Synthetic p
     if ((Status ($origin + '/api/health/ready')) -ne 503) {throw 'Missing runtime privileges did not disable readiness'}
     Sql 'GRANT SELECT ON public."Order" TO bliss_runtime' | Out-Null
     # Check a running API becomes unready while its process remains live.
-    Sql "UPDATE public.bliss_schema_migrations SET checksum='intentional-r07-mismatch'" | Out-Null
+    Sql "UPDATE public.bliss_schema_migrations SET checksum='intentional-r07-mismatch' WHERE version=1" | Out-Null
     if ((Status ($origin + '/api/health/ready')) -ne 503 -or (Status ($origin + '/api/health/live')) -ne 200) {throw 'Schema mismatch did not disable readiness independently of liveness'}
     Compose down
     & docker compose up -d --wait --wait-timeout 60
@@ -112,9 +118,15 @@ VALUES ('r07-persistence',now(),'Synthetic Customer','254700000000','Synthetic p
     $apiID = Container api
     if ($apiID -and (docker inspect --format '{{.State.Running}}' $apiID) -eq 'true') {throw 'API started after failed migration'}
     $expectedHash = '0bf265f9da0f9aaf07cb4a91e54efc03bad02aa33935806b1ba8d03d96226e49'
-    Sql ("UPDATE public.bliss_schema_migrations SET checksum='" + $expectedHash + "'") | Out-Null
+    Sql ("UPDATE public.bliss_schema_migrations SET checksum='" + $expectedHash + "' WHERE version=1") | Out-Null
     Compose up -d --wait --wait-timeout 120
     if ((Status ($origin + '/api/health/ready')) -ne 200) {throw 'Recovery failed'}
+    $catalog = Invoke-RestMethod -Uri ($origin + '/api/catalog') -TimeoutSec 10
+    if ($catalog.products.Count -ne 23) {throw 'Catalog seed count differs'}
+    foreach ($product in $catalog.products) {
+        if ($product.priceKes -ne 2500 -or $product.available) {throw 'Unopened catalog price/availability differs'}
+    }
+
     if ($evidence) {
         $imageRecords = foreach ($kind in @('backend','frontend','postgres')) {
             $image = "bliss-${kind}:$suffix"
@@ -129,7 +141,7 @@ VALUES ('r07-persistence',now(),'Synthetic Customer','254700000000','Synthetic p
     docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' (Container frontend) (Container api) (Container db) (Container fake-provider)
     Write-Host 'R07 Docker core checks passed: checkout, proxy, non-root/private services, CA store, clean layers, persistence and migration failure gating.'
 } catch {
-    docker compose logs --tail=50 db migrate
+    docker compose logs --tail=50 db migrate api frontend
     throw
 } finally {
     # Destructive cleanup is confined to this generated disposable project.

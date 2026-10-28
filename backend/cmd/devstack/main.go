@@ -19,6 +19,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/migration"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/provider"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func secrets(directory string) error {
@@ -82,9 +83,17 @@ func migrate() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	pool, err := database.Open(ctx, cfg.DatabaseURL, 2, 5*time.Second)
-	if err != nil {
-		return err
+	var pool *pgxpool.Pool
+	for {
+		pool, err = database.Open(ctx, cfg.DatabaseURL, 2, 5*time.Second)
+		if err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 	defer pool.Close()
 	state, err := migration.Run(ctx, pool, "status", 15*time.Second)
@@ -101,15 +110,16 @@ func migrate() error {
 		return err
 	}
 	// This local-only capability exposes one boolean, not history rows, to runtime.
-	hash := migration.BaselineChecksum()
+	predicate := migration.LedgerPredicate()
 	sql := `GRANT USAGE ON SCHEMA public TO bliss_runtime;
  GRANT SELECT,INSERT,UPDATE,DELETE ON public."Order",public."MpesaTransaction" TO bliss_runtime;
+ GRANT SELECT ON public.catalog_product,public.catalog_settings,public.stock_control TO bliss_runtime;
  CREATE SCHEMA IF NOT EXISTS bliss_ops;
  REVOKE ALL ON SCHEMA bliss_ops FROM PUBLIC;
  GRANT USAGE ON SCHEMA bliss_ops TO bliss_runtime;
  CREATE OR REPLACE FUNCTION bliss_ops.schema_ready() RETURNS boolean
  LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
- SELECT count(*)=1 AND coalesce(bool_and(version=1 AND checksum='` + hash + `' AND origin='empty'),false)
+ SELECT ` + predicate + `
  FROM public.bliss_schema_migrations $$;
  REVOKE ALL ON FUNCTION bliss_ops.schema_ready() FROM PUBLIC;
  GRANT EXECUTE ON FUNCTION bliss_ops.schema_ready() TO bliss_runtime;`
