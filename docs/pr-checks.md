@@ -4,10 +4,10 @@ Issue [#14](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/14). Th
 
 ## Check coverage
 
-| Required check | Gates |
-| --- | --- |
+| Required check         | Gates                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Docker core validation | Go formatting/module verification/vet/race/build; CSS reproducibility and dependency audit; real PostgreSQL migration/upgrade/restore fixtures; non-root/private Compose stack; actual Chromium cart/checkout rendering and same-origin health; persistence, migration failure/recovery, fixture provider, image credential scans, HIGH/CRITICAL image scans and SBOMs. |
-| Security and contracts | Redacted Gitleaks history scan, Go vulnerability checking, OpenAPI structural validation and response-fixture schema checks, CI-tool dependency audit and existing legacy JavaScript tests. Negative controls must reject a synthetic key and an invalid contract. |
+| Security and contracts | Redacted Gitleaks history scan, Go vulnerability checking, OpenAPI structural validation and response-fixture schema checks, CI-tool dependency audit and existing legacy JavaScript tests. Negative controls must reject a synthetic key and an invalid contract.                                                                                                      |
 
 Both workflows run for PRs to develop/main, pushes to those branches, and manual dispatch, with no path filters. SHA-pinned actions, read-only contents permission, disabled persisted checkout credentials, standard hosted runners and no environment/deployment secrets apply to untrusted PRs too. Fork PRs may require GitHub's contributor approval; no pull_request_target or privileged self-hosted runner executes PR code. Scanners are version-pinned and their release archives are verified against committed SHA-256 values before execution. Scanner database download/tool failures fail the job, not silently skip a gate.
 

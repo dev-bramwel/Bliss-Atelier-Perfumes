@@ -4,16 +4,16 @@ Status: the [R07 core stack and runnable setup](docker-core.md) now implement th
 
 ## Configuration files
 
-| File | Responsibility |
-| --- | --- |
-| `backend/Dockerfile` | Implemented Go compilation and non-root runtime; tests run separately |
-| `.dockerignore` | Root build-context allowlist excluding environment files, keys and local credentials |
-| `frontend/Dockerfile` | Static frontend HTTP serving and same-origin API proxy |
-| `backend/cmd/web/main.go` | Implemented fixed-upstream `/api/` proxy and static assets; forwarded header policy |
-| `compose.yaml` | Core frontend/API/Postgres development environment |
-| `compose.infrastructure.yaml` | Planned Redis/RabbitMQ/Kafka/worker profile or overlay |
-| `compose.observability.yaml` | Planned metrics/dashboards/collector overlay |
-| `.env.example` | Root Compose non-secret placeholders; never real credentials |
+| File                          | Responsibility                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------ |
+| `backend/Dockerfile`          | Implemented Go compilation and non-root runtime; tests run separately                |
+| `.dockerignore`               | Root build-context allowlist excluding environment files, keys and local credentials |
+| `frontend/Dockerfile`         | Static frontend HTTP serving and same-origin API proxy                               |
+| `backend/cmd/web/main.go`     | Implemented fixed-upstream `/api/` proxy and static assets; forwarded header policy  |
+| `compose.yaml`                | Core frontend/API/Postgres development environment                                   |
+| `compose.infrastructure.yaml` | Planned Redis/RabbitMQ/Kafka/worker profile or overlay                               |
+| `compose.observability.yaml`  | Planned metrics/dashboards/collector overlay                                         |
+| `.env.example`                | Root Compose non-secret placeholders; never real credentials                         |
 
 Final paths follow implementation decisions, with docs updated together. Browser uses public frontend origin; API connects to service DNS names internally. `localhost` inside a container is that container. Callback URLs must be publicly reachable HTTPS for sandbox/provider checks; a local service name is not a public callback endpoint.
 

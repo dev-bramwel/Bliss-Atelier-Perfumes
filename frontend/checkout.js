@@ -32,7 +32,11 @@ function renderCheckoutSummary() {
   if (submit) submit.disabled = checkoutBusy || !cartAvailable();
   if (catalogState !== "ready") {
     if (checkoutTotalEl) checkoutTotalEl.textContent = "-";
-    if (checkoutItemsEl) checkoutItemsEl.textContent = catalogState === "loading" ? "Loading current prices..." : "Current prices unavailable. Please try again shortly.";
+    if (checkoutItemsEl)
+      checkoutItemsEl.textContent =
+        catalogState === "loading"
+          ? "Loading current prices..."
+          : "Current prices unavailable. Please try again shortly.";
     return;
   }
   const count = cartCount();

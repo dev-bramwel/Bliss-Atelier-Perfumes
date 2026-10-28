@@ -54,7 +54,7 @@ services:
       GO_DATABASE_URL_FILE: /run/secrets/migrator_url
     secrets: [migrator_url]
     depends_on:
-      db: {condition: service_healthy}
+      db: { condition: service_healthy }
     restart: "no"
 
   api:
@@ -67,8 +67,8 @@ services:
       GO_DB_MAX_CONNECTIONS: "16"
     secrets: [runtime_url]
     depends_on:
-      migrate: {condition: service_completed_successfully}
-      fake-provider: {condition: service_healthy}
+      migrate: { condition: service_completed_successfully }
+      fake-provider: { condition: service_healthy }
     healthcheck:
       test: [CMD, /app/probe, "http://127.0.0.1:5001/health/ready"]
       interval: 3s
@@ -100,7 +100,7 @@ services:
     cpus: 0.5
     pids_limit: 64
     depends_on:
-      api: {condition: service_healthy}
+      api: { condition: service_healthy }
     healthcheck:
       test: [CMD, /app/probe, "http://127.0.0.1:8080/api/health/ready"]
       interval: 3s

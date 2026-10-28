@@ -1,0 +1,18 @@
+# Local and dependency directories
+.git/
+.local/
+**/node_modules/
+
+# Package lock files (managed by npm)
+**/*-lock.json
+
+# Generated assets checked strictly against build outputs
+frontend/tailwind.css
+
+# Checksum-verified migration scripts and static test fixtures
+backend/internal/migration/sql/
+backend/internal/migration/schema*.json
+backend/testdata/legacy/
+
+# Media files
+frontend/img/

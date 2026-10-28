@@ -18,12 +18,12 @@ go run ./cmd/migrate adopt-legacy
 go run ./cmd/migrate up
 ```
 
-| Command | Preconditions and behavior |
-| --- | --- |
-| `status` | Reports `empty`, `legacy`, or `current`, plus aggregate order/payment counts. Rejects schema/history mismatches. No schema/history changes; releases locks by rollback. |
-| `init` | Empty `public` schema only. Creates the legacy baseline, catalog/stock schema and Go checksum ledger atomically. Does not fabricate Prisma history. |
-| `adopt-legacy` | Exact supported business schema and one verified successful `20261006120000_init` history record. Records baseline adoption without executing historical table creation. |
-| `up` | Requires an existing, verified Go ledger. Validates applied SQL checksums before running pending embedded transactional steps. Currently there are no post-baseline steps. |
+| Command        | Preconditions and behavior                                                                                                                                                 |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`       | Reports `empty`, `legacy`, or `current`, plus aggregate order/payment counts. Rejects schema/history mismatches. No schema/history changes; releases locks by rollback.    |
+| `init`         | Empty `public` schema only. Creates the legacy baseline, catalog/stock schema and Go checksum ledger atomically. Does not fabricate Prisma history.                        |
+| `adopt-legacy` | Exact supported business schema and one verified successful `20261006120000_init` history record. Records baseline adoption without executing historical table creation.   |
+| `up`           | Requires an existing, verified Go ledger. Validates applied SQL checksums before running pending embedded transactional steps. Currently there are no post-baseline steps. |
 
 All commands acquire Go lock `477418744910` and Prisma lock `72707369`. Lock contention fails immediately. Existing tables are locked with `SHARE ROW EXCLUSIVE NOWAIT` to prevent data/schema changes during verification and inventory. Even `status` briefly excludes writes; perform inventory/adoption during a maintenance window with writers stopped. `GO_IO_TIMEOUT` bounds the whole migration attempt (default 5s, maximum 1m), with PostgreSQL 17 statement/transaction timeouts bounding server work too. Increase it within its supported range for the controlled operation. A canceled client's locks can remain briefly while the server finishes rollback; a busy retry must stop safely and be retried after release. Large future changes need a separately designed timeout/backfill strategy.
 

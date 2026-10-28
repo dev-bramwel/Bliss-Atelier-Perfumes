@@ -30,13 +30,13 @@ The [Docker core stack](../docs/docker-core.md) adds non-root images and private
 
 Export variables in the process environment; Go does not load `.env`. The independent names in [.env.go.example](.env.go.example) prevent accidentally reusing legacy production settings.
 
-| Variable | Default / validation |
-| --- | --- |
-| `GO_HTTP_ADDR` | `127.0.0.1:5001`; IP or localhost plus port 1–65535 |
-| `GO_DATABASE_URL` | Optional PostgreSQL URL for API/worker; required by every migrate command |
-| `GO_IO_TIMEOUT` | `5s`; 1ms–1m for DB connection/readiness, a complete migration attempt and provider transport when wired |
-| `GO_SHUTDOWN_TIMEOUT` | `10s`; 1ms–1m |
-| `GO_DB_MAX_CONNECTIONS` | `4`; 1–32 |
+| Variable                | Default / validation                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GO_HTTP_ADDR`          | `127.0.0.1:5001`; IP or localhost plus port 1–65535                                                      |
+| `GO_DATABASE_URL`       | Optional PostgreSQL URL for API/worker; required by every migrate command                                |
+| `GO_IO_TIMEOUT`         | `5s`; 1ms–1m for DB connection/readiness, a complete migration attempt and provider transport when wired |
+| `GO_SHUTDOWN_TIMEOUT`   | `10s`; 1ms–1m                                                                                            |
+| `GO_DB_MAX_CONNECTIONS` | `4`; 1–32                                                                                                |
 
 Validation happens before IO. Missing optional database config enables a dependency-free foundation process. If a DB is configured, startup requires a successful bounded ping. `/health/live` means the HTTP process is alive. `/health/ready` checks the configured DB with a deadline; without DB config it means only the foundation is ready. Neither endpoint proves checkout functionality. Root JSON retains the legacy message. No CORS or public deployment is configured for this local foundation.
 

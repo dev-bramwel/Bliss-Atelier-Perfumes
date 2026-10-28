@@ -19,6 +19,12 @@ test("prices products from the server catalog and ignores client totals", () => 
 });
 
 test("rejects unknown products and invalid quantities", () => {
-  assert.throws(() => priceOrderItems([{ id: "unknown", qty: 1 }]), /Unknown product/);
-  assert.throws(() => priceOrderItems([{ id: "p1", qty: 0 }]), /Invalid quantity/);
+  assert.throws(
+    () => priceOrderItems([{ id: "unknown", qty: 1 }]),
+    /Unknown product/,
+  );
+  assert.throws(
+    () => priceOrderItems([{ id: "p1", qty: 0 }]),
+    /Invalid quantity/,
+  );
 });

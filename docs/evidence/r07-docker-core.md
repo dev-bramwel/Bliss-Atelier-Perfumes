@@ -4,11 +4,11 @@ Date: 22 October 2026. Branch: `feat/13-docker-core`. Scope: [issue #13](https:/
 
 ## Acceptance mapping
 
-| Acceptance | Evidence |
-| --- | --- |
-| Fresh checkout builds and serves checkout | Both root-context Dockerfiles build with pinned Go and static runtimes. A new Compose project with generated credentials/empty volume initializes, migrates and serves checkout HTML, JavaScript, styles and same-origin health routes with HTTP 200. Runtime Tailwind CDN is replaced by committed local CSS. |
-| Data survives restart | Seed a synthetic order with KES 2500, bring the project down without deleting volumes, recreate it, rerun migration and verify the same ID/total. |
-| Failed migration prevents unsafe readiness | Change the disposable ledger checksum: running API returns readiness 503 while liveness remains 200. After recreation, migration exits 1 and API never starts. Restore the known synthetic checksum and startup/readiness recover. Revoking runtime SELECT also disables readiness. |
+| Acceptance                                      | Evidence                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fresh checkout builds and serves checkout       | Both root-context Dockerfiles build with pinned Go and static runtimes. A new Compose project with generated credentials/empty volume initializes, migrates and serves checkout HTML, JavaScript, styles and same-origin health routes with HTTP 200. Runtime Tailwind CDN is replaced by committed local CSS.                                |
+| Data survives restart                           | Seed a synthetic order with KES 2500, bring the project down without deleting volumes, recreate it, rerun migration and verify the same ID/total.                                                                                                                                                                                             |
+| Failed migration prevents unsafe readiness      | Change the disposable ledger checksum: running API returns readiness 503 while liveness remains 200. After recreation, migration exits 1 and API never starts. Restore the known synthetic checksum and startup/readiness recover. Revoking runtime SELECT also disables readiness.                                                           |
 | No secrets in layers; internal services private | Generated role passwords are checked against exported final image archives, including nested/compressed layers. Non-root service users, read-only application filesystems, no internal host port bindings and CA-store availability are inspected. Only frontend binds to loopback; database/API/provider/migration use the internal network. |
 
 Repeat from repository root:

@@ -21,15 +21,15 @@ With GNU Make, use `make setup build up`; other targets are `down`, `logs`, `tes
 
 ## Images and boundaries
 
-| Service/artifact | Contract |
-| --- | --- |
-| Backend Dockerfile | Digest-pinned Go 1.27.3 builder, module verification, static trimmed binaries; scratch runtime with CA bundle, UID/GID 10001. |
-| Frontend Dockerfile | Same pinned builder, Go static server/proxy/probe; scratch runtime, CA bundle, local assets, UID/GID 10001. |
-| PostgreSQL | Derived from digest-pinned PostgreSQL 17 Alpine with unused `gosu` removed; native UID/GID 70, persistent named volume, no host DB port. Root startup is not supported by this local image. |
-| Migration job | Empty/current local database only; verifies/runs baseline, installs runtime grants and a restricted readiness function; exits before API starts. Legacy adoption is deliberately rejected. |
-| API | Runtime-role DSN, opt-in schema readiness, no host port, no live-provider egress. |
-| Fake provider | Private, bounded deterministic fixture on 8090, no live credentials or external calls. |
-| Frontend | Only published port: loopback 8080. Fixed upstream `api:5001`; client forwarding headers discarded; sanitized proxy failures. |
+| Service/artifact    | Contract                                                                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Backend Dockerfile  | Digest-pinned Go 1.27.3 builder, module verification, static trimmed binaries; scratch runtime with CA bundle, UID/GID 10001.                                                               |
+| Frontend Dockerfile | Same pinned builder, Go static server/proxy/probe; scratch runtime, CA bundle, local assets, UID/GID 10001.                                                                                 |
+| PostgreSQL          | Derived from digest-pinned PostgreSQL 17 Alpine with unused `gosu` removed; native UID/GID 70, persistent named volume, no host DB port. Root startup is not supported by this local image. |
+| Migration job       | Empty/current local database only; verifies/runs baseline, installs runtime grants and a restricted readiness function; exits before API starts. Legacy adoption is deliberately rejected.  |
+| API                 | Runtime-role DSN, opt-in schema readiness, no host port, no live-provider egress.                                                                                                           |
+| Fake provider       | Private, bounded deterministic fixture on 8090, no live credentials or external calls.                                                                                                      |
+| Frontend            | Only published port: loopback 8080. Fixed upstream `api:5001`; client forwarding headers discarded; sanitized proxy failures.                                                               |
 
 Application filesystems are read-only. All services are non-root, drop capabilities, use no-new-privileges, and bound CPU, RAM and processes. API/worker/migrate/probe/devstack binaries share an image; worker processing is not enabled. No Docker socket or home directory mounts. The database uses its normal writable runtime/data locations.
 
