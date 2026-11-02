@@ -2,7 +2,7 @@ FROM golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86ab
 WORKDIR /src
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download && go mod verify
-RUN go install github.com/a-h/templ/cmd/templ@latest
+RUN go install github.com/a-h/templ/cmd/templ@v0.3.1100
 COPY backend/internal/web ./internal/web
 RUN templ generate --watch=false
 

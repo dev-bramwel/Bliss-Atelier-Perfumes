@@ -84,8 +84,9 @@ services:
       timeout: 4s
       retries: 15
 
-  web:
+  frontend:
     <<: *app
+    image: bliss-frontend:${BLISS_IMAGE_TAG:-local}
     entrypoint: ["/app/web"]
     environment:
       GO_HTTP_ADDR: 0.0.0.0:8080
