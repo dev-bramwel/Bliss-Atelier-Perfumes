@@ -103,7 +103,7 @@ func migrate() error {
 	command := "up"
 	if state.State == "empty" {
 		command = "init"
-	} else if state.State != "current" {
+	} else if state.State != "current" && state.State != "pending" {
 		return errors.New("legacy database requires explicit reviewed adoption outside local bootstrap")
 	}
 	if _, err = migration.Run(ctx, pool, command, 15*time.Second); err != nil {
