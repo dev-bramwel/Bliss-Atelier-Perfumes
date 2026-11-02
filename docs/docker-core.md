@@ -7,9 +7,7 @@ Implemented local frontend/API/PostgreSQL with a one-shot migration job and an i
 Requires Docker with Linux containers, Compose supporting successful one-shot dependencies and `up --wait` (tested 5.6.0), and Go 1.27.3. Initial image/module downloads need network access. From repository root in PowerShell:
 
 ```powershell
-Push-Location backend
-go run ./cmd/devstack secrets ../.local/dev
-Pop-Location
+go run ./cmd/devstack secrets .local/dev
 docker compose config --quiet
 docker compose build db api frontend
 docker compose up -d --wait --wait-timeout 120
@@ -73,6 +71,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-DockerCore.ps1
 
 The acceptance script uses its own project, random loopback port, ignored credentials and database volume. It checks served checkout/assets/proxy; non-root identities; private ports; read-only app filesystems; CA bundle; generated credentials absent from final image layers; provider modes; persistence across recreation; readiness under schema mismatch; failed-migration startup blocking; and recovery. It removes only that generated project's containers/networks/volume. Ignored synthetic credential directories remain for inspection. Its layer scan is specific to generated credentials, not a universal secret scanner.
 
-Tailwind build tooling is lockfile-pinned and dev-only. Regenerate the committed CSS with Node 24 in `frontend/`: `npm ci --ignore-scripts`, then `npm run build:css`. Review the output. Docker images contain no Node/npm and do not install frontend build dependencies. Dependency checks for this toolchain are separate from the unchanged legacy backend npm graph.
+Tailwind build tooling is lockfile-pinned and dev-only. Regenerate the committed CSS with Node 24 in `web/`: `npm ci --ignore-scripts`, then `npm run build:css`. Review the output. Docker images contain no Node/npm and do not install frontend build dependencies. Dependency checks for this toolchain are separate from the unchanged legacy backend npm graph.
 
 Sources: [Compose startup ordering](https://docs.docker.com/compose/how-tos/startup-order/), [file-mounted Compose secrets and limitations](https://docs.docker.com/compose/how-tos/use-secrets/), [official PostgreSQL initialization](https://hub.docker.com/_/postgres).

@@ -39,11 +39,8 @@ try {
     $listener.Start()
     $env:BLISS_HTTP_PORT = [string]$listener.LocalEndpoint.Port
     $listener.Stop()
-    Push-Location backend
-    try {
-        go run ./cmd/devstack secrets $secretDirectory
-        if ($LASTEXITCODE -ne 0) { throw 'Local credential generation failed' }
-    } finally {Pop-Location}
+    go run ./cmd/devstack secrets $secretDirectory
+    if ($LASTEXITCODE -ne 0) { throw 'Local credential generation failed' }
     Compose config --quiet
     Compose build db api frontend
     Compose up -d --wait --wait-timeout 120
@@ -78,11 +75,8 @@ try {
         }
         docker image save --output $archive $image
         if ($LASTEXITCODE -ne 0) {throw 'Image export failed'}
-        Push-Location backend
-        try {
-            go run ./cmd/devstack audit-image $archive $secretDirectory
-            if ($LASTEXITCODE -ne 0) {throw 'Image layer credential scan failed'}
-        } finally {Pop-Location}
+        go run ./cmd/devstack audit-image $archive $secretDirectory
+        if ($LASTEXITCODE -ne 0) {throw 'Image layer credential scan failed'}
         if (-not $evidence) {Remove-Item -LiteralPath $archive}
     }
     if ($evidence) {

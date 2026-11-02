@@ -7,12 +7,12 @@
 **/*-lock.json
 
 # Generated assets checked strictly against build outputs
-frontend/tailwind.css
+web/static/tailwind.css
 
 # Checksum-verified migration scripts and static test fixtures
-backend/internal/migration/sql/
-backend/internal/migration/schema*.json
-backend/testdata/legacy/
+internal/migration/sql/
+internal/migration/schema*.json
+testdata/legacy/
 
 # Media files
-frontend/img/
+web/static/img/

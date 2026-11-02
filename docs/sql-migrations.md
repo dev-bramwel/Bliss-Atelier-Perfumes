@@ -4,7 +4,7 @@ Implemented locally on 21 October 2026. See [ADR 004](adr/004-sql-migration-base
 
 ## Commands and supported states
 
-Run from `backend/`, with `GO_DATABASE_URL` explicitly exported. Go does not load `.env`. Use a direct PostgreSQL connection, not transaction-pooling PgBouncer. Supply a dedicated migration role; runtime roles should have DML only and no schema ownership/DDL. Never put credentials in committed command examples or paste raw PostgreSQL errors into public evidence.
+Run from repository root, with `GO_DATABASE_URL` explicitly exported. Go does not load `.env`. Use a direct PostgreSQL connection, not transaction-pooling PgBouncer. Supply a dedicated migration role; runtime roles should have DML only and no schema ownership/DDL. Never put credentials in committed command examples or paste raw PostgreSQL errors into public evidence.
 
 For `init`, provision the migration role with CONNECT and CREATE on the target database plus USAGE and CREATE on `public`. The archived baseline contains `CREATE SCHEMA IF NOT EXISTS`, which requires database CREATE even when the schema already exists. These are migration-role privileges, not runtime-role privileges. For legacy adoption, arrange the appropriate ownership/role membership for locking and managing the existing tables and Prisma history.
 
@@ -37,7 +37,7 @@ The supported scope is PostgreSQL 17's dedicated `public` schema. Additional pub
 4. Inventory database size, row counts, timestamp ranges, orphan/duplicate mappings and any unexpected tables in a restricted session. Verify backup access/retention and the restore target. Do not export customer names, phones, addresses, item payloads or payment/provider identifiers into issue evidence. No real database was accessed by this implementation; its inventory remains an environment-specific prerequisite.
 5. Run the chosen explicit path, then `status` and `up`. Compare pre/post aggregate counts and restricted data/history fingerprints. Smoke-test the active application before restarting traffic.
 
-Missing/failed/unknown Prisma history, `db push` databases without history, partial schemas and drift all fail closed. Preserve evidence and investigate against a restored clone; never force a ledger row or overwrite a checksum. Historical SQL remains in `backend/prisma/migrations/`; its embedded copy is checked against that archive by tests.
+Missing/failed/unknown Prisma history, `db push` databases without history, partial schemas and drift all fail closed. Preserve evidence and investigate against a restored clone; never force a ledger row or overwrite a checksum. Historical SQL remains in `testdata/legacy/prisma/migrations/`; its embedded copy is checked against that archive by tests.
 
 ## Migration ownership and legacy startup
 
@@ -73,7 +73,7 @@ If application rollback is insufficient, restore the verified pre-change backup 
 From repository root, with Docker Desktop and the pinned Go toolchain:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/test-integration.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-integration.ps1
 ```
 
 The harness creates a uniquely named digest-pinned PostgreSQL container on a random loopback port, runs guarded integration tests, backs up synthetic legacy records/history inside that container, adopts, restores, verifies a full-record fingerprint, and adopts again. Cleanup removes only its own container and its local backup. It never reads `DATABASE_URL` or `GO_DATABASE_URL`; it restores process-local test variables afterward. Normal unit runs skip database/recovery tests unless explicitly configured by this harness.

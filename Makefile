@@ -1,6 +1,6 @@
 .PHONY: setup build up down logs test docker-test format fmt
 setup:
-	cd backend && go run ./cmd/devstack secrets ../.local/dev
+	go run ./cmd/devstack secrets .local/dev
 build:
 	docker compose build db api frontend
 up:
@@ -10,10 +10,10 @@ down:
 logs:
 	docker compose logs --tail=100
 test:
-	cd backend && go vet ./... && go test ./...
+	go vet ./... && go test ./...
 docker-test:
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-DockerCore.ps1
 format:
-	cd backend && gofmt -w cmd internal
+	gofmt -w cmd internal web
 	npx prettier --write .
 fmt: format
