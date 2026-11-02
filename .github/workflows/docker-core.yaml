@@ -52,9 +52,9 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm \
-            --mount "type=bind,source=$PWD/frontend,target=/source,readonly" \
+            --mount "type=bind,source=$PWD,target=/source,readonly" \
             node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 \
-            sh -ec 'cp -R /source /tmp/assets; cd /tmp/assets; npm ci --ignore-scripts; npm audit --audit-level=high; npm test; npm run build:css; cmp tailwind.css /source/tailwind.css'
+            sh -ec 'mkdir -p /tmp/run; cp -R /source/frontend /tmp/run/frontend; cp -R /source/backend /tmp/run/backend; cd /tmp/run/frontend; npm ci --ignore-scripts; npm audit --audit-level=high; npm test; npm run build:css; cmp tailwind.css /source/frontend/tailwind.css'
 
       - name: Exercise SQL migration and restore fixtures
         shell: pwsh
