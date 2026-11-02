@@ -41,8 +41,6 @@ templ IndexPage(products []catalog.Product) {
 		</section>
 	</main>
 	@ProductModal()
-	@templ.Raw("<script id=\"catalogData\" type=\"application/json\">" + catalogJSON(products) + "</script>")
-	<script src="/static/app.js"></script>
 }
 
 templ ProductCard(p catalog.Product) {

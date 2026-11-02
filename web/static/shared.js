@@ -229,3 +229,22 @@ function clearCart() {
   saveCart(cart);
   document.dispatchEvent(new Event("cartUpdated"));
 }
+
+
+// --------------------
+// CART BADGES & NAVIGATION
+// --------------------
+function updateCartBadges() {
+  const count = cartCount();
+  document.querySelectorAll("[data-cart-count]").forEach((el) => {
+    el.textContent = String(count);
+  });
+}
+document.addEventListener("cartUpdated", updateCartBadges);
+updateCartBadges();
+
+document.querySelectorAll("[data-open-cart]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    window.location.href = "/cart";
+  });
+});

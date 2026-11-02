@@ -1,6 +1,8 @@
 package web
 
-templ Layout(title string, children ...templ.Component) {
+import "github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
+
+templ Layout(title string, pageScript string, products []catalog.Product, children ...templ.Component) {
     <!doctype html>
     <html lang="en">
         <head>
@@ -46,7 +48,13 @@ templ Layout(title string, children ...templ.Component) {
                     />
                 </svg>
             </button>
+            if len(products) > 0 {
+                @templ.Raw("<script id=\"catalogData\" type=\"application/json\">" + catalogJSON(products) + "</script>")
+            }
             <script src="/static/shared.js"></script>
+            if pageScript != "" {
+                <script src={ pageScript }></script>
+            }
         </body>
     </html>
 }

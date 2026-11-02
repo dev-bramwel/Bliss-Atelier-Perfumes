@@ -18,9 +18,21 @@ var staticFS embed.FS
 func Handler(catalogStore httpapi.Catalog) http.Handler {
 	mux := http.NewServeMux()
 
-	render := func(w http.ResponseWriter, r *http.Request, title string, page templ.Component) {
+	fetchProducts := func(r *http.Request) []catalog.Product {
+		if catalogStore == nil {
+			return nil
+		}
+		products, err := catalogStore.Products(r.Context())
+		if err != nil {
+			return nil
+		}
+		return products
+	}
+
+	render := func(w http.ResponseWriter, r *http.Request, title string, pageScript string, page templ.Component) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := Layout(title, page).Render(r.Context(), w); err != nil {
+		products := fetchProducts(r)
+		if err := Layout(title, pageScript, products, page).Render(r.Context(), w); err != nil {
 			http.Error(w, "render error", http.StatusInternalServerError)
 		}
 	}
@@ -45,55 +57,44 @@ func Handler(catalogStore httpapi.Catalog) http.Handler {
 		}
 	}
 
-	fetchProducts := func(r *http.Request) []catalog.Product {
-		if catalogStore == nil {
-			return nil
-		}
-		products, err := catalogStore.Products(r.Context())
-		if err != nil {
-			return nil
-		}
-		return products
-	}
-
 	// Pages (both canonical paths and legacy .html aliases)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Collection", IndexPage(fetchProducts(r)))
+		render(w, r, "Collection", "/static/app.js", IndexPage(fetchProducts(r)))
 	})
 	mux.HandleFunc("HEAD /{$}", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Collection", IndexPage(fetchProducts(r)))
+		render(w, r, "Collection", "/static/app.js", IndexPage(fetchProducts(r)))
 	})
 	mux.HandleFunc("GET /index.html", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Collection", IndexPage(fetchProducts(r)))
+		render(w, r, "Collection", "/static/app.js", IndexPage(fetchProducts(r)))
 	})
 	mux.HandleFunc("HEAD /index.html", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Collection", IndexPage(fetchProducts(r)))
+		render(w, r, "Collection", "/static/app.js", IndexPage(fetchProducts(r)))
 	})
 
 	mux.HandleFunc("GET /cart", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Cart", CartPage())
+		render(w, r, "Cart", "/static/cart.js", CartPage())
 	})
 	mux.HandleFunc("HEAD /cart", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Cart", CartPage())
+		render(w, r, "Cart", "/static/cart.js", CartPage())
 	})
 	mux.HandleFunc("GET /cart.html", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Cart", CartPage())
+		render(w, r, "Cart", "/static/cart.js", CartPage())
 	})
 	mux.HandleFunc("HEAD /cart.html", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Cart", CartPage())
+		render(w, r, "Cart", "/static/cart.js", CartPage())
 	})
 
 	mux.HandleFunc("GET /checkout", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Checkout", CheckoutPage())
+		render(w, r, "Checkout", "/static/checkout.js", CheckoutPage())
 	})
 	mux.HandleFunc("HEAD /checkout", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Checkout", CheckoutPage())
+		render(w, r, "Checkout", "/static/checkout.js", CheckoutPage())
 	})
 	mux.HandleFunc("GET /checkout.html", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Checkout", CheckoutPage())
+		render(w, r, "Checkout", "/static/checkout.js", CheckoutPage())
 	})
 	mux.HandleFunc("HEAD /checkout.html", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Checkout", CheckoutPage())
+		render(w, r, "Checkout", "/static/checkout.js", CheckoutPage())
 	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
