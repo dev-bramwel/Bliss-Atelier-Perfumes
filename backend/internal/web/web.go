@@ -7,13 +7,15 @@ import (
 	"net/http"
 
 	"github.com/a-h/templ"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/catalog"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/backend/internal/httpapi"
 )
 
 //go:embed static/*
 var staticFS embed.FS
 
 // Handler returns an HTTP handler that serves Templ-rendered pages and static assets.
-func Handler() http.Handler {
+func Handler(catalogStore httpapi.Catalog) http.Handler {
 	mux := http.NewServeMux()
 
 	render := func(w http.ResponseWriter, r *http.Request, title string, page templ.Component) {
@@ -32,24 +34,40 @@ func Handler() http.Handler {
 		mux.Handle("GET /static/", staticPrefixHandler)
 		mux.Handle("HEAD /static/", staticPrefixHandler)
 
+		// Serve images requested at /img/
+		mux.Handle("GET /img/", fileServer)
+		mux.Handle("HEAD /img/", fileServer)
+
+		// Legacy direct root static assets
 		for _, name := range []string{"checkout.js", "shared.js", "style.css", "tailwind.css", "app.js", "cart.js"} {
 			mux.Handle("GET /"+name, fileServer)
 			mux.Handle("HEAD /"+name, fileServer)
 		}
 	}
 
+	fetchProducts := func(r *http.Request) []catalog.Product {
+		if catalogStore == nil {
+			return nil
+		}
+		products, err := catalogStore.Products(r.Context())
+		if err != nil {
+			return nil
+		}
+		return products
+	}
+
 	// Pages (both canonical paths and legacy .html aliases)
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Collection", IndexPage())
+		render(w, r, "Collection", IndexPage(fetchProducts(r)))
 	})
 	mux.HandleFunc("HEAD /{$}", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Collection", IndexPage())
+		render(w, r, "Collection", IndexPage(fetchProducts(r)))
 	})
 	mux.HandleFunc("GET /index.html", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Collection", IndexPage())
+		render(w, r, "Collection", IndexPage(fetchProducts(r)))
 	})
 	mux.HandleFunc("HEAD /index.html", func(w http.ResponseWriter, r *http.Request) {
-		render(w, r, "Collection", IndexPage())
+		render(w, r, "Collection", IndexPage(fetchProducts(r)))
 	})
 
 	mux.HandleFunc("GET /cart", func(w http.ResponseWriter, r *http.Request) {

@@ -20,7 +20,7 @@ import (
 
 func handler(catalogStore httpapi.Catalog) http.Handler {
 	mux := http.NewServeMux()
-	webHandler := web.Handler()
+	webHandler := web.Handler(catalogStore)
 
 	// API routes — must be registered before catch-all
 	mux.HandleFunc("GET /api/catalog", func(w http.ResponseWriter, r *http.Request) {

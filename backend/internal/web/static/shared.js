@@ -90,6 +90,19 @@ async function loadCatalog() {
   document.dispatchEvent(new Event("catalogUpdated"));
 }
 // Refresh availability and prices; no browser-persisted price fallback.
+function initEmbeddedCatalog() {
+  const el = document.getElementById("catalogData");
+  if (!el) return;
+  try {
+    const raw = JSON.parse(el.textContent);
+    if (Array.isArray(raw) && raw.length > 0) {
+      PRODUCTS = raw;
+      catalogState = "ready";
+      catalogLoadedAt = Date.now();
+    }
+  } catch {}
+}
+initEmbeddedCatalog();
 setTimeout(loadCatalog, 0);
 setInterval(loadCatalog, 30000);
 window.addEventListener("online", loadCatalog);

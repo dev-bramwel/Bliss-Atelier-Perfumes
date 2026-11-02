@@ -98,4 +98,28 @@ func TestReadyWithStore(t *testing.T) {
 	if !strings.Contains(recCatalog.Body.String(), "Perfume One") {
 		t.Fatalf("expected catalog body to contain product name, got %s", recCatalog.Body.String())
 	}
+
+	reqHome := httptest.NewRequest(http.MethodGet, "/", nil)
+	recHome := httptest.NewRecorder()
+	h.ServeHTTP(recHome, reqHome)
+	if recHome.Code != 200 {
+		t.Fatalf("expected 200, got %d", recHome.Code)
+	}
+	homeBody := recHome.Body.String()
+	if !strings.Contains(homeBody, "Perfume One") {
+		t.Fatalf("expected home page to render Perfume One via SSR, got %s", homeBody)
+	}
+	if !strings.Contains(homeBody, "KES 1,000") {
+		t.Fatalf("expected home page to render KES 1,000, got %s", homeBody)
+	}
+	if !strings.Contains(homeBody, `id="catalogData"`) {
+		t.Fatalf("expected home page to embed catalogData JSON, got %s", homeBody)
+	}
+
+	reqImg := httptest.NewRequest(http.MethodGet, "/img/vanilla.jpeg", nil)
+	recImg := httptest.NewRecorder()
+	h.ServeHTTP(recImg, reqImg)
+	if recImg.Code != 200 {
+		t.Fatalf("expected 200 for /img/vanilla.jpeg, got %d", recImg.Code)
+	}
 }

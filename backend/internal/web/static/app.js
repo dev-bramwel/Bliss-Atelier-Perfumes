@@ -168,17 +168,19 @@ function renderProducts() {
     })
     .join("");
 
+  bindCardEvents();
+}
+
+function bindCardEvents() {
   document.querySelectorAll("[data-add]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.onclick = () => {
       addToCart(btn.dataset.add);
       updateCartBadges();
-    });
+    };
   });
 
   document.querySelectorAll("[data-open-product]").forEach((el) => {
-    el.addEventListener("click", () =>
-      openProductModal(el.dataset.openProduct),
-    );
+    el.onclick = () => openProductModal(el.dataset.openProduct);
   });
 }
 
@@ -192,12 +194,14 @@ let _modalImageIdx = 0;
 function getOrCreateModal() {
   if (_modal) return _modal;
 
-  const overlay = document.createElement("div");
-  overlay.id = "productModal";
-  overlay.className = "product-modal-overlay";
-  overlay.setAttribute("role", "dialog");
-  overlay.setAttribute("aria-modal", "true");
-  overlay.innerHTML = `
+  let overlay = document.getElementById("productModal");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "productModal";
+    overlay.className = "product-modal-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.innerHTML = `
     <div class="product-modal-panel">
       <button class="product-modal-close" id="modalClose" aria-label="Close">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
@@ -233,21 +237,23 @@ function getOrCreateModal() {
       </div>
     </div>
   `;
+    document.body.appendChild(overlay);
+  }
 
-  document.body.appendChild(overlay);
+  _modal = overlay;
 
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) closeProductModal();
   });
   document
     .getElementById("modalClose")
-    .addEventListener("click", closeProductModal);
+    ?.addEventListener("click", closeProductModal);
   document
     .getElementById("modalPrev")
-    .addEventListener("click", () => shiftModalImage(-1));
+    ?.addEventListener("click", () => shiftModalImage(-1));
   document
     .getElementById("modalNext")
-    .addEventListener("click", () => shiftModalImage(1));
+    ?.addEventListener("click", () => shiftModalImage(1));
   document.getElementById("modalAddToCart").addEventListener("click", () => {
     const id = overlay.dataset.productId;
     if (id) {
@@ -449,7 +455,10 @@ window.addEventListener("scroll", updateBackToTopVisibility, { passive: true });
 // INIT
 // --------------------
 renderFilterOptions();
-renderProducts();
+bindCardEvents();
+if (productGrid && productGrid.children.length === 0) {
+  renderProducts();
+}
 updateCartBadges();
 updateBackToTopVisibility();
 
