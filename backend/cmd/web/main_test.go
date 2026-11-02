@@ -9,8 +9,12 @@ import (
 func TestProxyFailureIsSafe(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/orders", nil)
 	response := httptest.NewRecorder()
-	handler().ServeHTTP(response, request)
-	if response.Code != 502 || response.Body.String() != "API unavailable\n" {
-		t.Fatalf("unsafe proxy failure: %d %s", response.Code, response.Body)
+	handler(nil).ServeHTTP(response, request)
+	if response.Code != 502 {
+		t.Fatalf("expected 502, got %d", response.Code)
+	}
+	body := response.Body.String()
+	if body != `{"error":"API unavailable"}` && body != `{"error":"API unavailable"}`+"\n" {
+		t.Fatalf("unexpected body: %s", body)
 	}
 }

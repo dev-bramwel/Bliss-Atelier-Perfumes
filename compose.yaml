@@ -84,25 +84,22 @@ services:
       timeout: 4s
       retries: 15
 
-  frontend:
-    image: bliss-frontend:${BLISS_IMAGE_TAG:-local}
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    user: "10001:10001"
+  web:
+    <<: *app
+    entrypoint: ["/app/web"]
+    environment:
+      GO_HTTP_ADDR: 0.0.0.0:8080
+      GO_DATABASE_URL_FILE: /run/secrets/runtime_url
+      GO_REQUIRE_SCHEMA: "true"
+      GO_IO_TIMEOUT: 15s
+      GO_DB_MAX_CONNECTIONS: "16"
     ports: ["127.0.0.1:${BLISS_HTTP_PORT:-8080}:8080"]
     networks: [edge, private]
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    init: true
-    mem_limit: 128m
-    cpus: 0.5
-    pids_limit: 64
+    secrets: [runtime_url]
     depends_on:
-      api: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     healthcheck:
-      test: [CMD, /app/probe, "http://127.0.0.1:8080/api/health/ready"]
+      test: [CMD, /app/probe, "http://127.0.0.1:8080/health/ready"]
       interval: 3s
       timeout: 4s
       retries: 15
