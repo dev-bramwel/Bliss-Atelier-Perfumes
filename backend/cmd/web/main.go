@@ -20,61 +20,56 @@ import (
 
 func handler(catalogStore httpapi.Catalog) http.Handler {
 	mux := http.NewServeMux()
+	webHandler := web.Handler()
 
 	// API routes — must be registered before catch-all
 	mux.HandleFunc("GET /api/catalog", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		if catalogStore == nil {
-			w.WriteHeader(503)
+			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"error":"catalog unavailable"}`))
 			return
 		}
 		products, err := catalogStore.Products(r.Context())
 		if err != nil {
-			w.WriteHeader(503)
+			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"error":"catalog unavailable"}`))
 			return
 		}
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]any{"products": products})
 	})
 	mux.HandleFunc("POST /api/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(502)
+		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte(`{"error":"API unavailable"}`))
 	})
 
-	// Health checks
-	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
+	// Health checks (both root and /api/ prefixes for compatibility)
+	liveHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"alive"}`))
+	}
+	readyHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		if catalogStore == nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(503)
+			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"status":"unavailable"}`))
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
-	})
+	}
 
-	// Frontend pages (Templ rendered) — static, cart, checkout, index all go through web handler
-	mux.HandleFunc("GET /static/", func(w http.ResponseWriter, r *http.Request) {
-		web.Handler().ServeHTTP(w, r)
-	})
-	mux.HandleFunc("HEAD /static/", func(w http.ResponseWriter, r *http.Request) {
-		web.Handler().ServeHTTP(w, r)
-	})
-	mux.HandleFunc("GET /cart", func(w http.ResponseWriter, r *http.Request) {
-		web.Handler().ServeHTTP(w, r)
-	})
-	mux.HandleFunc("GET /checkout", func(w http.ResponseWriter, r *http.Request) {
-		web.Handler().ServeHTTP(w, r)
-	})
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		web.Handler().ServeHTTP(w, r)
-	})
+	mux.HandleFunc("GET /health/live", liveHandler)
+	mux.HandleFunc("GET /api/health/live", liveHandler)
+	mux.HandleFunc("GET /health/ready", readyHandler)
+	mux.HandleFunc("GET /api/health/ready", readyHandler)
+
+	// Frontend pages and static assets
+	mux.Handle("/", webHandler)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")

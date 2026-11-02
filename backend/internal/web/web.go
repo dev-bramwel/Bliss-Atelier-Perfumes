@@ -16,31 +16,66 @@ var staticFS embed.FS
 func Handler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Serve static assets — must use method-specific pattern to avoid conflict
-	staticSub, err := fs.Sub(staticFS, "static")
-	if err == nil {
-		staticHandler := http.StripPrefix("/static/", http.FileServer(http.FS(staticSub)))
-		mux.HandleFunc("GET /static/", func(w http.ResponseWriter, r *http.Request) {
-			staticHandler.ServeHTTP(w, r)
-		})
-		mux.HandleFunc("HEAD /static/", func(w http.ResponseWriter, r *http.Request) {
-			staticHandler.ServeHTTP(w, r)
-		})
+	render := func(w http.ResponseWriter, r *http.Request, title string, page templ.Component) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := Layout(title, page).Render(r.Context(), w); err != nil {
+			http.Error(w, "render error", http.StatusInternalServerError)
+		}
 	}
 
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = Layout("Collection", IndexPage()).Render(r.Context(), w)
+	// Serve static assets
+	staticSub, err := fs.Sub(staticFS, "static")
+	if err == nil {
+		fileServer := http.FileServer(http.FS(staticSub))
+		staticPrefixHandler := http.StripPrefix("/static/", fileServer)
+
+		mux.Handle("GET /static/", staticPrefixHandler)
+		mux.Handle("HEAD /static/", staticPrefixHandler)
+
+		for _, name := range []string{"checkout.js", "shared.js", "style.css", "tailwind.css", "app.js", "cart.js"} {
+			mux.Handle("GET /"+name, fileServer)
+			mux.Handle("HEAD /"+name, fileServer)
+		}
+	}
+
+	// Pages (both canonical paths and legacy .html aliases)
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Collection", IndexPage())
+	})
+	mux.HandleFunc("HEAD /{$}", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Collection", IndexPage())
+	})
+	mux.HandleFunc("GET /index.html", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Collection", IndexPage())
+	})
+	mux.HandleFunc("HEAD /index.html", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Collection", IndexPage())
 	})
 
 	mux.HandleFunc("GET /cart", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = Layout("Cart", CartPage()).Render(r.Context(), w)
+		render(w, r, "Cart", CartPage())
+	})
+	mux.HandleFunc("HEAD /cart", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Cart", CartPage())
+	})
+	mux.HandleFunc("GET /cart.html", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Cart", CartPage())
+	})
+	mux.HandleFunc("HEAD /cart.html", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Cart", CartPage())
 	})
 
 	mux.HandleFunc("GET /checkout", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = Layout("Checkout", CheckoutPage()).Render(r.Context(), w)
+		render(w, r, "Checkout", CheckoutPage())
+	})
+	mux.HandleFunc("HEAD /checkout", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Checkout", CheckoutPage())
+	})
+	mux.HandleFunc("GET /checkout.html", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Checkout", CheckoutPage())
+	})
+	mux.HandleFunc("HEAD /checkout.html", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Checkout", CheckoutPage())
 	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
