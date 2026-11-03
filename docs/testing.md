@@ -4,18 +4,18 @@ Status: proposed. Existing tests cover selected pure pricing and M-Pesa helpers 
 
 ## Layers and scenarios
 
-| Layer | Required evidence |
-| --- | --- |
-| Unit | Money calculations, accepted delivery quotes and fee recipient, validation, payment state machine, stock transitions, analytics definitions |
-| API integration | Real disposable PostgreSQL with migrations; input failures, auth/RBAC, scoped order lookup, idempotency conflict and simultaneous requests |
-| Payment contract | Fake Daraja server; token expiry, rejection, malformed response, timeout before/after acceptance, callback before mapping save, duplicates, late failure, missing callback and query reconciliation |
+| Layer            | Required evidence                                                                                                                                                                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit             | Money calculations, accepted delivery quotes and fee recipient, validation, payment state machine, stock transitions, analytics definitions                                                                                                    |
+| API integration  | Real disposable PostgreSQL with migrations; input failures, auth/RBAC, scoped order lookup, idempotency conflict and simultaneous requests                                                                                                     |
+| Payment contract | Fake Daraja server; token expiry, rejection, malformed response, timeout before/after acceptance, callback before mapping save, duplicates, late failure, missing callback and query reconciliation                                            |
 | Data concurrency | Concurrent last-item purchase, existing-system stock reconciliation, exchange inspection/quarantine and price adjustments, reservation expiry versus successful payment, concurrent payment retries, unique receipt, crash before/after commit |
-| Messaging | Real Redis/RabbitMQ; outbox publish/ack crash windows, redelivery, poison event, DLQ/redrive, cache failure; required Kafka replay |
-| Browser E2E | Search/filter/detail/cart, guest checkout, delivery/pickup, pay later/pay now, network retry, failure, timeout, resumed order; admin role and fulfillment flows |
-| Accessibility | Keyboard, labels/errors, focus trap/restore, screen reader payment states, contrast, touch targets and 320px layout; automate and manually verify |
-| Security | Ownership bypass, privilege escalation, CSRF/session behavior, rate-limit abuse, unsafe rendering, secret/PII leakage, dependency/container findings |
-| Recovery | DB restore, app/worker restart, broker outage, pod loss, migration failure, release rollback and payment reconciliation after downtime |
-| SEO | Server HTML contains product content and links; correct canonical/status/robots/sitemap/schema; staging blocked from indexing |
+| Messaging        | Real Redis/RabbitMQ; outbox publish/ack crash windows, redelivery, poison event, DLQ/redrive, cache failure; required Kafka replay                                                                                                             |
+| Browser E2E      | Search/filter/detail/cart, guest checkout, delivery/pickup, pay later/pay now, network retry, failure, timeout, resumed order; admin role and fulfillment flows                                                                                |
+| Accessibility    | Keyboard, labels/errors, focus trap/restore, screen reader payment states, contrast, touch targets and 320px layout; automate and manually verify                                                                                              |
+| Security         | Ownership bypass, privilege escalation, CSRF/session behavior, rate-limit abuse, unsafe rendering, secret/PII leakage, dependency/container findings                                                                                           |
+| Recovery         | DB restore, app/worker restart, broker outage, pod loss, migration failure, release rollback and payment reconciliation after downtime                                                                                                         |
+| SEO              | Server HTML contains product content and links; correct canonical/status/robots/sitemap/schema; staging blocked from indexing                                                                                                                  |
 
 No automated live charges. Sandbox smoke tests supplement a deterministic fake provider; authorized supervised merchant checks establish live integration evidence.
 

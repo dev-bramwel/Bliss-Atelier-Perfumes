@@ -2,15 +2,15 @@
 
 Measured: 20 October 2026. Evidence: local, isolated, sequential probes on Docker Desktop/WSL2 (8 logical CPUs, about 3.73 GiB VM RAM). Each service had one CPU and a RAM limit; no container swap or published ports.
 
-| Service | Ready (seconds) | Sampled idle RAM (MiB, min-max) | Highest sampled CPU | RAM limit | Restart | Evidence |
-| --- | ---: | ---: | ---: | --- | --- | --- |
-| postgres | 5.59 | 30.95-31.01 | 0.46% | 512m | passed | [raw](r03-service-baselines.json) |
-| redis | 0.95 | 4.551-4.672 | 1.31% | 256m | passed | [raw](r03-service-baselines.json) |
-| rabbitmq | 16.23 | 127.1-145.9 | 1.08% | 512m | passed | [raw](r03-rabbitmq-corrected.json) |
-| kafka | 32 | 341.1-341.9 | 8.77% | 1536m | passed | [raw](r03-service-retries.json) |
-| prometheus | 0.98 | 17.34-17.36 | 0.11% | 512m | passed | [raw](r03-service-baselines.json) |
-| grafana | 11.09 | 81.02-81.02 | 0.72% | 384m | passed | [raw](r03-service-baselines.json) |
-| collector | 5.77 | 17.75-18.5 | 3.57% | 128m | passed | [raw](r03-service-baselines.json) |
+| Service    | Ready (seconds) | Sampled idle RAM (MiB, min-max) | Highest sampled CPU | RAM limit | Restart | Evidence                           |
+| ---------- | --------------: | ------------------------------: | ------------------: | --------- | ------- | ---------------------------------- |
+| postgres   |            5.59 |                     30.95-31.01 |               0.46% | 512m      | passed  | [raw](r03-service-baselines.json)  |
+| redis      |            0.95 |                     4.551-4.672 |               1.31% | 256m      | passed  | [raw](r03-service-baselines.json)  |
+| rabbitmq   |           16.23 |                     127.1-145.9 |               1.08% | 512m      | passed  | [raw](r03-rabbitmq-corrected.json) |
+| kafka      |              32 |                     341.1-341.9 |               8.77% | 1536m     | passed  | [raw](r03-service-retries.json)    |
+| prometheus |            0.98 |                     17.34-17.36 |               0.11% | 512m      | passed  | [raw](r03-service-baselines.json)  |
+| grafana    |           11.09 |                     81.02-81.02 |               0.72% | 384m      | passed  | [raw](r03-service-baselines.json)  |
+| collector  |            5.77 |                      17.75-18.5 |               3.57% | 128m      | passed  | [raw](r03-service-baselines.json)  |
 
 Five samples per service, after readiness and before the tiny data check; these are observed idle values, not true peaks or minimum RAM requirements. Startup timing excludes image downloads. Collector readiness is process survival only; no end-to-end telemetry pipeline was tested. See the [method and repeat commands](README.md) and [probe script](../../scripts/Measure-ServiceBaseline.ps1).
 
