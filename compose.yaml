@@ -4,7 +4,7 @@ x-app: &app
   image: bliss-backend:${BLISS_IMAGE_TAG:-local}
   build:
     context: .
-    dockerfile: backend/Dockerfile
+    dockerfile: Dockerfile
   user: "10001:10001"
   read_only: true
   cap_drop: [ALL]
@@ -23,14 +23,17 @@ services:
       context: .
       dockerfile: infra/docker/postgres.Dockerfile
     user: "70:70"
+    entrypoint: ["/bin/sh", "/usr/local/bin/bliss-postgres-entrypoint.sh"]
+    command: ["postgres"]
     environment:
       POSTGRES_USER: bliss_admin
       POSTGRES_DB: bliss_dev
       POSTGRES_PASSWORD_FILE: /run/secrets/admin_password
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
-    secrets: [admin_password, migrator_password, runtime_password]
+    secrets: [admin_password, migrator_password, runtime_password, catalog_password]
     volumes:
       - database:/var/lib/postgresql/data
+      - ./infra/docker/postgres-entrypoint.sh:/usr/local/bin/bliss-postgres-entrypoint.sh:ro
       - ./infra/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
     networks: [private]
     cap_drop: [ALL]
@@ -39,7 +42,9 @@ services:
     cpus: 1
     pids_limit: 128
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U bliss_admin -d bliss_dev"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U bliss_admin -d bliss_dev && psql -U bliss_admin -d bliss_dev -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'bliss_catalog'" | grep -q 1
       interval: 2s
       timeout: 3s
       retries: 30
@@ -85,20 +90,18 @@ services:
       retries: 15
 
   frontend:
+    <<: *app
     image: bliss-frontend:${BLISS_IMAGE_TAG:-local}
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    user: "10001:10001"
+    entrypoint: ["/app/web"]
+    environment:
+      GO_HTTP_ADDR: 0.0.0.0:8080
+      GO_DATABASE_URL_FILE: /run/secrets/catalog_url
+      GO_REQUIRE_SCHEMA: "false"
+      GO_IO_TIMEOUT: 15s
+      GO_DB_MAX_CONNECTIONS: "8"
     ports: ["127.0.0.1:${BLISS_HTTP_PORT:-8080}:8080"]
     networks: [edge, private]
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    init: true
-    mem_limit: 128m
-    cpus: 0.5
-    pids_limit: 64
+    secrets: [catalog_url]
     depends_on:
       api: { condition: service_healthy }
     healthcheck:
@@ -120,7 +123,11 @@ secrets:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/migrator_password
   runtime_password:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/runtime_password
+  catalog_password:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/catalog_password
   migrator_url:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/migrator_url
   runtime_url:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/runtime_url
+  catalog_url:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/catalog_url

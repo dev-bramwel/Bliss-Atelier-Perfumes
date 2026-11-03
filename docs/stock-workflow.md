@@ -18,7 +18,7 @@ The Go API runtime receives SELECT only on catalog products/settings/control. Mi
 
 ## Operator setup
 
-Use a private `GO_DATABASE_URL` environment variable for the operator role. Never paste credentials into command arguments, logs or committed files. The CLI uses the same bounded PostgreSQL connection helper and a 15-second operation deadline. Run commands from `backend/` (or build `go build -o stock ./cmd/stock`). A prepared operator role needs these grants, provisioned by a database administrator:
+Use a private `GO_DATABASE_URL` environment variable for the operator role. Never paste credentials into command arguments, logs or committed files. The CLI uses the same bounded PostgreSQL connection helper and a 15-second operation deadline. Run commands from repository root (or build `go build -o stock ./cmd/stock`). A prepared operator role needs these grants, provisioned by a database administrator:
 
 ```sql
 GRANT USAGE ON SCHEMA public TO bliss_stock_operator;

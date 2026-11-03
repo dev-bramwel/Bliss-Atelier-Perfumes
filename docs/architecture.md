@@ -28,7 +28,7 @@ Dashed paths show the analytics pipeline, required for the December learning del
 
 ## Components and boundaries
 
-- Storefront: mobile-first, crawlable category/product HTML with stable URLs. Keep HTML/CSS/JavaScript. Use generated HTML or Go templates for crawlable product pages; retain working UI behavior through migration. Serve optimized images/assets through object storage and CDN.
+- Storefront: mobile-first, crawlable category/product HTML with stable URLs. Keep HTML/CSS/JavaScript. Use generated HTML or Go templates for crawlable product pages; retain working UI behavior through migration. Serve optimized images/assets through object storage and CDN. Storefront SSR processes are deployed with least privilege: direct database access is restricted to the read-only catalog role (`bliss_catalog`) or decoupled entirely using upstream API fetching.
 - API modules: catalog, inventory, checkout/orders, payments, identity/admin, delivery, notifications, analytics. Business rules belong in services with transaction boundaries, not UI.
 - PostgreSQL: authoritative products, stock, orders, payments, access control, audit, outbox, and reporting aggregates. Local PostgreSQL is the zero-budget development baseline; durable production hosting is unresolved.
 - Redis: bounded catalog cache, rate-limit counters, optional sessions. Explicit TTL/invalidation; no authoritative inventory or payment state. Cache failure policy defined per use: reads can fall back; admin authentication fails closed when its required session store is unavailable.
@@ -81,22 +81,35 @@ Routine refunds are outside the business policy. Add ExchangeRequest/ExchangeIte
 
 [ADR 002](adr/002-go-backend-and-vanilla-frontend.md) defines the accepted language direction. [Infrastructure](infrastructure.md) defines module ownership and extraction gates. HTTP handlers call domain services; services coordinate parameterized repositories and bounded provider/broker adapters. Use context deadlines, pgx pools, structured logs and graceful shutdown. One Go module produces API, worker and migration binaries; workers are part of the monolith release train.
 
-Proposed layout (not yet implemented):
+Implemented unified Go root layout:
 
 ```text
-backend/
-  go.mod, go.sum
-  cmd/api/                 # wiring, HTTP lifecycle
-  cmd/worker/              # bounded job/event consumers
-  cmd/migrate/             # explicit deployment migrations
-  internal/
-    catalog/, inventory/, orders/, payments/
-    admin/, delivery/, exchanges/, analytics/
-    platform/              # config, PostgreSQL, HTTP middleware, telemetry, broker adapters
-  migrations/              # versioned SQL with documented legacy baseline
-api/openapi.yaml           # contract added during rewrite
-infra/docker/, infra/kubernetes/, infra/observability/
-frontend/                  # HTML, CSS, JavaScript retained
+cmd/
+  api/                   # HTTP API lifecycle and foundation endpoints
+  devstack/              # Local bootstrap, secrets generation, image audit
+  fakeprovider/          # Deterministic M-Pesa fixture
+  migrate/               # Explicit SQL deployment migrations
+  probe/                 # Health probe utility
+  stock/                 # Inventory & opening stock CLI
+  web/                   # SSR edge server & reverse proxy
+  worker/                # Bounded job/event consumers
+internal/
+  catalog/               # Product catalog and stock control
+  config/                # Environment and secret configuration
+  database/              # PostgreSQL connection pool lifecycle
+  httpapi/               # HTTP router and API endpoints
+  localhttp/             # Local server utilities
+  migration/             # Transactional SQL runner & readiness checks
+  process/               # Graceful process lifecycle
+  provider/              # M-Pesa client transport adapter
+web/
+  static/                # Embedded static assets (CSS, JS, product images)
+  *.templ                # Type-safe Templ SSR components (index, cart, checkout)
+  package.json           # Tailwind CSS build and client test tooling
+legacy/                  # Preserved Express/Prisma prototype and test fixtures
+api/openapi.json         # API contract definition
+testdata/                # Contract fixtures and historical Prisma migration archive
+scripts/                 # Automation scripts (DockerCore, integration tests, CI)
 ```
 
 Domain packages use consumer-owned interfaces; platform adapters do not own business rules. The checkout transaction coordinator remains local while order/payment/inventory modules share atomic operations. Exact folder subdivisions grow with code rather than empty abstraction layers. Migration/deployment procedures are linked in the documentation index.

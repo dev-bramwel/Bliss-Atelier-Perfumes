@@ -33,7 +33,8 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | [SQL migration runbook](sql-migrations.md)                              | Implemented R06 commands, verified Prisma adoption, ownership and recovery                                        |
 | [R06 SQL evidence](evidence/r06-sql-baseline.md)                        | Local upgrade, mismatch, concurrency and backup/restore verification                                              |
 | [ADR 004](adr/004-sql-migration-baseline.md)                            | Selected transactional pgx SQL runner and baseline policy                                                         |
-| [Go foundation](../backend/README.md)                                   | Implemented command/config/health surface, isolated harnesses and current limits                                  |
+| [Architecture & Go layout](architecture.md)                             | Implemented unified Go root, Templ SSR components, isolated harnesses and limits  |
+| [Scaling and load management](scaling-and-load-management.md)           | Architectural specification and operational guide for production scaling, pooling and SSR performance |
 | [ADR 002](adr/002-go-backend-and-vanilla-frontend.md)                   | Accepted Go/vanilla direction and proposed technical defaults                                                     |
 | [ADR 001](adr/001-runtime-and-messaging.md)                             | Proposed runtime and messaging boundaries                                                                         |
 
