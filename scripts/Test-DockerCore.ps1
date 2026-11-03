@@ -39,11 +39,8 @@ try {
     $listener.Start()
     $env:BLISS_HTTP_PORT = [string]$listener.LocalEndpoint.Port
     $listener.Stop()
-    Push-Location backend
-    try {
-        go run ./cmd/devstack secrets $secretDirectory
-        if ($LASTEXITCODE -ne 0) { throw 'Local credential generation failed' }
-    } finally {Pop-Location}
+    go run ./cmd/devstack secrets $secretDirectory
+    if ($LASTEXITCODE -ne 0) { throw 'Local credential generation failed' }
     Compose config --quiet
     Compose build db api frontend
     Compose up -d --wait --wait-timeout 120
@@ -78,11 +75,8 @@ try {
         }
         docker image save --output $archive $image
         if ($LASTEXITCODE -ne 0) {throw 'Image export failed'}
-        Push-Location backend
-        try {
-            go run ./cmd/devstack audit-image $archive $secretDirectory
-            if ($LASTEXITCODE -ne 0) {throw 'Image layer credential scan failed'}
-        } finally {Pop-Location}
+        go run ./cmd/devstack audit-image $archive $secretDirectory
+        if ($LASTEXITCODE -ne 0) {throw 'Image layer credential scan failed'}
         if (-not $evidence) {Remove-Item -LiteralPath $archive}
     }
     if ($evidence) {
@@ -98,6 +92,19 @@ try {
         }
     }
     Compose run --rm --no-deps --entrypoint /app/devstack api provider-check
+    # Verify bliss_catalog cannot alter or read order/payment records, but can read the catalog
+    if ((Sql "SELECT has_table_privilege('bliss_catalog', 'public.""Order""', 'INSERT')") -eq 't') {
+        throw 'bliss_catalog was improperly granted INSERT on Order'
+    }
+    if ((Sql "SELECT has_table_privilege('bliss_catalog', 'public.""Order""', 'SELECT')") -eq 't') {
+        throw 'bliss_catalog was improperly granted SELECT on Order'
+    }
+    if ((Sql "SELECT has_table_privilege('bliss_catalog', 'public.""MpesaTransaction""', 'INSERT')") -eq 't') {
+        throw 'bliss_catalog was improperly granted INSERT on MpesaTransaction'
+    }
+    if ((Sql "SELECT has_table_privilege('bliss_catalog', 'public.catalog_product', 'SELECT')") -ne 't') {
+        throw 'bliss_catalog lacks SELECT on catalog_product'
+    }
     Sql @'
 INSERT INTO public."Order"(id,"updatedAt","customerName","customerPhone","deliveryLocation","totalKes",items)
 VALUES ('r07-persistence',now(),'Synthetic Customer','254700000000','Synthetic pickup',2500,'[]');
@@ -106,6 +113,11 @@ VALUES ('r07-persistence',now(),'Synthetic Customer','254700000000','Synthetic p
     Compose down
     Compose up -d --wait --wait-timeout 120
     if ((Sql 'SELECT "totalKes" FROM public."Order" WHERE id=''r07-persistence''') -ne '2500') {throw 'Data did not survive recreation'}
+    # Prove that role reconciliation automatically creates and migrates bliss_catalog on existing persisted volumes
+    Sql 'DROP OWNED BY bliss_catalog; DROP ROLE bliss_catalog;' | Out-Null
+    Compose down
+    Compose up -d --wait --wait-timeout 120
+    if ((Sql "SELECT has_table_privilege('bliss_catalog', 'public.catalog_product', 'SELECT')") -ne 't') {throw 'bliss_catalog was not automatically created on existing persisted volume'}
     Sql 'REVOKE SELECT ON public."Order" FROM bliss_runtime' | Out-Null
     if ((Status ($origin + '/api/health/ready')) -ne 503) {throw 'Missing runtime privileges did not disable readiness'}
     Sql 'GRANT SELECT ON public."Order" TO bliss_runtime' | Out-Null

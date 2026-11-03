@@ -5,11 +5,11 @@ import { readFileSync } from "node:fs";
 
 const root = new URL("../../", import.meta.url);
 const definition =
-  process.argv[2] || new URL("backend/api/openapi.json", root).pathname;
+  process.argv[2] || new URL("api/openapi.json", root).pathname;
 const document = await SwaggerParser.validate(definition);
 const resolved = await SwaggerParser.dereference(definition);
 const fixtures = JSON.parse(
-  readFileSync(new URL("backend/testdata/legacy/contracts.json", root)),
+  readFileSync(new URL("testdata/legacy/contracts.json", root)),
 );
 const ajv = new Ajv({ strict: false, validateFormats: false });
 for (const [fixture, schema] of [
