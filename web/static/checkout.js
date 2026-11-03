@@ -107,7 +107,7 @@ checkoutForm?.addEventListener("submit", async (e) => {
       location: String(fd.get("location") || ""),
       delivery: String(fd.get("delivery") || "delivery"),
       notes: String(fd.get("notes") || ""),
-      payment: String(fd.get("payment") || "on_delivery"),
+      payment: String(fd.get("payment") || "pay_now"),
     };
 
     const orderPayload = {

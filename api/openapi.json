@@ -399,9 +399,9 @@
               },
               "payment": {
                 "type": "string",
-                "enum": ["pay_now", "on_delivery"],
-                "default": "on_delivery",
-                "description": "Historical only: R01 prohibits on_delivery"
+                "enum": ["pay_now"],
+                "default": "pay_now",
+                "description": "Payment before dispatch via M-Pesa. R01 prohibits on_delivery."
               }
             }
           },
