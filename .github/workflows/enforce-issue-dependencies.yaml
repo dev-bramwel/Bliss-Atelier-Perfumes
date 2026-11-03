@@ -1,0 +1,226 @@
+name: Enforce Issue Dependencies
+
+on:
+  issues:
+    types: [closed]
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  check-issue-closure:
+    name: Check issue closure blockers
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce issue dependencies
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const issueNumber = context.payload.issue.number;
+            const issueTitle = context.payload.issue.title;
+            const issueBody = context.payload.issue.body || '';
+
+            // Query GraphQL for native blockedBy relationships
+            const query = `
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  issue(number: $number) {
+                    id
+                    number
+                    title
+                    state
+                    blockedBy(first: 50) {
+                      nodes {
+                        number
+                        title
+                        state
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const result = await github.graphql(query, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              number: issueNumber
+            });
+
+            const issueData = result.repository.issue;
+            const nativeBlockers = issueData.blockedBy?.nodes || [];
+
+            // Also check markdown body dependencies as fallback
+            const fallbackBlockerNums = new Set();
+            const depMatch = issueBody.match(/Dependencies:\s*([^\n\r]+)/);
+            if (depMatch) {
+              const urlRegex = /issues\/(\d+)/g;
+              let m;
+              while ((m = urlRegex.exec(depMatch[1])) !== null) {
+                const n = parseInt(m[1], 10);
+                if (n !== issueNumber) fallbackBlockerNums.add(n);
+              }
+            }
+            const blockedByRegex = /[Bb]locked by\s+#?(\d+)/g;
+            let bm;
+            while ((bm = blockedByRegex.exec(issueBody)) !== null) {
+              const n = parseInt(bm[1], 10);
+              if (n !== issueNumber) fallbackBlockerNums.add(n);
+            }
+
+            // Combine blockers into a map
+            const blockerMap = new Map();
+            for (const b of nativeBlockers) {
+              blockerMap.set(b.number, {
+                number: b.number,
+                title: b.title,
+                state: b.state,
+                url: b.url
+              });
+            }
+
+            // Query any fallback blockers not already present in native list
+            for (const num of fallbackBlockerNums) {
+              if (!blockerMap.has(num)) {
+                try {
+                  const fbIssue = await github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: num
+                  });
+                  blockerMap.set(num, {
+                    number: num,
+                    title: fbIssue.data.title,
+                    state: fbIssue.data.state.toUpperCase(),
+                    url: fbIssue.data.html_url
+                  });
+                } catch (e) {
+                  console.warn(`Could not fetch fallback blocker #${num}: ${e.message}`);
+                }
+              }
+            }
+
+            const openBlockers = Array.from(blockerMap.values()).filter(b => b.state === 'OPEN');
+
+            if (openBlockers.length > 0) {
+              console.log(`Issue #${issueNumber} has ${openBlockers.length} open blocker(s). Reopening...`);
+
+              // Reopen the issue
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                state: 'open'
+              });
+
+              // Post warning comment
+              const blockerLines = openBlockers
+                .map(b => `- **[#${b.number} - ${b.title}](${b.url})** (Status: \`OPEN\`)`)
+                .join('\n');
+
+              const commentBody = `> [!WARNING]
+> ### Issue Closure Blocked
+> **Issue #${issueNumber}** was automatically reopened because it is blocked by **${openBlockers.length} unresolved dependency issue(s)**:
+>
+${blockerLines}
+>
+> In accordance with project dependency rules, all blocking issues must be resolved and closed before this issue can be closed.`;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: commentBody
+              });
+
+              core.setFailed(`Issue #${issueNumber} was reopened because it has ${openBlockers.length} open blocker(s).`);
+            } else {
+              console.log(`Issue #${issueNumber} has no open blockers. Closure permitted.`);
+            }
+
+  check-pr-issue-blockers:
+    name: Check PR closing issue blockers
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate PR does not close blocked issues
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const prBody = context.payload.pull_request.body || '';
+
+            // Find closing keywords followed by #<number>
+            const closingRegex = /(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)/gi;
+            const targetIssueNums = new Set();
+            let m;
+            while ((m = closingRegex.exec(prBody)) !== null) {
+              targetIssueNums.add(parseInt(m[1], 10));
+            }
+
+            if (targetIssueNums.size === 0) {
+              console.log('No closing issue references found in PR body.');
+              return;
+            }
+
+            const query = `
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  issue(number: $number) {
+                    id
+                    number
+                    title
+                    state
+                    blockedBy(first: 50) {
+                      nodes {
+                        number
+                        title
+                        state
+                        url
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const violations = [];
+
+            for (const issueNum of targetIssueNums) {
+              try {
+                const res = await github.graphql(query, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  number: issueNum
+                });
+                const iss = res.repository.issue;
+                if (!iss) continue;
+
+                const openBlockers = (iss.blockedBy?.nodes || []).filter(b => b.state === 'OPEN');
+                if (openBlockers.length > 0) {
+                  violations.push({
+                    issue: iss,
+                    openBlockers
+                  });
+                }
+              } catch (e) {
+                console.warn(`Could not inspect issue #${issueNum}: ${e.message}`);
+              }
+            }
+
+            if (violations.length > 0) {
+              let errorMsg = 'PR attempts to close issues that are still blocked by unresolved dependencies:\n\n';
+              for (const v of violations) {
+                errorMsg += `• Issue #${v.issue.number} ("${v.issue.title}") is blocked by:\n`;
+                for (const b of v.openBlockers) {
+                  errorMsg += `    - #${b.number}: ${b.title} (Status: ${b.state})\n`;
+                }
+              }
+              core.setFailed(errorMsg);
+            } else {
+              console.log('All referenced closing issues have resolved blockers.');
+            }
