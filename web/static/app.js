@@ -91,7 +91,7 @@ function getFilters() {
 }
 
 function renderProducts() {
-  if (catalogState !== "ready") {
+  if (!PRODUCTS || PRODUCTS.length === 0) {
     resultsCount.textContent = "0";
     productGrid.textContent =
       catalogState === "loading"
@@ -133,6 +133,12 @@ function renderProducts() {
       const eSize = escapeHTML(p.size);
       const eNotes = escapeHTML(p.notes);
       const eThumb = escapeHTML(thumb);
+      const canBuy = catalogFresh() && p.available;
+      const btnText = !catalogFresh()
+        ? "Prices unavailable"
+        : p.available
+          ? "Add to cart"
+          : "Currently unavailable";
       return `
     <div class="glass-panel rounded-3xl overflow-hidden border border-white/10 flex flex-col">
       <div class="product-card-img" data-open-product="${p.id}">
@@ -155,8 +161,8 @@ function renderProducts() {
           </div>
         </div>
         <div class="mt-5 flex flex-col sm:flex-row gap-2">
-          <button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}" ${p.available ? "" : "disabled"}>
-            ${p.available ? "Add to cart" : "Currently unavailable"}
+          <button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}" ${canBuy ? "" : "disabled"}>
+            ${btnText}
           </button>
           <a class="w-full sm:w-auto py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 text-center hover:bg-white/10"
              href="${wa}" target="_blank" rel="noreferrer">
@@ -294,7 +300,6 @@ function getOrCreateModal() {
 }
 
 function openProductModal(id) {
-  if (!catalogFresh()) return;
   const p = getProduct(id);
   if (!p) return;
 
@@ -303,13 +308,16 @@ function openProductModal(id) {
   _modalImages = p.images || [];
   _modalImageIdx = 0;
 
+  const canBuy = catalogFresh() && p.available;
   document.getElementById("modalBadge").textContent =
     `${p.gender ?? "Unisex"} \u2022 ${p.category}`;
   document.getElementById("modalName").textContent = p.name;
-  document.getElementById("modalAddToCart").disabled = !p.available;
-  document.getElementById("modalAddToCart").textContent = p.available
-    ? "Add to Cart"
-    : "Currently unavailable";
+  document.getElementById("modalAddToCart").disabled = !canBuy;
+  document.getElementById("modalAddToCart").textContent = !catalogFresh()
+    ? "Prices unavailable"
+    : p.available
+      ? "Add to Cart"
+      : "Currently unavailable";
   document.getElementById("modalPrice").textContent =
     `KES ${formatKes(p.priceKes)}`;
   document.getElementById("modalMeta").textContent =
@@ -462,9 +470,9 @@ if (productGrid && productGrid.children.length === 0) {
 updateCartBadges();
 updateBackToTopVisibility();
 
-let catalogFiltersInitialized = false;
+let catalogFiltersInitialized = PRODUCTS.length > 0;
 document.addEventListener("catalogUpdated", () => {
-  if (!catalogFiltersInitialized && catalogState === "ready") {
+  if (!catalogFiltersInitialized && PRODUCTS.length > 0) {
     renderFilterOptions();
     catalogFiltersInitialized = true;
   }

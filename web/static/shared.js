@@ -36,7 +36,9 @@ function escapeHTML(value) {
   );
 }
 async function loadCatalog() {
-  catalogState = "loading";
+  if (PRODUCTS.length === 0) {
+    catalogState = "loading";
+  }
   try {
     const response = await fetch(`/api/catalog`, {
       cache: "no-store",
@@ -47,7 +49,7 @@ async function loadCatalog() {
     if (!Array.isArray(data.products) || !data.products.length)
       throw new Error("Invalid catalog");
     const ids = new Set();
-    PRODUCTS = data.products.map((p) => {
+    const safe = data.products.map((p) => {
       if (
         !/^p[0-9]+$/.test(p.id) ||
         ids.has(p.id) ||
@@ -58,7 +60,7 @@ async function loadCatalog() {
       )
         throw new Error("Invalid product");
       ids.add(p.id);
-      const safe = { ...p };
+      const item = { ...p };
       for (const field of [
         "name",
         "category",
@@ -70,7 +72,7 @@ async function loadCatalog() {
         if (typeof p[field] !== "string")
           throw new Error("Invalid product field");
       }
-      safe.images = p.images.map((url) => {
+      item.images = p.images.map((url) => {
         if (
           typeof url !== "string" ||
           !/^img\/[a-zA-Z0-9% ._-]+\.jpeg$/.test(url)
@@ -78,13 +80,18 @@ async function loadCatalog() {
           throw new Error("Invalid media path");
         return url;
       });
-      return safe;
+      return item;
     });
+    PRODUCTS = safe;
     catalogState = "ready";
     catalogLoadedAt = Date.now();
   } catch {
-    PRODUCTS = [];
-    catalogState = "unavailable";
+    if (PRODUCTS.length > 0) {
+      catalogState = "stale";
+    } else {
+      PRODUCTS = [];
+      catalogState = "unavailable";
+    }
     setTimeout(loadCatalog, 1500);
   }
   document.dispatchEvent(new Event("catalogUpdated"));
