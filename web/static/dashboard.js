@@ -155,7 +155,7 @@
     renderDashboardData();
 
     // Show temporary toast
-    showToast(`Recorded sale: ${fragranceName} ×${qty} (KES ${formatKes(totalKes)})`);
+    showToast(`Staged batch for ${fragranceName} ×${qty} (KES ${formatKes(totalKes)}) - Ready for stock apply`);
   });
 
   clearSalesHistoryBtn?.addEventListener("click", () => {
@@ -244,14 +244,14 @@
             </td>
             <td class="py-2.5 px-3">
               <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="dash-badge dash-badge-khaki text-[10px]">● Verified</span>
+                <span class="dash-badge dash-badge-pending text-[10px]">● Staged (local_sale)</span>
                 <button
                   type="button"
                   class="copy-batch-btn text-[10px] text-gray-400 hover:text-[var(--gold-soft)] underline cursor-pointer"
                   data-batch="${escapeHTML(JSON.stringify(s.stockBatch || {}))}"
                   title="Copy canonical local_sale batch JSON for stock apply"
                 >
-                  Batch JSON
+                  Copy JSON
                 </button>
               </div>
             </td>

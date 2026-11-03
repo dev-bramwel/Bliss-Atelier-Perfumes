@@ -53,13 +53,13 @@ templ DashboardPage(products []catalog.Product) {
 			</div>
 
 			<div class="dash-metric-card">
-				<p class="text-xs uppercase tracking-[0.16em] text-[var(--gold-soft)] font-medium">Verified Counter Sales</p>
+				<p class="text-xs uppercase tracking-[0.16em] text-[var(--gold-soft)] font-medium">Staged Counter Sales</p>
 				<h3 class="text-2xl font-display font-semibold text-[#faf7f2] mt-1.5">
 					<span id="dashSalesCount">0</span>
 					<span class="text-sm font-sans font-normal text-[rgba(247,243,235,0.5)]">Sales</span>
 				</h3>
 				<p class="text-xs text-[rgba(247,243,235,0.55)] mt-1">
-					KES <span id="dashSalesTotal">0</span> recorded
+					KES <span id="dashSalesTotal">0</span> staged for stock apply
 				</p>
 			</div>
 
@@ -108,9 +108,12 @@ templ DashboardPage(products []catalog.Product) {
 					<!-- Sale Recording Form -->
 					<div class="glass-panel p-6 sm:p-8 space-y-5">
 						<div>
-							<h3 class="text-xl font-display font-semibold text-[#faf7f2]">Record Verified Counter Sale</h3>
+							<div class="flex items-center gap-2 flex-wrap">
+								<h3 class="text-xl font-display font-semibold text-[#faf7f2]">Stage Verified Counter Sale</h3>
+								<span class="dash-badge dash-badge-khaki text-[10px]">R09 Ledger Batch Staging</span>
+							</div>
 							<p class="text-xs text-[rgba(247,243,235,0.65)] mt-1">
-								Fast sale entry for shop operators. Stock updates immediately and is logged for administrative review.
+								Prepare verified shop sales into canonical <code class="text-[var(--gold-soft)]">local_sale</code> batch payloads for authoritative ledger deduction (<code class="text-[var(--gold-soft)]">cmd/stock apply</code>).
 							</p>
 						</div>
 
@@ -197,7 +200,7 @@ templ DashboardPage(products []catalog.Product) {
 									</div>
 								</div>
 								<button type="submit" class="py-2.5 px-6 rounded-2xl gold-btn text-sm font-semibold">
-									Record Verified Sale
+									Stage Sale Batch for stock apply
 								</button>
 							</div>
 						</form>
@@ -207,15 +210,15 @@ templ DashboardPage(products []catalog.Product) {
 					<div class="space-y-4">
 						<div class="glass-panel p-5 space-y-3">
 							<h4 class="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--gold-soft)]">
-								Operator Policy Rule
+								Authoritative Stock Policy
 							</h4>
 							<p class="text-xs text-[rgba(247,243,235,0.7)] leading-relaxed">
-								Per R01 operating policy, all sales must be verified before handover or dispatch. Entry is immediate to prevent stock races; the owner reviews recorded sales afterward without deducting stock again.
+								Per R09 policy, public HTTP stock mutation is prohibited to protect inventory integrity. Counter sales staged here produce signed <code class="text-[var(--gold-soft)]">local_sale</code> batch commands for the operator CLI (<code class="text-[var(--gold-soft)]">cmd/stock apply</code>).
 							</p>
 							<div class="text-xs text-[rgba(247,243,235,0.5)] pt-2 border-t border-white/5 space-y-1">
 								<p>&bull; Mombasa SBS Markiti Complex Shop 2</p>
-								<p>&bull; Common bottle price: KES 2,500</p>
-								<p>&bull; 2-day exchange window for unopened bottles</p>
+								<p>&bull; Batch format: <code class="text-[var(--gold-soft)]">&#123;&quot;kind&quot;:&quot;local_sale&quot;,...&#125;</code></p>
+								<p>&bull; Immediate atomic deduction in PostgreSQL ledger</p>
 							</div>
 						</div>
 
@@ -241,8 +244,8 @@ templ DashboardPage(products []catalog.Product) {
 				<div class="glass-panel p-6 space-y-4">
 					<div class="flex items-center justify-between">
 						<div>
-							<h3 class="text-lg font-display font-semibold text-[#faf7f2]">Recent Counter Sales</h3>
-							<p class="text-xs text-[rgba(247,243,235,0.6)]">Audited shop floor transactions recorded today.</p>
+							<h3 class="text-lg font-display font-semibold text-[#faf7f2]">Staged Counter Sales &amp; Ledger Batches</h3>
+							<p class="text-xs text-[rgba(247,243,235,0.6)]">Audited shop floor transactions ready for authoritative stock deduction.</p>
 						</div>
 						<button id="clearSalesHistoryBtn" class="text-xs text-gray-400 hover:text-white px-2 py-1 rounded-lg border border-white/10">
 							Clear Local Log
