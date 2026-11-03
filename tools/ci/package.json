@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "contracts": "node contracts.mjs",
-    "browser": "node browser.mjs"
+    "browser": "node browser.mjs",
+    "test": "node --test issue-dependencies.test.mjs"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "12.1.0",
