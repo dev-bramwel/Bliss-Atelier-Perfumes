@@ -51,3 +51,16 @@ export function priceOrderItems(items) {
     ),
   };
 }
+
+export function validatePaymentMethod(payment) {
+  const method = payment || "pay_now";
+  if (payment === "on_delivery") {
+    throw new Error(
+      "Payment on delivery is prohibited. Verify payment before dispatch.",
+    );
+  }
+  if (method !== "pay_now") {
+    throw new Error("Invalid payment method.");
+  }
+  return method;
+}
