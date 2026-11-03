@@ -31,6 +31,7 @@ func Handler(catalogStore httpapi.Catalog) http.Handler {
 
 	render := func(w http.ResponseWriter, r *http.Request, title string, pageScript string, page templ.Component) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
 		products := fetchProducts(r)
 		if err := Layout(title, pageScript, products, page).Render(r.Context(), w); err != nil {
 			http.Error(w, "render error", http.StatusInternalServerError)

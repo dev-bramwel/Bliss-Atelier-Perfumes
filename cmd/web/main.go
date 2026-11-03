@@ -41,6 +41,7 @@ func handler(apiTarget string, catalogStore httpapi.Catalog) http.Handler {
 		r.Host = target.Host
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		w.Header().Set("Cache-Control", "no-store")
 		http.Error(w, "API unavailable", http.StatusBadGateway)
 	}
 
@@ -49,6 +50,7 @@ func handler(apiTarget string, catalogStore httpapi.Catalog) http.Handler {
 	// Direct web process liveness
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"alive"}`))
 	})
@@ -56,6 +58,7 @@ func handler(apiTarget string, catalogStore httpapi.Catalog) http.Handler {
 	// Direct web process readiness
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})

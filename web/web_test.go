@@ -55,6 +55,9 @@ func TestWebHandler_ScriptOrder(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("expected status 200, got %d", rec.Code)
 			}
+			if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+				t.Fatalf("expected Cache-Control: no-store, got %q", cc)
+			}
 			body := rec.Body.String()
 
 			sharedIdx := strings.Index(body, `<script src="/static/shared.js"></script>`)
@@ -83,5 +86,38 @@ func TestWebHandler_ScriptOrder(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWebHandler_CacheControl(t *testing.T) {
+	mockProducts := []catalog.Product{
+		{ID: "p1", Name: "Arabian Wood", PriceKes: 2500, Available: true},
+	}
+	h := Handler(&mockCatalog{products: mockProducts})
+
+	routes := []string{
+		"/",
+		"/index.html",
+		"/cart",
+		"/cart.html",
+		"/checkout",
+		"/checkout.html",
+	}
+
+	for _, path := range routes {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			t.Run(method+" "+path, func(t *testing.T) {
+				req := httptest.NewRequest(method, path, nil)
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, req)
+
+				if rec.Code != http.StatusOK {
+					t.Fatalf("expected status 200, got %d", rec.Code)
+				}
+				if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+					t.Fatalf("expected Cache-Control: no-store on SSR page %s, got %q", path, cc)
+				}
+			})
+		}
 	}
 }

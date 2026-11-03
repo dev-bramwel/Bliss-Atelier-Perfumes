@@ -27,6 +27,9 @@ func TestProxyFailureIsSafe(t *testing.T) {
 	if response.Code != 502 {
 		t.Fatalf("expected 502, got %d", response.Code)
 	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("expected Cache-Control: no-store on 502 proxy error, got %q", response.Header().Get("Cache-Control"))
+	}
 	body := strings.TrimSpace(response.Body.String())
 	if body != "API unavailable" {
 		t.Fatalf("unexpected body: %s", body)
@@ -37,23 +40,24 @@ func TestWebRoutes(t *testing.T) {
 	h := handler("", nil)
 
 	tests := []struct {
-		name       string
-		method     string
-		path       string
-		wantStatus int
-		wantBody   string
+		name             string
+		method           string
+		path             string
+		wantStatus       int
+		wantBody         string
+		wantCacheControl string
 	}{
-		{"root", http.MethodGet, "/", 200, "Bliss Atelier Perfumes"},
-		{"index html alias", http.MethodGet, "/index.html", 200, "Bliss Atelier Perfumes"},
-		{"cart", http.MethodGet, "/cart", 200, "Your Cart"},
-		{"cart html alias", http.MethodGet, "/cart.html", 200, "Your Cart"},
-		{"checkout", http.MethodGet, "/checkout", 200, "Checkout"},
-		{"checkout html alias", http.MethodGet, "/checkout.html", 200, `meta name="api-base-url"`},
-		{"static asset", http.MethodGet, "/static/style.css", 200, ""},
-		{"legacy root asset", http.MethodGet, "/checkout.js", 200, ""},
-		{"live health check", http.MethodGet, "/health/live", 200, `{"status":"alive"}`},
-		{"ready health check", http.MethodGet, "/health/ready", 200, `{"status":"ready"}`},
-		{"not found page", http.MethodGet, "/unknown-page-not-found", 404, ""},
+		{"root", http.MethodGet, "/", 200, "Bliss Atelier Perfumes", "no-store"},
+		{"index html alias", http.MethodGet, "/index.html", 200, "Bliss Atelier Perfumes", "no-store"},
+		{"cart", http.MethodGet, "/cart", 200, "Your Cart", "no-store"},
+		{"cart html alias", http.MethodGet, "/cart.html", 200, "Your Cart", "no-store"},
+		{"checkout", http.MethodGet, "/checkout", 200, "Checkout", "no-store"},
+		{"checkout html alias", http.MethodGet, "/checkout.html", 200, `meta name="api-base-url"`, "no-store"},
+		{"static asset", http.MethodGet, "/static/style.css", 200, "", ""},
+		{"legacy root asset", http.MethodGet, "/checkout.js", 200, "", ""},
+		{"live health check", http.MethodGet, "/health/live", 200, `{"status":"alive"}`, "no-store"},
+		{"ready health check", http.MethodGet, "/health/ready", 200, `{"status":"ready"}`, "no-store"},
+		{"not found page", http.MethodGet, "/unknown-page-not-found", 404, "", ""},
 	}
 
 	for _, tt := range tests {
@@ -64,6 +68,11 @@ func TestWebRoutes(t *testing.T) {
 
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("path %s: expected %d, got %d", tt.path, tt.wantStatus, rec.Code)
+			}
+			if tt.wantCacheControl != "" {
+				if got := rec.Header().Get("Cache-Control"); got != tt.wantCacheControl {
+					t.Fatalf("path %s: expected Cache-Control %q, got %q", tt.path, tt.wantCacheControl, got)
+				}
 			}
 			if tt.wantBody != "" && !strings.Contains(rec.Body.String(), tt.wantBody) {
 				t.Fatalf("path %s: expected body containing %q, got %q", tt.path, tt.wantBody, rec.Body.String())

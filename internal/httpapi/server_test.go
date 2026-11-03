@@ -33,6 +33,9 @@ func TestHealth(t *testing.T) {
 		if w.Code != tc.status {
 			t.Fatalf("%s: %d", tc.path, w.Code)
 		}
+		if tc.status != 404 && w.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%s: expected Cache-Control: no-store, got %q", tc.path, w.Header().Get("Cache-Control"))
+		}
 	}
 }
 

@@ -28,6 +28,7 @@ func New(address string, timeout time.Duration, ping Ping, catalogs ...Catalog) 
 	mux := http.NewServeMux()
 	respond := func(w http.ResponseWriter, code int, body any) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(body)
 	}
