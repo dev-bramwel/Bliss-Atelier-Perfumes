@@ -4,9 +4,11 @@ on:
   issues:
     types: [closed]
   pull_request:
+    branches: [develop, main]
     types: [opened, edited, synchronize]
 
 permissions:
+  contents: read
   issues: write
   pull-requests: read
 
