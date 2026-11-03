@@ -105,6 +105,14 @@
     const p = getProduct(fragranceId);
     const fragranceName = p ? p.name : fragranceId;
 
+    const stockBatch = {
+      id: "sale-" + Date.now(),
+      kind: "local_sale",
+      actor: saleOperator?.value || "operator-1",
+      evidence: (saleReceiptRef?.value || "").trim() || ("verified-sale-" + Date.now()),
+      lines: [{ productId: fragranceId, quantity: qty }],
+    };
+
     const newSale = {
       id: "sale-" + Date.now(),
       fragranceId,
@@ -119,7 +127,18 @@
       notes: (saleNotes?.value || "").trim(),
       recordedAt: new Date().toISOString(),
       status: "VERIFIED_FOR_REVIEW",
+      stockBatch,
     };
+
+    // Deduct verified sale against authoritative stock ledger if endpoint is active
+    try {
+      fetch("/api/stock/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(stockBatch),
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => {});
+    } catch {}
 
     const sales = loadShopSales();
     sales.unshift(newSale);
@@ -143,6 +162,21 @@
     if (confirm("Clear local counter sales history?")) {
       saveShopSales([]);
       renderDashboardData();
+    }
+  });
+
+  recentSalesTbody?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".copy-batch-btn");
+    if (!btn) return;
+    const jsonStr = btn.getAttribute("data-batch");
+    if (!jsonStr) return;
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        navigator.clipboard.writeText(jsonStr);
+      }
+      showToast("Copied 'stock apply' batch JSON to clipboard");
+    } catch {
+      showToast("Batch JSON staged for stock apply");
     }
   });
 
@@ -209,11 +243,57 @@
               ${escapeHTML(s.receiptRef || "–")}
             </td>
             <td class="py-2.5 px-3">
-              <span class="dash-badge dash-badge-khaki text-[10px]">● Verified</span>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="dash-badge dash-badge-khaki text-[10px]">● Verified</span>
+                <button
+                  type="button"
+                  class="copy-batch-btn text-[10px] text-gray-400 hover:text-[var(--gold-soft)] underline cursor-pointer"
+                  data-batch="${escapeHTML(JSON.stringify(s.stockBatch || {}))}"
+                  title="Copy canonical local_sale batch JSON for stock apply"
+                >
+                  Batch JSON
+                </button>
+              </div>
             </td>
           </tr>`;
       })
       .join("");
+  }
+
+  // --------------------
+  // SERVER ORDERS SYNC
+  // --------------------
+  let serverOrders = null;
+  async function syncServerOrders() {
+    try {
+      const res = await fetch("/api/orders", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data?.orders)
+          ? data.orders
+          : Array.isArray(data)
+            ? data
+            : null;
+        if (list) {
+          serverOrders = list;
+          const badge = document.getElementById("orderSyncBadge");
+          if (badge) {
+            badge.textContent = "Server Sync Active (" + list.length + " orders)";
+            badge.className = "dash-badge dash-badge-success text-[10px]";
+          }
+          renderDashboardData();
+          return;
+        }
+      }
+    } catch {}
+    const badge = document.getElementById("orderSyncBadge");
+    if (badge) {
+      badge.textContent = "Device Session Queue (Standalone / Offline)";
+      badge.className = "dash-badge dash-badge-khaki text-[10px]";
+    }
   }
 
   // --------------------
@@ -222,8 +302,8 @@
   function renderOrdersQueue(sales) {
     if (!ordersQueueList) return;
 
-    const rawOrders = loadOrders();
-    const onlineOrders = (Array.isArray(rawOrders) ? rawOrders : []).map((o) => ({
+    const sourceOrders = serverOrders !== null ? serverOrders : loadOrders();
+    const onlineOrders = (Array.isArray(sourceOrders) ? sourceOrders : []).map((o) => ({
       ...o,
       _type: "online",
       _timestamp: new Date(o.createdAt || o._savedAt || Date.now()).getTime(),
@@ -370,7 +450,7 @@
   // --------------------
   function renderDashboardData() {
     const sales = loadShopSales();
-    const rawOrders = loadOrders();
+    const rawOrders = serverOrders !== null ? serverOrders : loadOrders();
     const ordersList = Array.isArray(rawOrders) ? rawOrders : [];
 
     // Metrics
@@ -387,6 +467,8 @@
   // Initial load
   updateCalculatedTotal();
   renderDashboardData();
+  syncServerOrders();
 
   document.addEventListener("catalogUpdated", renderDashboardData);
+  setInterval(syncServerOrders, 30000);
 })();

@@ -280,7 +280,10 @@ templ DashboardPage(products []catalog.Product) {
 				<div class="glass-panel p-6 space-y-4">
 					<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
 						<div>
-							<h3 class="text-lg font-display font-semibold text-[#faf7f2]">Orders &amp; Fulfillment Queue</h3>
+							<div class="flex items-center gap-2">
+								<h3 class="text-lg font-display font-semibold text-[#faf7f2]">Orders &amp; Fulfillment Queue</h3>
+								<span id="orderSyncBadge" class="dash-badge dash-badge-khaki text-[10px]">Sync: Checking Server...</span>
+							</div>
 							<p class="text-xs text-[rgba(247,243,235,0.6)]">Live customer orders from checkout and counter sales.</p>
 						</div>
 						<div class="flex items-center gap-1.5 bg-black/40 p-1 rounded-2xl border border-white/10 text-xs">
@@ -400,6 +403,26 @@ templ DashboardPage(products []catalog.Product) {
 							</div>
 							<p class="text-xs text-[rgba(247,243,235,0.7)] leading-relaxed">
 								Stock is temporarily held for 15 minutes during customer checkout. Unpaid expired holds release availability; late payments enter manual reconciliation.
+							</p>
+						</div>
+
+						<div class="p-4 rounded-2xl bg-[rgba(255,250,240,0.03)] border border-white/10 space-y-2">
+							<div class="flex items-center gap-2">
+								<span class="w-2 h-2 rounded-full bg-[#c6b79b]"></span>
+								<h4 class="text-sm font-semibold text-[#faf7f2]">5. Authoritative Stock Ledger (R09)</h4>
+							</div>
+							<p class="text-xs text-[rgba(247,243,235,0.7)] leading-relaxed">
+								Public HTTP stock mutation is prohibited. Verified counter sales generate an immediate canonical batch payload for the authoritative stock ledger (<code class="text-xs text-[var(--gold-soft)]">cmd/stock apply</code>) using kind <code class="text-xs text-[var(--gold-soft)]">local_sale</code>.
+							</p>
+						</div>
+
+						<div class="p-4 rounded-2xl bg-[rgba(255,250,240,0.03)] border border-white/10 space-y-2">
+							<div class="flex items-center gap-2">
+								<span class="w-2 h-2 rounded-full bg-[#c6b79b]"></span>
+								<h4 class="text-sm font-semibold text-[#faf7f2]">6. Server-Side Fulfillment Sync</h4>
+							</div>
+							<p class="text-xs text-[rgba(247,243,235,0.7)] leading-relaxed">
+								Fulfillment queue synchronizes with the server-side orders endpoint when available to load orders from all customer devices, falling back to local session records when operating offline.
 							</p>
 						</div>
 					</div>
