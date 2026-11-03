@@ -87,3 +87,27 @@ func TestSetupUpgradesLegacyCredentialsPreservingPasswords(t *testing.T) {
 		t.Fatalf("invalid catalog_url after upgrade: %v, url=%s", err, string(catURL))
 	}
 }
+
+func TestSetupReplacesDirectoryPlaceholders(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "secrets_with_dir_placeholders")
+	if err := os.MkdirAll(filepath.Join(directory, "catalog_password"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(directory, "catalog_url"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := secrets(directory); err != nil {
+		t.Fatalf("secrets() failed when directory placeholders existed: %v", err)
+	}
+
+	for _, name := range []string{"catalog_password", "catalog_url", "runtime_password", "admin_password"} {
+		info, err := os.Stat(filepath.Join(directory, name))
+		if err != nil {
+			t.Fatalf("missing file %s: %v", name, err)
+		}
+		if info.IsDir() {
+			t.Fatalf("expected regular file for %s, got directory", name)
+		}
+	}
+}

@@ -26,7 +26,7 @@ func secrets(directory string) error {
 	names := []string{"admin_password", "migrator_password", "runtime_password", "catalog_password", "migrator_url", "runtime_url", "catalog_url"}
 	existing := 0
 	for _, name := range names {
-		if _, err := os.Stat(filepath.Join(directory, name)); err == nil {
+		if info, err := os.Stat(filepath.Join(directory, name)); err == nil && !info.IsDir() {
 			existing++
 		}
 	}
@@ -37,7 +37,7 @@ func secrets(directory string) error {
 	legacyNames := []string{"admin_password", "migrator_password", "runtime_password", "migrator_url", "runtime_url"}
 	legacyCount := 0
 	for _, name := range legacyNames {
-		if _, err := os.Stat(filepath.Join(directory, name)); err == nil {
+		if info, err := os.Stat(filepath.Join(directory, name)); err == nil && !info.IsDir() {
 			legacyCount++
 		}
 	}
@@ -76,8 +76,13 @@ func secrets(directory string) error {
 	}
 	for _, name := range names {
 		targetPath := filepath.Join(directory, name)
-		if _, err := os.Stat(targetPath); err == nil {
-			continue
+		if info, err := os.Stat(targetPath); err == nil {
+			if !info.IsDir() {
+				continue
+			}
+			if err := os.RemoveAll(targetPath); err != nil {
+				return errors.New("could not clean up invalid directory for credential file")
+			}
 		}
 		// Directory mode 0700 protects host access; readable leaves allow Compose's
 		// bind-mounted secret files to be consumed by distinct non-root container UIDs.

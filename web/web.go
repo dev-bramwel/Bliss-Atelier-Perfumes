@@ -52,7 +52,7 @@ func Handler(catalogStore httpapi.Catalog) http.Handler {
 		mux.Handle("HEAD /img/", fileServer)
 
 		// Legacy direct root static assets
-		for _, name := range []string{"checkout.js", "shared.js", "style.css", "tailwind.css", "app.js", "cart.js"} {
+		for _, name := range []string{"checkout.js", "shared.js", "style.css", "tailwind.css", "app.js", "cart.js", "dashboard.js"} {
 			mux.Handle("GET /"+name, fileServer)
 			mux.Handle("HEAD /"+name, fileServer)
 		}
@@ -70,6 +70,19 @@ func Handler(catalogStore httpapi.Catalog) http.Handler {
 	})
 	mux.HandleFunc("HEAD /index.html", func(w http.ResponseWriter, r *http.Request) {
 		render(w, r, "Collection", "/static/app.js", IndexPage(fetchProducts(r)))
+	})
+
+	mux.HandleFunc("GET /dashboard", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Dashboard", "/static/dashboard.js", DashboardPage(fetchProducts(r)))
+	})
+	mux.HandleFunc("HEAD /dashboard", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Dashboard", "/static/dashboard.js", DashboardPage(fetchProducts(r)))
+	})
+	mux.HandleFunc("GET /dashboard.html", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Dashboard", "/static/dashboard.js", DashboardPage(fetchProducts(r)))
+	})
+	mux.HandleFunc("HEAD /dashboard.html", func(w http.ResponseWriter, r *http.Request) {
+		render(w, r, "Dashboard", "/static/dashboard.js", DashboardPage(fetchProducts(r)))
 	})
 
 	mux.HandleFunc("GET /cart", func(w http.ResponseWriter, r *http.Request) {
