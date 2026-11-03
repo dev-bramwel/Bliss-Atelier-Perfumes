@@ -23,6 +23,7 @@ try {
   page = await context.newPage();
   page.on("pageerror", (error) => errors.push(error.message));
   assert.equal((await page.goto(origin + "/index.html")).status(), 200);
+  assert.equal((await page.goto(origin + "/dashboard.html")).status(), 200);
   assert.equal((await page.goto(origin + "/cart.html")).status(), 200);
   assert.equal((await page.goto(origin + "/checkout.html")).status(), 200);
   assert(await page.locator("#checkoutForm").isVisible());
