@@ -48,6 +48,12 @@ After `init`, before starting Express or another runtime, the table owner or dat
 GRANT USAGE ON SCHEMA public TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE, DELETE
   ON TABLE public."Order", public."MpesaTransaction" TO :"runtime_role";
+
+-- For read-only storefront SSR processes requiring direct catalog access:
+\set catalog_role bliss_catalog
+GRANT USAGE ON SCHEMA public TO :"catalog_role";
+GRANT SELECT
+  ON TABLE public.catalog_product, public.catalog_settings, public.stock_control TO :"catalog_role";
 ```
 
 Provision runtime login/CONNECT separately using the environment's secret-management process. The runtime must not own these tables, inherit the migration role, or have superuser/DDL privileges. Ensure neither it nor `PUBLIC` can CREATE in the application schema; for a dedicated application schema, an administrator can run `REVOKE CREATE ON SCHEMA public FROM PUBLIC` and revoke any direct runtime CREATE grant. Do not grant access to `bliss_schema_migrations` or use grants/default privileges covering every public table. This baseline uses client-generated text IDs and needs no sequence grants.

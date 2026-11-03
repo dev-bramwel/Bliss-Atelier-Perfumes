@@ -52,6 +52,7 @@ func TestWebRoutes(t *testing.T) {
 		{"static asset", http.MethodGet, "/static/style.css", 200, ""},
 		{"legacy root asset", http.MethodGet, "/checkout.js", 200, ""},
 		{"live health check", http.MethodGet, "/health/live", 200, `{"status":"alive"}`},
+		{"ready health check", http.MethodGet, "/health/ready", 200, `{"status":"ready"}`},
 		{"not found page", http.MethodGet, "/unknown-page-not-found", 404, ""},
 	}
 

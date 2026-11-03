@@ -53,6 +53,13 @@ func handler(apiTarget string, catalogStore httpapi.Catalog) http.Handler {
 		_, _ = w.Write([]byte(`{"status":"alive"}`))
 	})
 
+	// Direct web process readiness
+	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ready"}`))
+	})
+
 	// Reverse proxy all /api/ traffic to upstream api:5001
 	// Handles /api/health/live, /api/health/ready, /api/catalog, /api/orders, etc.
 	mux.Handle("/api/", http.StripPrefix("/api", proxy))
@@ -77,6 +84,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	apiTarget := os.Getenv("BLISS_API_URL")
+	if apiTarget == "" {
+		apiTarget = "http://api:5001"
+	}
+
 	var catalogStore httpapi.Catalog
 	if cfg.DatabaseURL != "" {
 		pool, err := database.Open(ctx, cfg.DatabaseURL, cfg.MaxConnections, cfg.IOTimeout)
@@ -86,6 +98,8 @@ func main() {
 		}
 		defer pool.Close()
 		catalogStore = &catalog.Store{Pool: pool}
+	} else if apiTarget != "" {
+		catalogStore = catalog.NewHTTPStore(apiTarget, cfg.IOTimeout)
 	}
 
 	listener, err := net.Listen("tcp", cfg.Address)
@@ -95,7 +109,6 @@ func main() {
 	}
 	defer listener.Close()
 
-	apiTarget := os.Getenv("BLISS_API_URL")
 	server := &http.Server{
 		Handler:           handler(apiTarget, catalogStore),
 		ReadHeaderTimeout: 5 * time.Second,

@@ -23,7 +23,7 @@ import (
 )
 
 func secrets(directory string) error {
-	names := []string{"admin_password", "migrator_password", "runtime_password", "migrator_url", "runtime_url"}
+	names := []string{"admin_password", "migrator_password", "runtime_password", "catalog_password", "migrator_url", "runtime_url", "catalog_url"}
 	existing := 0
 	for _, name := range names {
 		if _, err := os.Stat(filepath.Join(directory, name)); err == nil {
@@ -43,14 +43,14 @@ func secrets(directory string) error {
 		return err
 	}
 	values := map[string]string{}
-	for _, role := range []string{"admin", "migrator", "runtime"} {
+	for _, role := range []string{"admin", "migrator", "runtime", "catalog"} {
 		b := make([]byte, 32)
 		if _, err := rand.Read(b); err != nil {
 			return err
 		}
 		values[role+"_password"] = hex.EncodeToString(b)
 	}
-	for _, role := range []string{"migrator", "runtime"} {
+	for _, role := range []string{"migrator", "runtime", "catalog"} {
 		values[role+"_url"] = "postgresql://bliss_" + role + ":" + values[role+"_password"] + "@db:5432/bliss_dev?sslmode=disable"
 	}
 	for _, name := range names {
@@ -111,22 +111,22 @@ func migrate() error {
 	}
 	// This local-only capability exposes one boolean, not history rows, to runtime.
 	predicate := migration.LedgerPredicate()
-	sql := `GRANT USAGE ON SCHEMA public TO bliss_runtime;
+	sql := `GRANT USAGE ON SCHEMA public TO bliss_runtime, bliss_catalog;
  GRANT SELECT,INSERT,UPDATE,DELETE ON public."Order",public."MpesaTransaction" TO bliss_runtime;
- GRANT SELECT ON public.catalog_product,public.catalog_settings,public.stock_control TO bliss_runtime;
+ GRANT SELECT ON public.catalog_product,public.catalog_settings,public.stock_control TO bliss_runtime, bliss_catalog;
  CREATE SCHEMA IF NOT EXISTS bliss_ops;
  REVOKE ALL ON SCHEMA bliss_ops FROM PUBLIC;
- GRANT USAGE ON SCHEMA bliss_ops TO bliss_runtime;
+ GRANT USAGE ON SCHEMA bliss_ops TO bliss_runtime, bliss_catalog;
  CREATE OR REPLACE FUNCTION bliss_ops.schema_ready() RETURNS boolean
  LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
  SELECT ` + predicate + `
  FROM public.bliss_schema_migrations $$;
  REVOKE ALL ON FUNCTION bliss_ops.schema_ready() FROM PUBLIC;
- GRANT EXECUTE ON FUNCTION bliss_ops.schema_ready() TO bliss_runtime;`
+ GRANT EXECUTE ON FUNCTION bliss_ops.schema_ready() TO bliss_runtime, bliss_catalog;`
 	if _, err = pool.Exec(ctx, sql); err != nil {
 		return errors.New("local schema grants failed")
 	}
-	fmt.Println("local migration and runtime grants complete")
+	fmt.Println("local migration, runtime and catalog grants complete")
 	return nil
 }
 

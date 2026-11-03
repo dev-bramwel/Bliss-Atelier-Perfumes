@@ -236,3 +236,4 @@ spec:
 - [x] Retain `GO_REQUIRE_SCHEMA=true` in production to prevent traffic routing to un-migrated database schemas.
 - [x] Ensure reverse proxy forwarding headers are stripped at the edge (`cmd/web`).
 - [x] Configure Kubernetes or container orchestrator with liveness probe on `/health/live` and readiness probe on `/api/health/ready`.
+- [x] Deploy edge SSR instances (`cmd/web`) with least privilege: use the read-only `bliss_catalog` credential or fetch via `BLISS_API_URL` without direct database access, isolating `Order` and `MpesaTransaction` tables from perimeter processes.

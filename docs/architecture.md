@@ -28,7 +28,7 @@ Dashed paths show the analytics pipeline, required for the December learning del
 
 ## Components and boundaries
 
-- Storefront: mobile-first, crawlable category/product HTML with stable URLs. Keep HTML/CSS/JavaScript. Use generated HTML or Go templates for crawlable product pages; retain working UI behavior through migration. Serve optimized images/assets through object storage and CDN.
+- Storefront: mobile-first, crawlable category/product HTML with stable URLs. Keep HTML/CSS/JavaScript. Use generated HTML or Go templates for crawlable product pages; retain working UI behavior through migration. Serve optimized images/assets through object storage and CDN. Storefront SSR processes are deployed with least privilege: direct database access is restricted to the read-only catalog role (`bliss_catalog`) or decoupled entirely using upstream API fetching.
 - API modules: catalog, inventory, checkout/orders, payments, identity/admin, delivery, notifications, analytics. Business rules belong in services with transaction boundaries, not UI.
 - PostgreSQL: authoritative products, stock, orders, payments, access control, audit, outbox, and reporting aggregates. Local PostgreSQL is the zero-budget development baseline; durable production hosting is unresolved.
 - Redis: bounded catalog cache, rate-limit counters, optional sessions. Explicit TTL/invalidation; no authoritative inventory or payment state. Cache failure policy defined per use: reads can fall back; admin authentication fails closed when its required session store is unavailable.

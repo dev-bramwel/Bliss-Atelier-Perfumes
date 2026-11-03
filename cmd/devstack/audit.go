@@ -14,7 +14,7 @@ import (
 
 func auditImage(path, directory string) error {
 	secrets := [][]byte{}
-	for _, name := range []string{"admin_password", "migrator_password", "runtime_password"} {
+	for _, name := range []string{"admin_password", "migrator_password", "runtime_password", "catalog_password"} {
 		value, err := os.ReadFile(filepath.Join(directory, name))
 		if err != nil || len(value) != 64 {
 			return errors.New("invalid credential scan input")

@@ -28,7 +28,7 @@ services:
       POSTGRES_DB: bliss_dev
       POSTGRES_PASSWORD_FILE: /run/secrets/admin_password
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
-    secrets: [admin_password, migrator_password, runtime_password]
+    secrets: [admin_password, migrator_password, runtime_password, catalog_password]
     volumes:
       - database:/var/lib/postgresql/data
       - ./infra/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
@@ -90,13 +90,13 @@ services:
     entrypoint: ["/app/web"]
     environment:
       GO_HTTP_ADDR: 0.0.0.0:8080
-      GO_DATABASE_URL_FILE: /run/secrets/runtime_url
-      GO_REQUIRE_SCHEMA: "true"
+      GO_DATABASE_URL_FILE: /run/secrets/catalog_url
+      GO_REQUIRE_SCHEMA: "false"
       GO_IO_TIMEOUT: 15s
-      GO_DB_MAX_CONNECTIONS: "16"
+      GO_DB_MAX_CONNECTIONS: "8"
     ports: ["127.0.0.1:${BLISS_HTTP_PORT:-8080}:8080"]
     networks: [edge, private]
-    secrets: [runtime_url]
+    secrets: [catalog_url]
     depends_on:
       api: { condition: service_healthy }
     healthcheck:
@@ -118,7 +118,11 @@ secrets:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/migrator_password
   runtime_password:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/runtime_password
+  catalog_password:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/catalog_password
   migrator_url:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/migrator_url
   runtime_url:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/runtime_url
+  catalog_url:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/catalog_url
