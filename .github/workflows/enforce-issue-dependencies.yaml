@@ -48,11 +48,17 @@ jobs:
               }
             `;
 
-            const result = await github.graphql(query, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              number: issueNumber
-            });
+            let result;
+            try {
+              result = await github.graphql(query, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                number: issueNumber
+              });
+            } catch (err) {
+              core.setFailed(`Failed to inspect dependencies for issue #${issueNumber}: ${err.message}`);
+              return;
+            }
 
             const issueData = result.repository.issue;
             const nativeBlockers = issueData.blockedBy?.nodes || [];
@@ -102,7 +108,8 @@ jobs:
                     url: fbIssue.data.html_url
                   });
                 } catch (e) {
-                  console.warn(`Could not fetch fallback blocker #${num}: ${e.message}`);
+                  core.setFailed(`Failed to fetch fallback blocker #${num} for issue #${issueNumber}: ${e.message}`);
+                  return;
                 }
               }
             }
@@ -154,18 +161,43 @@ ${blockerLines}
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
-            const prBody = context.payload.pull_request.body || '';
+            const prNumber = context.payload.pull_request.number;
+            const textsToScan = [context.payload.pull_request.body || ''];
 
-            // Find closing keywords followed by #<number>
-            const closingRegex = /(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)/gi;
+            // Inspect PR commit messages in addition to PR body
+            try {
+              const commits = await github.paginate(
+                github.rest.pulls.listCommits,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                  per_page: 100
+                }
+              );
+              for (const c of commits) {
+                if (c.commit?.message) {
+                  textsToScan.push(c.commit.message);
+                }
+              }
+            } catch (err) {
+              core.setFailed(`Failed to list commits for PR #${prNumber}: ${err.message}`);
+              return;
+            }
+
+            // Find closing keywords followed by optional colon and #<number>
+            const closingRegex = /(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)(?::\s*|\s+)#(\d+)/gi;
             const targetIssueNums = new Set();
-            let m;
-            while ((m = closingRegex.exec(prBody)) !== null) {
-              targetIssueNums.add(parseInt(m[1], 10));
+            for (const text of textsToScan) {
+              let m;
+              const regex = new RegExp(closingRegex.source, closingRegex.flags);
+              while ((m = regex.exec(text)) !== null) {
+                targetIssueNums.add(parseInt(m[1], 10));
+              }
             }
 
             if (targetIssueNums.size === 0) {
-              console.log('No closing issue references found in PR body.');
+              console.log('No closing issue references found in PR body or commit messages.');
               return;
             }
 
@@ -176,6 +208,7 @@ ${blockerLines}
                     id
                     number
                     title
+                    body
                     state
                     blockedBy(first: 50) {
                       nodes {
@@ -193,24 +226,78 @@ ${blockerLines}
             const violations = [];
 
             for (const issueNum of targetIssueNums) {
+              let iss;
               try {
                 const res = await github.graphql(query, {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   number: issueNum
                 });
-                const iss = res.repository.issue;
-                if (!iss) continue;
-
-                const openBlockers = (iss.blockedBy?.nodes || []).filter(b => b.state === 'OPEN');
-                if (openBlockers.length > 0) {
-                  violations.push({
-                    issue: iss,
-                    openBlockers
-                  });
-                }
+                iss = res.repository.issue;
               } catch (e) {
-                console.warn(`Could not inspect issue #${issueNum}: ${e.message}`);
+                // Fail closed on inspection errors so transient failures do not bypass the guard
+                core.setFailed(`Failed to inspect dependencies for issue #${issueNum}: ${e.message}`);
+                return;
+              }
+
+              if (!iss) {
+                core.setFailed(`Referenced closing issue #${issueNum} could not be found.`);
+                return;
+              }
+
+              // Combine native blockedBy with body metadata fallback
+              const blockerMap = new Map();
+              for (const b of (iss.blockedBy?.nodes || [])) {
+                blockerMap.set(b.number, {
+                  number: b.number,
+                  title: b.title,
+                  state: b.state
+                });
+              }
+
+              const fallbackBlockerNums = new Set();
+              const depMatch = (iss.body || '').match(/Dependencies:\s*([^\n\r]+)/);
+              if (depMatch) {
+                const urlRegex = /issues\/(\d+)/g;
+                let m;
+                while ((m = urlRegex.exec(depMatch[1])) !== null) {
+                  const n = parseInt(m[1], 10);
+                  if (n !== issueNum) fallbackBlockerNums.add(n);
+                }
+              }
+              const blockedByRegex = /[Bb]locked by\s+#?(\d+)/g;
+              let bm;
+              while ((bm = blockedByRegex.exec(iss.body || '')) !== null) {
+                const n = parseInt(bm[1], 10);
+                if (n !== issueNum) fallbackBlockerNums.add(n);
+              }
+
+              for (const fbNum of fallbackBlockerNums) {
+                if (!blockerMap.has(fbNum)) {
+                  try {
+                    const fbIssue = await github.rest.issues.get({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: fbNum
+                    });
+                    blockerMap.set(fbNum, {
+                      number: fbNum,
+                      title: fbIssue.data.title,
+                      state: fbIssue.data.state.toUpperCase()
+                    });
+                  } catch (e) {
+                    core.setFailed(`Failed to inspect fallback dependency #${fbNum} for issue #${issueNum}: ${e.message}`);
+                    return;
+                  }
+                }
+              }
+
+              const openBlockers = Array.from(blockerMap.values()).filter(b => b.state === 'OPEN');
+              if (openBlockers.length > 0) {
+                violations.push({
+                  issue: iss,
+                  openBlockers
+                });
               }
             }
 
