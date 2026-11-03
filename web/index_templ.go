@@ -38,7 +38,7 @@ func IndexPage(products []catalog.Product) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", len(products)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 30, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 30, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -98,7 +98,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.ID).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 56, Col: 56}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 56, Col: 56}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -111,7 +111,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templruntime.NewAttributeExpression(thumb).ResolveURL(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 58, Col: 15}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 58, Col: 15}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -124,7 +124,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.Name).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 59, Col: 16}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 59, Col: 16}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
@@ -138,7 +138,7 @@ func ProductCard(p catalog.Product) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(string([]rune(p.Name)[0:1]))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 66, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 66, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -152,7 +152,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(gender)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 78, Col: 14}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 78, Col: 14}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -165,7 +165,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(p.Category)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 78, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 78, Col: 36}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -178,7 +178,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(p.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 80, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 80, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -191,7 +191,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(p.Size)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 81, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 81, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -204,7 +204,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var12 string
 		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(p.Notes)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 81, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 81, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
@@ -217,7 +217,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var13 string
 		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(formatPriceKes(p.PriceKes))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 85, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 85, Col: 38}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 		if templ_7745c5c3_Err != nil {
@@ -235,7 +235,7 @@ func ProductCard(p catalog.Product) templ.Component {
 			var templ_7745c5c3_Var14 string
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.ID).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 91, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 91, Col: 89}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var14)
 			if templ_7745c5c3_Err != nil {
@@ -253,7 +253,7 @@ func ProductCard(p catalog.Product) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.ID).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 95, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 95, Col: 89}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var15)
 			if templ_7745c5c3_Err != nil {
@@ -271,7 +271,7 @@ func ProductCard(p catalog.Product) templ.Component {
 		var templ_7745c5c3_Var16 string
 		templ_7745c5c3_Var16, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(whatsAppOrderURL(p))).ResolveURL(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `index.templ`, Line: 101, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 101, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 		if templ_7745c5c3_Err != nil {
