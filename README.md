@@ -1,20 +1,84 @@
 # Bliss Atelier Perfumes
 
-Perfume storefront with an HTML/CSS/JavaScript frontend. The current backend is Express / Prisma / PostgreSQL with M-Pesa STK integration code. The approved target is a full Go backend rewrite, starting as a modular monolith.
+Perfume storefront powered by a unified Go application root featuring Server-Side Rendering (SSR) with [Templ](https://templ.guide) and Tailwind CSS, backed by PostgreSQL. The legacy Express/Prisma prototype is isolated in `legacy/` for fixture and contract verification while full business capabilities are migrated.
 
-## Project planning
+## Architecture Overview
 
-Start with [the documentation index](docs/README.md). The production architecture and schedule are proposals, not implemented capabilities or measured capacity claims.
+The repository is organized as an idiomatic full-stack Go modular monolith:
 
-See [the Go migration plan](docs/backend-migration.md) and [development workflow](docs/development-workflow.md) for the target setup. Go, Docker and CI commands in the design docs are planned until their files are delivered.
+- **Repository Root**: Standard Go module (`github.com/dev-bramwel/Bliss-Atelier-Perfumes`) with top-level `Dockerfile`, `compose.yaml`, and `Makefile`.
+- **`cmd/`**: Entrypoints for each application service:
+  - `cmd/web`: Edge frontend server providing Templ SSR pages and reverse-proxying `/api/` requests to the API service.
+  - `cmd/api`: Core HTTP API serving catalog, health, and foundation endpoints.
+  - `cmd/migrate`: Transactional SQL schema migration runner.
+  - `cmd/devstack`: Local development bootstrap, secret generation, and image layer auditing.
+  - `cmd/fakeprovider`: Deterministic local payment fixture for M-Pesa STK simulations.
+  - `cmd/stock`: Inventory batch control and opening stock management CLI.
+  - `cmd/probe`: HTTP health probe for container healthchecks.
+  - `cmd/worker`: Background task worker foundation.
+- **`internal/`**: Private application domain packages (`catalog`, `config`, `database`, `httpapi`, `migration`, `process`, `provider`).
+- **`web/`**: Encapsulates all presentation logic:
+  - `.templ` components for type-safe server-side rendering (`index`, `cart`, `checkout`, `layout`).
+  - `static/`: Bundled static assets (compiled `tailwind.css`, `style.css`, client JavaScript, product imagery).
+  - Tailwind CSS build configuration and client component test suites.
+- **`legacy/`**: Preserved Express/Prisma prototype and historical test fixtures.
 
-## Current local setup (legacy backend)
+## Quick Start (Docker Core)
 
-1. Install Node compatible with the locked backend dependencies and PostgreSQL.
-2. In `backend/`, run `npm ci`.
-3. Copy `backend/.env.example` to `backend/.env` and configure your database. Never commit secrets.
-4. From `backend/`, run `npm start`. Its prestart generates Prisma and applies committed migrations; the default API port is 5000.
-5. Serve `frontend/` with a static HTTP server. Set the `api-base-url` meta tag in `frontend/checkout.html` to your API origin, and set `FRONTEND_ORIGIN` to the frontend origin. An empty API base requires same-origin API routing, which the current Express app does not provide.
-6. M-Pesa requires configured sandbox credentials and a publicly reachable callback URL. Do not use live payments for automated tests.
+The containerized stack provides same-origin routing, private PostgreSQL with initialization migrations, and an isolated fake payment provider.
 
-`npm run dev` enables server watch mode but does not apply migrations. `npm test` runs the backend helper tests. Docker, Kubernetes, administration, and telemetry are planned in the roadmap.
+### Prerequisites
+
+- Docker and Docker Compose
+- Go 1.27.3 (for local execution/testing)
+- Node.js 24 (optional, for Tailwind CSS rebuilding)
+
+### 1. Initialize Secrets & Build Stack
+
+```sh
+# Generate local development credentials in .local/dev/
+make setup
+
+# Build Docker images (db, api, frontend)
+make build
+
+# Launch services in detached mode with healthchecks
+make up
+```
+
+Once healthy, access the application:
+- **Storefront**: `http://127.0.0.1:8080/`
+- **Cart**: `http://127.0.0.1:8080/cart`
+- **Checkout**: `http://127.0.0.1:8080/checkout`
+- **Health**: `http://127.0.0.1:8080/api/health/ready`
+
+### 2. Teardown & Inspection
+
+```sh
+# Inspect container logs
+make logs
+
+# Stop and remove containers and networks
+make down
+```
+
+## Development & Testing
+
+```sh
+# Run unit and race tests
+go test ./...
+
+# Run code formatting
+make format
+
+# Run Docker Core end-to-end acceptance drill (PowerShell)
+make docker-test
+
+# Recompile Templ templates (if modified)
+cd web && templ generate
+
+# Rebuild Tailwind CSS (if modified)
+cd web && npm run build:css
+```
+
+See the [documentation index](docs/README.md) for architectural decision records (ADRs), SQL migrations, and the migration roadmap.

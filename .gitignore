@@ -1,0 +1,6 @@
+.local/
+.env
+**/.env
+**/node_modules/
+*.exe
+.idea/

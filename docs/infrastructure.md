@@ -2,6 +2,8 @@
 
 Status: target design. Modular Go monolith is the initial application architecture. Hosting, capacity and production topology are not yet established.
 
+20 October 2026: [R03 hosting assessment](hosting-feasibility.md) records local hardware observations, provider restrictions and remaining measurements. The owner confirms the Oracle account is on Always Free. [ADR 003](adr/003-zero-budget-hosting.md) proposes verifying its actual allocation and eligibility; no public topology or measured full-stack capacity is approved.
+
 ## Initial deployment units
 
 One Go module and one release train. API, worker and migration commands share business packages and versioned artifacts. Separately running workers improve scheduling/isolation without making them independently owned microservices. PostgreSQL is authoritative; Redis handles cache/limits; RabbitMQ handles durable jobs; Kafka handles replayable analytics. Their roles do not overlap by accident.
@@ -10,14 +12,14 @@ Prefer same-origin frontend/API HTTP routing; public TLS endpoint exposes storef
 
 ## Module ownership
 
-| Module | Owns | Boundary |
-| --- | --- | --- |
-| catalog | Products/prices/images | Product lookup service |
-| inventory | Stock movements/reservations/exchange quarantine | Reserve/release/inspect use cases |
-| orders | Checkout snapshots/delivery quotes/order lifecycle | Coordinates checkout transaction |
-| payments | Attempts/provider correlation/reconciliation | Typed provider port and durable events |
-| admin | Identity/roles/audit access | Authorizes use cases, no direct stock bypass |
-| analytics | Read models and report definitions | Consumes settled events; cannot mutate payments |
+| Module    | Owns                                               | Boundary                                        |
+| --------- | -------------------------------------------------- | ----------------------------------------------- |
+| catalog   | Products/prices/images                             | Product lookup service                          |
+| inventory | Stock movements/reservations/exchange quarantine   | Reserve/release/inspect use cases               |
+| orders    | Checkout snapshots/delivery quotes/order lifecycle | Coordinates checkout transaction                |
+| payments  | Attempts/provider correlation/reconciliation       | Typed provider port and durable events          |
+| admin     | Identity/roles/audit access                        | Authorizes use cases, no direct stock bypass    |
+| analytics | Read models and report definitions                 | Consumes settled events; cannot mutate payments |
 
 Modules depend on explicit Go service contracts. Avoid cyclic imports and cross-module repository access. A checkout coordinator may intentionally perform a local DB transaction across order/reservation modules; document that boundary so extraction does not accidentally remove atomicity. No internal HTTP between modules solely to mimic microservices.
 

@@ -2,24 +2,24 @@
 
 Status: conventions for new Go and frontend work. Preserve existing external contracts until a versioned migration.
 
-| Area | Rule | Example |
-| --- | --- | --- |
-| Go packages | Short lowercase domain names, no underscores; avoid generic utils/common packages | `orders`, `payments`, `inventory` |
-| Go files | Lowercase snake_case; tests beside source | `payment_attempt.go`, `payment_attempt_test.go` |
-| Go identifiers | Exported PascalCase, local camelCase; consistent initialisms | `OrderID`, `HTTPClient`, `totalKES` |
-| Interfaces | Small, named by behavior, owned by consumer | `PaymentProvider`, `OrderRepository` |
-| JS | camelCase functions/variables, PascalCase classes, UPPER_SNAKE_CASE constants | `renderCart`, `API_BASE` |
-| HTML/CSS | kebab-case new IDs/classes/data attributes; preserve old selectors during migration | `payment-status`, `data-order-id` |
-| SQL | snake_case new tables/columns/indexes | `payment_attempts`, `checkout_request_id` |
-| HTTP routes | Lowercase plural nouns, kebab-case actions; compatibility exceptions documented | `/api/orders/{id}/payment-status` |
-| JSON | camelCase to match existing frontend; explicit Go JSON tags | `paymentStatus`, `totalKes` |
-| Environment | UPPER_SNAKE_CASE with ownership prefixes | `MPESA_CALLBACK_URL`, `REDIS_URL` |
-| Events | Versioned dotted business names | `payment.succeeded.v1` |
-| RabbitMQ | Namespaced exchanges/queues; version when incompatible | `bliss.notifications.v1`, `.retry`, `.dead` |
-| Kafka | Namespaced domain topic with schema version | `bliss.payments.v1` |
-| Migrations | Monotonic timestamp and purpose; runner handles locking/checksums | `20261008120000_create_payment_attempts.sql` |
-| Kubernetes | DNS-safe kebab-case, stable app/component labels | `bliss-api`, `app.kubernetes.io/component: api` |
-| Docs/ADRs | kebab-case files; numbered immutable ADR identity | `003-go-backend-and-vanilla-frontend.md` |
+| Area           | Rule                                                                                | Example                                         |
+| -------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Go packages    | Short lowercase domain names, no underscores; avoid generic utils/common packages   | `orders`, `payments`, `inventory`               |
+| Go files       | Lowercase snake_case; tests beside source                                           | `payment_attempt.go`, `payment_attempt_test.go` |
+| Go identifiers | Exported PascalCase, local camelCase; consistent initialisms                        | `OrderID`, `HTTPClient`, `totalKES`             |
+| Interfaces     | Small, named by behavior, owned by consumer                                         | `PaymentProvider`, `OrderRepository`            |
+| JS             | camelCase functions/variables, PascalCase classes, UPPER_SNAKE_CASE constants       | `renderCart`, `API_BASE`                        |
+| HTML/CSS       | kebab-case new IDs/classes/data attributes; preserve old selectors during migration | `payment-status`, `data-order-id`               |
+| SQL            | snake_case new tables/columns/indexes                                               | `payment_attempts`, `checkout_request_id`       |
+| HTTP routes    | Lowercase plural nouns, kebab-case actions; compatibility exceptions documented     | `/api/orders/{id}/payment-status`               |
+| JSON           | camelCase to match existing frontend; explicit Go JSON tags                         | `paymentStatus`, `totalKes`                     |
+| Environment    | UPPER_SNAKE_CASE with ownership prefixes                                            | `MPESA_CALLBACK_URL`, `REDIS_URL`               |
+| Events         | Versioned dotted business names                                                     | `payment.succeeded.v1`                          |
+| RabbitMQ       | Namespaced exchanges/queues; version when incompatible                              | `bliss.notifications.v1`, `.retry`, `.dead`     |
+| Kafka          | Namespaced domain topic with schema version                                         | `bliss.payments.v1`                             |
+| Migrations     | Monotonic timestamp and purpose; runner handles locking/checksums                   | `20261008120000_create_payment_attempts.sql`    |
+| Kubernetes     | DNS-safe kebab-case, stable app/component labels                                    | `bliss-api`, `app.kubernetes.io/component: api` |
+| Docs/ADRs      | kebab-case files; numbered immutable ADR identity                                   | `003-go-backend-and-vanilla-frontend.md`        |
 
 Do not rename historical Prisma tables or migrations just to conform. Legacy quoted names remain until an explicit data-preserving migration. Existing IDs are opaque strings; don't force UUID validation on legacy CUIDs. New order/attempt IDs can use UUIDs with preserved string JSON representation after choosing a generator.
 
