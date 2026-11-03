@@ -33,7 +33,17 @@ func secrets(directory string) error {
 	if existing == len(names) {
 		return nil
 	}
-	if existing != 0 {
+
+	legacyNames := []string{"admin_password", "migrator_password", "runtime_password", "migrator_url", "runtime_url"}
+	legacyCount := 0
+	for _, name := range legacyNames {
+		if _, err := os.Stat(filepath.Join(directory, name)); err == nil {
+			legacyCount++
+		}
+	}
+
+	// Refuse overwriting partial credentials, unless upgrading a complete legacy credential directory.
+	if existing != 0 && legacyCount != len(legacyNames) {
 		return errors.New("partial local credentials exist; restore the matching set without overwriting a database's credentials")
 	}
 	if err := os.MkdirAll(directory, 0700); err != nil {
@@ -43,20 +53,35 @@ func secrets(directory string) error {
 		return err
 	}
 	values := map[string]string{}
-	for _, role := range []string{"admin", "migrator", "runtime", "catalog"} {
-		b := make([]byte, 32)
-		if _, err := rand.Read(b); err != nil {
-			return err
+	for _, name := range legacyNames {
+		if content, err := os.ReadFile(filepath.Join(directory, name)); err == nil {
+			values[name] = strings.TrimSpace(string(content))
 		}
-		values[role+"_password"] = hex.EncodeToString(b)
+	}
+	for _, role := range []string{"admin", "migrator", "runtime", "catalog"} {
+		key := role + "_password"
+		if _, ok := values[key]; !ok {
+			b := make([]byte, 32)
+			if _, err := rand.Read(b); err != nil {
+				return err
+			}
+			values[key] = hex.EncodeToString(b)
+		}
 	}
 	for _, role := range []string{"migrator", "runtime", "catalog"} {
-		values[role+"_url"] = "postgresql://bliss_" + role + ":" + values[role+"_password"] + "@db:5432/bliss_dev?sslmode=disable"
+		key := role + "_url"
+		if _, ok := values[key]; !ok {
+			values[key] = "postgresql://bliss_" + role + ":" + values[role+"_password"] + "@db:5432/bliss_dev?sslmode=disable"
+		}
 	}
 	for _, name := range names {
+		targetPath := filepath.Join(directory, name)
+		if _, err := os.Stat(targetPath); err == nil {
+			continue
+		}
 		// Directory mode 0700 protects host access; readable leaves allow Compose's
 		// bind-mounted secret files to be consumed by distinct non-root container UIDs.
-		file, err := os.OpenFile(filepath.Join(directory, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0444)
+		file, err := os.OpenFile(targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0444)
 		if err != nil {
 			return errors.New("could not create local credential file")
 		}
@@ -111,18 +136,27 @@ func migrate() error {
 	}
 	// This local-only capability exposes one boolean, not history rows, to runtime.
 	predicate := migration.LedgerPredicate()
-	sql := `GRANT USAGE ON SCHEMA public TO bliss_runtime, bliss_catalog;
+	sql := `GRANT USAGE ON SCHEMA public TO bliss_runtime;
  GRANT SELECT,INSERT,UPDATE,DELETE ON public."Order",public."MpesaTransaction" TO bliss_runtime;
- GRANT SELECT ON public.catalog_product,public.catalog_settings,public.stock_control TO bliss_runtime, bliss_catalog;
+ GRANT SELECT ON public.catalog_product,public.catalog_settings,public.stock_control TO bliss_runtime;
  CREATE SCHEMA IF NOT EXISTS bliss_ops;
  REVOKE ALL ON SCHEMA bliss_ops FROM PUBLIC;
- GRANT USAGE ON SCHEMA bliss_ops TO bliss_runtime, bliss_catalog;
+ GRANT USAGE ON SCHEMA bliss_ops TO bliss_runtime;
  CREATE OR REPLACE FUNCTION bliss_ops.schema_ready() RETURNS boolean
  LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
  SELECT ` + predicate + `
  FROM public.bliss_schema_migrations $$;
  REVOKE ALL ON FUNCTION bliss_ops.schema_ready() FROM PUBLIC;
- GRANT EXECUTE ON FUNCTION bliss_ops.schema_ready() TO bliss_runtime, bliss_catalog;`
+ GRANT EXECUTE ON FUNCTION bliss_ops.schema_ready() TO bliss_runtime;
+ DO $$
+ BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_catalog') THEN
+   GRANT USAGE ON SCHEMA public TO bliss_catalog;
+   GRANT SELECT ON public.catalog_product,public.catalog_settings,public.stock_control TO bliss_catalog;
+   GRANT USAGE ON SCHEMA bliss_ops TO bliss_catalog;
+   GRANT EXECUTE ON FUNCTION bliss_ops.schema_ready() TO bliss_catalog;
+  END IF;
+ END $$;`
 	if _, err = pool.Exec(ctx, sql); err != nil {
 		return errors.New("local schema grants failed")
 	}

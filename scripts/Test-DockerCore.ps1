@@ -113,6 +113,11 @@ VALUES ('r07-persistence',now(),'Synthetic Customer','254700000000','Synthetic p
     Compose down
     Compose up -d --wait --wait-timeout 120
     if ((Sql 'SELECT "totalKes" FROM public."Order" WHERE id=''r07-persistence''') -ne '2500') {throw 'Data did not survive recreation'}
+    # Prove that role reconciliation automatically creates and migrates bliss_catalog on existing persisted volumes
+    Sql 'DROP OWNED BY bliss_catalog; DROP ROLE bliss_catalog;' | Out-Null
+    Compose down
+    Compose up -d --wait --wait-timeout 120
+    if ((Sql "SELECT has_table_privilege('bliss_catalog', 'public.catalog_product', 'SELECT')") -ne 't') {throw 'bliss_catalog was not automatically created on existing persisted volume'}
     Sql 'REVOKE SELECT ON public."Order" FROM bliss_runtime' | Out-Null
     if ((Status ($origin + '/api/health/ready')) -ne 503) {throw 'Missing runtime privileges did not disable readiness'}
     Sql 'GRANT SELECT ON public."Order" TO bliss_runtime' | Out-Null
