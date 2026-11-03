@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { initiateStkPush } from "../services/mpesa.js";
-import { priceOrderItems } from "../services/order.js";
+import { priceOrderItems, validatePaymentMethod } from "../services/order.js";
 
 const router = Router();
 
@@ -24,13 +24,16 @@ router.post("/", async (req, res) => {
         .json({ error: "Order must contain at least one item." });
     }
 
-    const paymentMethod = customer.payment || "on_delivery";
     const deliveryOption = customer.delivery || "delivery";
-    if (!["on_delivery", "pay_now"].includes(paymentMethod)) {
-      return res.status(400).json({ error: "Invalid payment method." });
-    }
     if (!["delivery", "pickup"].includes(deliveryOption)) {
       return res.status(400).json({ error: "Invalid delivery option." });
+    }
+
+    let paymentMethod;
+    try {
+      paymentMethod = validatePaymentMethod(customer.payment);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
     }
 
     let pricedOrder;
@@ -110,7 +113,7 @@ router.post("/", async (req, res) => {
       return res.status(201).json({ order, stkPush: stkResult });
     }
 
-    // on_delivery — just return the saved order
+    // Fallback if STK push was not triggered
     return res.status(201).json({ order, stkPush: null });
   } catch (err) {
     console.error("[POST /api/orders]", err);
