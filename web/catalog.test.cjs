@@ -296,6 +296,10 @@ test("page scripts (app.js, cart.js, checkout.js) execute cleanly after shared.j
     __dirname + "/static/checkout.js",
     "utf8",
   );
+  const dashboardCode = fs.readFileSync(
+    __dirname + "/static/dashboard.js",
+    "utf8",
+  );
 
   const sampleCatalog = [
     {
@@ -361,6 +365,13 @@ test("page scripts (app.js, cart.js, checkout.js) execute cleanly after shared.j
     "checkout.js must throw ReferenceError if shared.js is missing",
   );
 
+  const bareContext4 = makeContext();
+  assert.throws(
+    () => vm.runInContext(dashboardCode, bareContext4),
+    /ReferenceError/,
+    "dashboard.js must throw ReferenceError if shared.js is missing",
+  );
+
   // 2. With shared.js loaded first, each page script must initialize cleanly
   const ctxIndex = makeContext(true);
   vm.runInContext(sharedCode, ctxIndex);
@@ -381,5 +392,12 @@ test("page scripts (app.js, cart.js, checkout.js) execute cleanly after shared.j
   assert.doesNotThrow(
     () => vm.runInContext(checkoutCode, ctxCheckout),
     "checkout.js should run cleanly after shared.js",
+  );
+
+  const ctxDashboard = makeContext(true);
+  vm.runInContext(sharedCode, ctxDashboard);
+  assert.doesNotThrow(
+    () => vm.runInContext(dashboardCode, ctxDashboard),
+    "dashboard.js should run cleanly after shared.js",
   );
 });
