@@ -246,3 +246,20 @@ func (s *Store) Approve(ctx context.Context, actor, evidence string, until time.
 	}
 	return nil
 }
+
+// FormatPriceKes formats an integer price in KES with standard thousand grouping.
+func FormatPriceKes(amount int) string {
+	if amount <= 0 {
+		return "KES 0"
+	}
+	in := fmt.Sprintf("%d", amount)
+	var out []byte
+	n := len(in)
+	for i, c := range in {
+		if i > 0 && (n-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, byte(c))
+	}
+	return "KES " + string(out)
+}
