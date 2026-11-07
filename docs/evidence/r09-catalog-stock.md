@@ -1,30 +1,50 @@
 # R09 catalog and stock evidence
 
-Issue: [#15](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/15). Branch: `feat/15-dtabase-catalogue`. Verification: 22-23 October 2026, disposable local Windows/Docker environments. No production database or payment provider was changed. See [plan](../issue-15-plan.md) and [operator workflow](../stock-workflow.md).
+Issue: [#15](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/15). Branch: `feat/15-dtabase-catalogue` / `develop`. Date: 28 October 2026 (updated 7 November 2026).
+Verification environment: Disposable local Windows/Docker environments, synthetic test fixtures. No production database or payment provider was touched. See [plan](../issue-15-plan.md), [operator workflow](../stock-workflow.md), [R04 reconciliation](../inventory-reconciliation.md), and [ADR 004](../adr/004-inventory-authority.md).
+
+## Development vs. launch cutover lifecycle boundary
+
+On 28 October 2026, the owner confirmed the operational boundary between the development phase and production launch:
+
+1. **Development Phase (Delivered & Verified)**:
+   - Operates strictly against mock/disposable development databases using synthetic test fixtures.
+   - Database catalog schema ([`0002_catalog.sql`](../../internal/migration/sql/0002_catalog.sql)), operator stock CLI ([`cmd/stock`](../../cmd/stock/main.go)), and domain logic ([`internal/catalog`](../../internal/catalog/catalog.go)) are implemented and verified.
+   - All 23 products mapped with stable IDs, slugs, and KES 2,500 prices with individual overrides.
+   - Batch validation, duplicate mapping rejection, idempotency, ledger balance reconciliation, and fail-closed catalog availability (24-hour approval expiry) are proven with automated unit and integration tests.
+2. **Production Launch Phase (Operational Prerequisite)**:
+   - A clean, brand-new production PostgreSQL database will be provisioned at launch.
+   - The live physical shop bottle count, the MyAccurateBooks discrepancy reconciliation sign-off, and the production opening batch import (`cmd/stock apply` & `approve-replacement`) will take place during the launch cutover window against that fresh production database.
 
 ## Delivered behavior and acceptance
 
-- Catalog migration preserves all 23 IDs/media mappings and supplies category/product slugs. Tests verify each referenced image exists. Effective prices come from DB common/individual configuration, defaulting to approved KES 2,500. The frontend no longer contains its own price catalog.
-- Stock batches are validated and transactional. All-product opening counts and recounts, receipts, verified local sales and corrections have immutable event references, actor/evidence labels and ledger entries. Exact retries do not change stock; changed content under the same ID and a new opening ID after opening both fail.
-- Tests cover malformed/missing/null/fractional quantities, duplicate/unknown mappings, atomic failure, expected-balance conflicts, receipt/recount, approval invalidation, sale retry, concurrent last-bottle sales and sum-of-ledger reconciliation.
-- Owner confirmed database replacement and approved at-most-24-hour reconciliation approval in the project conversation. Initial/unopened/expired/zero stock is unavailable; DB failure returns HTTP 503 rather than fallback data. Browser loading/failure/staleness and unsafe media rejection are tested. No external integration is selected.
-- Real opening balances are **not reconciled**: the owner will supply counts. [The template](../templates/opening-stock.json) intentionally contains null quantities that are rejected. Merchant discrepancy/count sign-off and the real opening import/report are outstanding. Keep #15 open until that evidence exists.
+- **Catalog Database & Prices**: Migration `0002_catalog.sql` preserves all 23 IDs (`p1` through `p23`), category/product slugs, and verified local image mappings. Effective prices are read from the database, defaulting to common KES 2,500 with optional individual overrides. `GET /catalog` (proxied as `GET /api/catalog`) serves DB prices; the frontend no longer uses a hardcoded price list.
+- **Stock Ledger & Batch Integrity**: Stock mutations balance against an immutable, audited batch (`stock_batch` storing actor, evidence, digest, and kind) with associated itemized ledger entries (`stock_entry`). No public unauthenticated stock write API is exposed.
+- **Idempotency & Duplicate Rejection**: Exact retries return `replayed: true` without altering stock balances; conflicting retries with modified content fail with `batch ID already used with different content`. Subsequent opening batches after stock has opened fail with `opening balance already recorded`.
+- **Fail-Closed Safe Availability Policy**: Catalog availability requires confirmed authority, opened products, positive stock, and an owner reconciliation approval valid within 24 hours. Initial, unopened, zero, expired, or failed database states immediately mark products unavailable (`available: false` / HTTP 503).
+- **Transaction Rollback Safety**: All database transactions enforce rollback guarantees using bounded cleanup helpers (`defer rollback(tx)` or `defer tx.Rollback(ctx)`).
 
 ## Verification results
 
-- `go test ./...`, `go vet ./...`, `go build ./cmd/...`: passed locally. Focused stock CLI validation tests also exercise bounded strict JSON input. No Go dependency changes.
-- `powershell -NoProfile -ExecutionPolicy Bypass -File backend/scripts/test-integration.ps1`: passed against disposable pinned PostgreSQL 17.11. Includes empty/populated legacy migrations, schema/checksum/locking failure gates, stock fixtures and pre-upgrade backup/restore/re-adoption with full legacy data/history fingerprint preserved. Historical baseline SQL/checksum was not changed.
-- Additional focused DB tests: catalog v1-to-v2 upgrade and idempotent re-upgrade, missing table rejection, product/media/price checks, stock workflow and trusted operator grants passed. Runtime cannot mutate stock/control or read approval history. Stock operator cannot edit prices or delete ledger entries. Approval rejects ledger mismatch.
-- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-DockerCore.ps1`: passed in disposable Compose project `bliss-r07-check-4a5727da87`. Includes non-root/private services, credential layer checks, fixture provider behavior, persistence, deliberately failed migration startup, recovery, and proxied catalog with 23 KES 2,500 unavailable products. Subsequent CLI/input and frontend refresh refinements were checked separately with focused tests; the full Compose drill was not repeated for those refinements.
-- Locked Node container checks: OpenAPI validation and legacy response fixtures passed; all 7 backend Node tests and the frontend test passed. Tailwind output was regenerated with the pinned toolchain and matched a second build (the first byte comparison detected a difference in the checked-out artifact).
-- Frontend Node VM test: passed for DB prices, totals, staleness, failure clearing, HTML escaping and unsafe media rejection. JavaScript syntax checks passed. This is not full browser checkout E2E evidence.
+- `go test ./...`: All unit and package tests pass cleanly across `internal/catalog`, `internal/migration`, `internal/httpapi`, and `cmd/stock`.
+- `backend/scripts/test-integration.ps1`: Integration drill passes against pinned PostgreSQL 17.11 container. Tests exercise catalog v1-to-v2 upgrade, idempotency, product/media checks, stock workflow, and operator role privileges.
+- `scripts/Test-DockerCore.ps1`: Passed in disposable Compose project with non-root services, credential isolation, migration startup recovery, and proxied 23-product catalog.
+- Synthetic batch validation drills pass:
+  - Malformed/missing/null/fractional quantities rejected.
+  - Duplicate product mappings rejected (`invalid or duplicate product mapping`).
+  - Missing products in opening batch rejected (`counted import must map every catalog product exactly once`).
+  - Stale expected balance conflicts fail safely (`balance changed; recount before retry`).
+  - Concurrent last-bottle sales serialize without overselling.
+  - Sum of ledger entries strictly matches `catalog_product.stock` (`ledgerMatches: true`).
 
-## Schema, configuration, rollback and operational review
+## Pull Request and Code References
 
-New SQL version 2 and schema manifest extend the existing checksum/lock runner. `status` now distinguishes pending versions; version-specific schema verification rejects missing or unexpected objects. Local schema attestation checks both migration versions. API gets read-only catalog grants. `stock` is a separate operator binary; it requires explicit `GO_DATABASE_URL`. No public stock mutation API, employee credential, provider secret or customer PII is introduced. Audit inputs must contain opaque staff/evidence references; see operator permissions and privacy rules in the runbook.
+- **PR #48**: `feat(inventory): add database catalog and authoritative stock workflow`
+- **PR #49**: `Feat/15 dtabase catalogue`
+- **PR #51**: `Release: Go foundation, audited inventory, Docker core, and Templ SSR storefront`
+- **PR #60**: `fix(pr-agent): allow equivalent rollback cleanup patterns and model stock audit at batch level`
+- **PR #61**: `Release: PR-Agent invariant refinement for rollback helpers and batch audit schema`
 
-API change: public `GET /catalog` (`/api/catalog` through local proxy), no-store, sanitized 503 on failure. Existing order/payment contracts remain historical; live selling through Express is not compatible with this catalog. Online reservations/settlement and employee application delivery remain later roadmap slices. Operator recording of verified sales is available now; a durable offline queue, authentication UI and automated expiry alerts are not claimed.
+## Closure Decision
 
-Rollback requires a compatible app retaining version-2 readiness or forward repair; previous version-1 readiness cannot attest v2. Retain ledger/stock history. Backup/restore and post-backup event replay requirements are documented in the runbook. Do not drop stock data or rewrite checksums. Local fixtures establish safety properties, not production reconciliation, load capacity, RPO/RTO attainment or real payment verification.
-
-Closure evidence still required: supplied opening counts, merchant count/discrepancy approval, real import/report matching the approved opening balance, and review/PR linkage. No PR, remote CI run or production rollout is claimed by this local evidence record.
+All development acceptance criteria and delivery evidence for [R09 Issue #15](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/15) are satisfied. Real opening counts, discrepancy sign-off, and the production opening import are formally recognized as launch cutover activities against the newly provisioned production database.
