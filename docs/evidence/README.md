@@ -26,4 +26,5 @@ Limitations: same-container restart is not container recreation, volume loss, of
 
 Reference documentation for the probe commands/images: [PostgreSQL image](https://hub.docker.com/_/postgres), [Redis image](https://hub.docker.com/_/redis), [RabbitMQ monitoring](https://www.rabbitmq.com/docs/monitoring), [Kafka Docker](https://kafka.apache.org/40/getting-started/docker/), [Prometheus Docker](https://prometheus.io/docs/prometheus/latest/installation/), [Grafana Docker](https://grafana.com/docs/grafana/latest/setup-grafana/installation/docker/), [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/install/).
 
+- [R02 NCBA integration and onboarding](r02-ncba-onboarding.md): contract documentation, identifier isolation, and launch cutover gate.
 - [R09 database catalog and stock](r09-catalog-stock.md): local tests, replacement policy and remaining real opening-count gate.
