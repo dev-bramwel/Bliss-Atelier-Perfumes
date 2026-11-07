@@ -95,9 +95,18 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	})
 
 	if orderStore != nil {
+		orderLimiter := newIPLimiter(time.Minute, 10)
 		handleCreateOrder := func(w http.ResponseWriter, r *http.Request) {
 			if a.draining.Load() {
 				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			ip := clientIP(r)
+			if !orderLimiter.Allow(ip, time.Now()) {
+				w.Header().Set("Retry-After", "60")
+				respond(w, http.StatusTooManyRequests, map[string]string{
+					"error": "too many order creation requests; please wait before retrying",
+				})
 				return
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)

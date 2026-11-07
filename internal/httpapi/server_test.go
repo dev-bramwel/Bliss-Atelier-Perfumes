@@ -309,4 +309,24 @@ func TestOrderRoutes(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed && w.Code != http.StatusNotFound {
 		t.Fatalf("GET /api/orders should not be allowed: expected 404 or 405, got %d", w.Code)
 	}
+
+	// 8. POST /api/orders rate limit throttles excessive order creations from same client
+	var throttled bool
+	for i := 0; i < 15; i++ {
+		req = httptest.NewRequest("POST", "/api/orders", bytes.NewReader(validBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "192.0.2.1:12345"
+		w = httptest.NewRecorder()
+		api.server.Handler.ServeHTTP(w, req)
+		if w.Code == http.StatusTooManyRequests {
+			throttled = true
+			if w.Header().Get("Retry-After") == "" {
+				t.Fatalf("expected Retry-After header on 429 response")
+			}
+			break
+		}
+	}
+	if !throttled {
+		t.Fatalf("expected excessive order creations to be throttled with 429 Too Many Requests")
+	}
 }
