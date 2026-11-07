@@ -705,7 +705,7 @@ func TestConfirmPaymentDeliveryQuoteGate(t *testing.T) {
 		t.Fatalf("expected ErrQuoteExpired for expired quote, got %v", err)
 	}
 
-	// 5. Update quote to valid accepted quote
+	// 5. Update quote to valid accepted quote (fee_recipient = 'merchant', amount = 400, items = 2500 -> payable total = 2900)
 	_, err = pool.Exec(ctx, `
 		UPDATE public.delivery_quote
 		SET status = 'accepted', expires_at = now() + interval '2 hours', accepted_at = now()
@@ -715,10 +715,16 @@ func TestConfirmPaymentDeliveryQuoteGate(t *testing.T) {
 		t.Fatalf("failed to update quote to accepted: %v", err)
 	}
 
-	// Confirm payment with valid accepted quote: must succeed
-	err = store.ConfirmPayment(ctx, order.ID, "MPESAGATE1")
+	// Underpayment: paying only item subtotal (order.TotalKes) when merchant delivery fee (400) is due must fail
+	err = store.ConfirmPayment(ctx, order.ID, "MPESAGATE1", order.TotalKes)
+	if !errors.Is(err, ErrPayableMismatch) {
+		t.Fatalf("expected ErrPayableMismatch on underpayment, got %v", err)
+	}
+
+	// Confirm payment with exact reconciled payable amount (order.TotalKes + 400): must succeed
+	err = store.ConfirmPayment(ctx, order.ID, "MPESAGATE1", order.TotalKes+400)
 	if err != nil {
-		t.Fatalf("expected successful ConfirmPayment with accepted quote, got %v", err)
+		t.Fatalf("expected successful ConfirmPayment with exact reconciled amount, got %v", err)
 	}
 
 	// Verify order is PAID

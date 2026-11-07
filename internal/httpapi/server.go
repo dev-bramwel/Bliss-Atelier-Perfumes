@@ -68,6 +68,24 @@ type API struct {
 	draining atomic.Bool
 }
 
+func extractManagerIdentity(r *http.Request) string {
+	if id := strings.TrimSpace(r.Header.Get("X-Manager-Id")); id != "" {
+		return id
+	}
+	if auth := strings.TrimSpace(r.Header.Get("Authorization")); auth != "" {
+		if strings.HasPrefix(auth, "Bearer ") {
+			if token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")); token != "" {
+				return token
+			}
+		} else if strings.HasPrefix(auth, "Manager ") {
+			if token := strings.TrimSpace(strings.TrimPrefix(auth, "Manager ")); token != "" {
+				return token
+			}
+		}
+	}
+	return ""
+}
+
 func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	a := &API{}
 	var catalogStore Catalog
@@ -283,6 +301,11 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 503, map[string]string{"error": "service draining"})
 				return
 			}
+			managerID := extractManagerIdentity(r)
+			if managerID == "" {
+				respond(w, 401, map[string]string{"error": "manager authorization required"})
+				return
+			}
 			id := r.PathValue("id")
 			if id == "" {
 				respond(w, 400, map[string]string{"error": "order ID is required"})
@@ -293,6 +316,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 400, map[string]string{"error": "invalid json payload"})
 				return
 			}
+			p.CreatedBy = managerID
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
@@ -381,6 +405,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					respond(w, 404, map[string]string{"error": "delivery quote not found"})
 				case errors.Is(err, delivery.ErrQuoteExpired):
 					respond(w, 409, map[string]string{"error": "delivery quote has expired"})
+				case errors.Is(err, delivery.ErrQuoteConflict):
+					respond(w, 409, map[string]string{"error": err.Error()})
 				case errors.Is(err, delivery.ErrQuoteNotPending):
 					respond(w, 409, map[string]string{"error": err.Error()})
 				case errors.Is(err, delivery.ErrInvalidQuote):
@@ -421,6 +447,10 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				switch {
 				case errors.Is(err, delivery.ErrQuoteNotFound):
 					respond(w, 404, map[string]string{"error": "delivery quote not found"})
+				case errors.Is(err, delivery.ErrQuoteExpired):
+					respond(w, 409, map[string]string{"error": "delivery quote has expired"})
+				case errors.Is(err, delivery.ErrQuoteConflict):
+					respond(w, 409, map[string]string{"error": err.Error()})
 				case errors.Is(err, delivery.ErrQuoteNotPending):
 					respond(w, 409, map[string]string{"error": err.Error()})
 				case errors.Is(err, delivery.ErrInvalidQuote):

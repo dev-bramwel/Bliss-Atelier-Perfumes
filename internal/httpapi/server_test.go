@@ -372,6 +372,9 @@ func (m *mockDeliveryService) AcceptQuote(ctx context.Context, orderID string, v
 	if len(quotes) == 0 || version > len(quotes) || version <= 0 {
 		return nil, delivery.ErrQuoteNotFound
 	}
+	if version < len(quotes) {
+		return nil, delivery.ErrQuoteConflict
+	}
 	q := quotes[version-1]
 	if q.Status == delivery.QuoteStatusAccepted {
 		return q, nil
@@ -393,6 +396,9 @@ func (m *mockDeliveryService) RejectQuote(ctx context.Context, orderID string, v
 	quotes := m.quotes[orderID]
 	if len(quotes) == 0 || version > len(quotes) || version <= 0 {
 		return nil, delivery.ErrQuoteNotFound
+	}
+	if version < len(quotes) {
+		return nil, delivery.ErrQuoteConflict
 	}
 	q := quotes[version-1]
 	if q.Status == delivery.QuoteStatusRejected {
@@ -450,13 +456,25 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 		t.Fatalf("expected 404 when no quote exists, got %d", w.Code)
 	}
 
-	// 2. POST /api/orders/{id}/delivery-quote creates quote (courier collection)
-	createPayload := `{"amount_kes":350,"fee_recipient":"courier","arrangement":"Direct Nyali dispatch","expires_at":"` + time.Now().Add(time.Hour).Format(time.RFC3339) + `","created_by":"mgr-1","customer_notes":"Ring bell"}`
+	// 2a. POST /api/orders/{id}/delivery-quote without manager auth fails with 401
+	createPayload := `{"amount_kes":350,"fee_recipient":"courier","arrangement":"Direct Nyali dispatch","expires_at":"` + time.Now().Add(time.Hour).Format(time.RFC3339) + `","created_by":"spoofed-user","customer_notes":"Ring bell"}`
+	unauthReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload)))
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, unauthReq)
+	if w.Code != 401 {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated quote creation, got %d", w.Code)
+	}
+
+	// 2b. POST /api/orders/{id}/delivery-quote with X-Manager-Id creates quote (courier collection)
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload)))
+	req.Header.Set("X-Manager-Id", "mgr-1")
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 201 {
 		t.Fatalf("expected 201 Created for delivery quote, got %d (body: %s)", w.Code, w.Body.String())
+	}
+	if len(mockDeliv.quotes[orderID]) == 0 || mockDeliv.quotes[orderID][0].CreatedBy != "mgr-1" {
+		t.Fatalf("expected created_by to be derived from authenticated manager identity mgr-1, got %v", mockDeliv.quotes[orderID][0].CreatedBy)
 	}
 
 	var createResp struct {
@@ -523,12 +541,21 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	}
 
 	// 6. Create quote v2 (re-quote) resets to pending
-	createPayload2 := `{"amount_kes":400,"fee_recipient":"merchant","arrangement":"Express with tracking","expires_at":"` + time.Now().Add(2*time.Hour).Format(time.RFC3339) + `","created_by":"mgr-2","customer_notes":"Call ahead"}`
+	createPayload2 := `{"amount_kes":400,"fee_recipient":"merchant","arrangement":"Express with tracking","expires_at":"` + time.Now().Add(2*time.Hour).Format(time.RFC3339) + `","customer_notes":"Call ahead"}`
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload2)))
+	req.Header.Set("Authorization", "Bearer mgr-2")
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 201 {
 		t.Fatalf("expected 201 Created for quote v2, got %d", w.Code)
+	}
+
+	// Attempting to accept superseded quote v1 must fail with 409 Conflict
+	supersededReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/accept", bytes.NewReader([]byte(`{"version":1}`)))
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, supersededReq)
+	if w.Code != 409 {
+		t.Fatalf("expected 409 Conflict when accepting superseded quote v1, got %d", w.Code)
 	}
 
 	// Reject quote v2

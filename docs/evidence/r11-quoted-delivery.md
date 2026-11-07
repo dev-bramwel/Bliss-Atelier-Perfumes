@@ -20,14 +20,16 @@ Verification environment: Disposable local PostgreSQL 16 container, Docker Core 
 
 3. **Quote Acceptance Gate Before Payment Confirmation**:
    - `orders.Store.ConfirmPayment` enforces that delivery orders cannot have payment confirmed or stock committed without an accepted, unexpired delivery quote (`ErrDeliveryQuoteUnaccepted`, `ErrQuoteExpired`).
+   - Payment confirmation reconciles received payment amount against the payable merchant total (`ErrPayableMismatch`). If a merchant delivery fee is owed, underpayment excluding the delivery fee is rejected.
    - Re-quoting an order increments version and resets quote status to `'pending'` (`changed/expired quotes need new acceptance`).
+   - Quote acceptance and rejection check against the latest active version; superseded versions cannot be accepted or rejected (`ErrQuoteConflict`).
    - Showroom pickup orders proceed without requiring a delivery quote.
 
 4. **Sanitized HTTP API Surfaces**:
-   - `POST /orders/{id}/delivery-quote` (and `/api/orders/{id}/delivery-quote`): Manager submits versioned quote with recipient, amount, arrangement, and expiration.
+   - `POST /orders/{id}/delivery-quote` (and `/api/orders/{id}/delivery-quote`): Manager submits versioned quote with recipient, amount, arrangement, and expiration. Requires manager authorization (`X-Manager-Id` or `Authorization: Bearer <token>`); actor is derived server-side from authenticated identity, returning 401 Unauthorized for unauthenticated calls.
    - `GET /orders/{id}/delivery-quote` (and `/api/orders/{id}/delivery-quote`): Customer inspects current active quote and reconciled payable breakdown (no internal manager actor PII disclosed).
-   - `POST /orders/{id}/delivery-quote/accept` (and `/api/orders/{id}/delivery-quote/accept`): Customer accepts versioned quote. Idempotent acceptance succeeds; expired quotes fail with 409 Conflict.
-   - `POST /orders/{id}/delivery-quote/reject` (and `/api/orders/{id}/delivery-quote/reject`): Customer rejects quote with explanation note.
+   - `POST /orders/{id}/delivery-quote/accept` (and `/api/orders/{id}/delivery-quote/accept`): Customer accepts versioned quote. Idempotent acceptance succeeds; expired or superseded quotes fail with 409 Conflict.
+   - `POST /orders/{id}/delivery-quote/reject` (and `/api/orders/{id}/delivery-quote/reject`): Customer rejects quote with explanation note; superseded quotes fail with 409 Conflict.
    - `GET /orders/{id}` returns sanitized `PublicOrder` with attached `delivery_quote` and `payable_breakdown`.
 
 5. **Automated Expiration Sweeps & Operational Parity**:

@@ -27,6 +27,7 @@ var (
 	ErrInvalidDeliveryOption   = errors.New("invalid delivery option")
 	ErrDeliveryQuoteUnaccepted = errors.New("delivery quote must be accepted before payment")
 	ErrQuoteExpired            = errors.New("delivery quote has expired")
+	ErrPayableMismatch         = errors.New("payable item and transport snapshots do not reconcile")
 )
 
 const (

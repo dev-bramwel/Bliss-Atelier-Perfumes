@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"testing"
@@ -253,6 +254,16 @@ func TestDeliveryQuoteStore(t *testing.T) {
 	}
 	if active2.Version != 2 {
 		t.Fatalf("expected active quote version 2, got %d", active2.Version)
+	}
+
+	// 3b. Accepting or rejecting superseded version 1 must return ErrQuoteConflict
+	_, err = store.AcceptQuote(ctx, orderID, 1)
+	if err == nil || !errors.Is(err, ErrQuoteConflict) {
+		t.Fatalf("expected ErrQuoteConflict when accepting superseded quote v1, got %v", err)
+	}
+	_, err = store.RejectQuote(ctx, orderID, 1, "superseded test")
+	if err == nil || !errors.Is(err, ErrQuoteConflict) {
+		t.Fatalf("expected ErrQuoteConflict when rejecting superseded quote v1, got %v", err)
 	}
 
 	// 4. Accept quote v2

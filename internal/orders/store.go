@@ -439,7 +439,9 @@ func (s *Store) CancelOrder(ctx context.Context, orderID string) error {
 // If the reservation is active: commits the reservation, records the sale in the immutable stock ledger
 // with a stock_batch and stock_entries, decrements on-hand stock, and marks order PAID.
 // If the reservation has expired: marks order RESOLUTION_REQUIRED (never silently fulfills without stock).
-func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumber string) error {
+// An optional paidAmountKes can be supplied to verify that the received payment matches the reconciled
+// payable merchant total (items subtotal + quoted merchant delivery fee).
+func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumber string, paidAmountKes ...int) error {
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -465,7 +467,8 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 
 	var currentPaymentStatus string
 	var deliveryOption string
-	err = tx.QueryRow(ctx, `SELECT "paymentStatus", COALESCE("deliveryOption", 'delivery') FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&currentPaymentStatus, &deliveryOption)
+	var totalKes int
+	err = tx.QueryRow(ctx, `SELECT "paymentStatus", COALESCE("deliveryOption", 'delivery'), "totalKes" FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&currentPaymentStatus, &deliveryOption, &totalKes)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrOrderNotFound
@@ -478,16 +481,19 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 
 	opt := strings.ToLower(strings.TrimSpace(deliveryOption))
 	isPickup := opt == "pickup" || opt == "showroom_pickup"
+	expectedPayable := totalKes
 	if !isPickup {
 		var quoteStatus string
 		var quoteExpiresAt time.Time
+		var quoteAmount int
+		var feeRecipient string
 		err = tx.QueryRow(ctx, `
-			SELECT status, expires_at
+			SELECT status, expires_at, amount_kes, fee_recipient
 			FROM public.delivery_quote
 			WHERE order_id = $1
 			ORDER BY version DESC
 			LIMIT 1
-		`, orderID).Scan(&quoteStatus, &quoteExpiresAt)
+		`, orderID).Scan(&quoteStatus, &quoteExpiresAt, &quoteAmount, &feeRecipient)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return ErrDeliveryQuoteUnaccepted
@@ -499,6 +505,15 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		}
 		if now.After(quoteExpiresAt) {
 			return ErrQuoteExpired
+		}
+		if feeRecipient == "merchant" {
+			expectedPayable = totalKes + quoteAmount
+		}
+	}
+
+	if len(paidAmountKes) > 0 {
+		if paidAmountKes[0] != expectedPayable {
+			return fmt.Errorf("%w: received %d KES but payable merchant total is %d KES", ErrPayableMismatch, paidAmountKes[0], expectedPayable)
 		}
 	}
 

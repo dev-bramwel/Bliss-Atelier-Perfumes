@@ -193,6 +193,15 @@ func (s *Store) AcceptQuote(ctx context.Context, orderID string, version int) (*
 		return &q, nil
 	}
 
+	var latestVersion int
+	err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM public.delivery_quote WHERE order_id = $1`, orderID).Scan(&latestVersion)
+	if err != nil {
+		return nil, err
+	}
+	if version < latestVersion {
+		return nil, fmt.Errorf("%w: quote version %d is superseded by version %d", ErrQuoteConflict, version, latestVersion)
+	}
+
 	if q.Status != QuoteStatusPending {
 		return nil, fmt.Errorf("%w: quote status is %s", ErrQuoteNotPending, q.Status)
 	}
@@ -267,6 +276,15 @@ func (s *Store) RejectQuote(ctx context.Context, orderID string, version int, re
 		// Idempotent: already rejected
 		_ = tx.Commit(ctx)
 		return &q, nil
+	}
+
+	var latestVersion int
+	err = tx.QueryRow(ctx, `SELECT COALESCE(MAX(version), 0) FROM public.delivery_quote WHERE order_id = $1`, orderID).Scan(&latestVersion)
+	if err != nil {
+		return nil, err
+	}
+	if version < latestVersion {
+		return nil, fmt.Errorf("%w: quote version %d is superseded by version %d", ErrQuoteConflict, version, latestVersion)
 	}
 
 	if q.Status != QuoteStatusPending {
