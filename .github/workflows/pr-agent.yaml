@@ -28,11 +28,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_AI_STUDIO__GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
           # LLM Model configuration
           config.model: "gemini/gemini-1.5-flash"
           config.fallback_models: '["gemini/gemini-1.5-flash"]'
+          config.custom_model_max_tokens: "32000"
+          config.max_model_tokens: "32000"
 
           # Automatic actions
           github_action_config.auto_review: "true"
