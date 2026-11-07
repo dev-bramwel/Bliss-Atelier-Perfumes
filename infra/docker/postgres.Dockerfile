@@ -3,4 +3,5 @@ FROM postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49
 # embeds an obsolete Go runtime; remove it rather than suppress its findings.
 USER root
 RUN test -f /usr/local/bin/gosu && rm /usr/local/bin/gosu
+RUN apk upgrade --no-cache
 USER 70:70

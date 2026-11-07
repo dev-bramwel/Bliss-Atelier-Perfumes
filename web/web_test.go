@@ -42,6 +42,7 @@ func TestWebHandler_ScriptOrder(t *testing.T) {
 		hasCatalog bool
 	}{
 		{"index collection", "/", "/static/app.js", true},
+		{"dashboard page", "/dashboard", "/static/dashboard.js", true},
 		{"cart page", "/cart", "/static/cart.js", true},
 		{"checkout page", "/checkout", "/static/checkout.js", true},
 	}
@@ -98,6 +99,8 @@ func TestWebHandler_CacheControl(t *testing.T) {
 	routes := []string{
 		"/",
 		"/index.html",
+		"/dashboard",
+		"/dashboard.html",
 		"/cart",
 		"/cart.html",
 		"/checkout",
