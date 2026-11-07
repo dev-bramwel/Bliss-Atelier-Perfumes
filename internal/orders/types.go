@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	ErrInvalidCustomer      = errors.New("invalid customer information")
+	ErrInvalidCustomer       = errors.New("invalid customer information")
 	ErrEmptyOrder            = errors.New("order must contain between 1 and 50 items")
 	ErrTooManyItems          = errors.New("order must contain between 1 and 50 items")
 	ErrInvalidQuantity       = errors.New("invalid item quantity")
