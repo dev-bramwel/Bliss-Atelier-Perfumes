@@ -189,7 +189,9 @@ func (s *Store) AcceptQuote(ctx context.Context, orderID string, version int) (*
 
 	if q.Status == QuoteStatusAccepted {
 		// Idempotent: already accepted
-		_ = tx.Commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
 		return &q, nil
 	}
 
@@ -208,8 +210,12 @@ func (s *Store) AcceptQuote(ctx context.Context, orderID string, version int) (*
 
 	now := time.Now()
 	if now.After(q.ExpiresAt) {
-		_, _ = tx.Exec(ctx, `UPDATE public.delivery_quote SET status = 'expired' WHERE id = $1`, q.ID)
-		_ = tx.Commit(ctx)
+		if _, err := tx.Exec(ctx, `UPDATE public.delivery_quote SET status = 'expired' WHERE id = $1`, q.ID); err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
 		return nil, ErrQuoteExpired
 	}
 
@@ -274,7 +280,9 @@ func (s *Store) RejectQuote(ctx context.Context, orderID string, version int, re
 
 	if q.Status == QuoteStatusRejected {
 		// Idempotent: already rejected
-		_ = tx.Commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
 		return &q, nil
 	}
 
