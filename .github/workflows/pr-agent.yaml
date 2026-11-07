@@ -26,8 +26,13 @@ jobs:
       - name: Run PR Agent
         uses: the-pr-agent/pr-agent@efdde4afe14aa401a3889012c7f3e9ef3081a430 # v0.49.0
         env:
-          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+          # LLM Model configuration
+          config.model: "gemini/gemini-1.5-flash"
+          config.fallback_models: '["gemini/gemini-1.5-flash"]'
 
           # Automatic actions
           github_action_config.auto_review: "true"
