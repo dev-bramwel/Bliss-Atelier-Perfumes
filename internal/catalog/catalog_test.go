@@ -31,3 +31,24 @@ func TestImportRejectsAbsentOrInvalidQuantity(t *testing.T) {
 		t.Fatal("explicit zero count rejected", err)
 	}
 }
+
+func TestFormatPriceKes(t *testing.T) {
+	tests := []struct {
+		amount int
+		want   string
+	}{
+		{-50, "KES 0"},
+		{0, "KES 0"},
+		{950, "KES 950"},
+		{1500, "KES 1,500"},
+		{25000, "KES 25,000"},
+		{1250000, "KES 1,250,000"},
+	}
+
+	for _, tt := range tests {
+		got := FormatPriceKes(tt.amount)
+		if got != tt.want {
+			t.Errorf("FormatPriceKes(%d) = %q, want %q", tt.amount, got, tt.want)
+		}
+	}
+}
