@@ -7,13 +7,13 @@ You are reviewing code for Bliss Atelier Perfumes, an enterprise e-commerce plat
 
 CRITICAL ARCHITECTURAL & CONCURRENCY CHECKS:
 1. Concurrency & Transactions: Verify PostgreSQL transactions use 'FOR UPDATE' row locks for any inventory or order state mutations to avoid race conditions.
-2. Connection Safety: Ensure queries inside transactions strictly use 'tx', not the parent connection pool, and ensure 'defer tx.Rollback(ctx)' is present.
+2. Connection & Rollback Safety: Ensure every transaction guarantees rollback cleanup on error or early return (e.g. using 'defer rollback(tx)' or equivalent bounded rollback helper, or 'defer tx.Rollback(ctx)'). Ensure queries inside transactions strictly execute on 'tx', never the parent connection pool.
 3. Goroutine Lifecycles: Do not allow unbounded background goroutines in HTTP handlers. All async tasks must honor context cancellation.
-4. Error Handling: Ensure Go errors are properly checked and wrapped ('fmt.Errorf(\"...: %w\", err)'). Never allow ignored errors ('_ = ...').
+4. Error Handling: Ensure Go errors are properly checked and wrapped ('fmt.Errorf(\"...: %w\", err)'). Never allow ignored errors ('_ = ...') except in standard cleanup helpers (like deferred rollback).
 
 DOMAIN & BUSINESS LOGIC INVARIANTS:
 1. Payment Invariant: Fulfillment or dispatch MUST NOT occur without verified, settled payment. Cash-on-delivery (COD) is strictly forbidden.
-2. Stock Ledger Integrity: Stock mutations must balance against an immutable audit ledger ('stock_entry') with actor and evidence attributes. No public unauthenticated stock writes.
+2. Stock Ledger Integrity: Stock mutations must balance against an immutable, audited batch ('stock_batch' recording actor, evidence, digest, and kind), with associated itemized ledger entries ('stock_entry'). No public unauthenticated stock writes.
 
 NOISE REDUCTION RULES:
 - Ignore trivial style, naming preferences, or whitespace (handled by gofmt).
