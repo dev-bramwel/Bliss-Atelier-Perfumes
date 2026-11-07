@@ -450,7 +450,8 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 
 	// Acquire locks in consistent order: stock_reservation first, then Order
 	var resID, resStatus string
-	err = tx.QueryRow(ctx, `SELECT id, status FROM public.stock_reservation WHERE order_id = $1 FOR UPDATE`, orderID).Scan(&resID, &resStatus)
+	var expiresAt time.Time
+	err = tx.QueryRow(ctx, `SELECT id, status, expires_at FROM public.stock_reservation WHERE order_id = $1 FOR UPDATE`, orderID).Scan(&resID, &resStatus, &expiresAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			var dummy string
@@ -474,7 +475,8 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		return nil // Idempotent duplicate success
 	}
 
-	if resStatus == ReservationActive {
+	// Verify both active status AND unexpired timestamp before committing hold
+	if resStatus == ReservationActive && expiresAt.After(now) {
 		// Commit reservation
 		_, err = tx.Exec(ctx, `UPDATE public.stock_reservation SET status = $1 WHERE id = $2`, ReservationCommitted, resID)
 		if err != nil {
@@ -594,8 +596,12 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		return nil
 	}
 
-	// Reservation is not active (released or expired) — LATE PAYMENT!
+	// Reservation is not active or hold window expired — LATE PAYMENT!
 	// Transition order to RESOLUTION_REQUIRED and do NOT fulfill silently
+	if resStatus == ReservationActive {
+		_, _ = tx.Exec(ctx, `UPDATE public.stock_reservation SET status = $1, released_at = $2 WHERE id = $3`,
+			ReservationReleased, now, resID)
+	}
 	_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2 WHERE id = $3`,
 		PaymentResolutionRequired, now, orderID)
 	if err != nil {

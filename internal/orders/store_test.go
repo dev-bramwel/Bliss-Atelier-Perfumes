@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -496,5 +497,81 @@ func TestListRecent(t *testing.T) {
 	}
 	if len(recent[0].Items) != 1 || recent[0].Items[0].Name == "" {
 		t.Fatalf("expected item name populated, got %+v", recent[0].Items)
+	}
+}
+
+func TestLatePaymentBeforeWorkerSweep(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	ctx := context.Background()
+
+	productID := "p7"
+	setupCatalogFixture(t, pool, productID, 2, true, nil)
+
+	req := validReq(productID, 2)
+	order, err := store.CreateOrder(ctx, req)
+	if err != nil {
+		t.Fatalf("CreateOrder failed: %v", err)
+	}
+
+	// Backdate expires_at to 5 seconds ago, but DO NOT run ReleaseExpired
+	past := time.Now().UTC().Add(-5 * time.Second)
+	_, err = pool.Exec(ctx, "UPDATE public.stock_reservation SET expires_at = $1 WHERE id = $2", past, order.Reservation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Attempt payment confirmation: deadline check must detect hold expiration and reject silent fulfillment
+	receiptNo := "LATEBEFORESWEEP"
+	err = store.ConfirmPayment(ctx, order.ID, receiptNo)
+	if !errors.Is(err, ErrLatePaymentResolution) {
+		t.Fatalf("expected ErrLatePaymentResolution when expires_at has passed before worker sweep, got: %v", err)
+	}
+
+	// Order must be marked RESOLUTION_REQUIRED
+	retrieved, err := store.GetOrder(ctx, order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retrieved.PaymentStatus != PaymentResolutionRequired {
+		t.Fatalf("expected status %s, got %s", PaymentResolutionRequired, retrieved.PaymentStatus)
+	}
+	if retrieved.Reservation.Status != ReservationReleased {
+		t.Fatalf("expected reservation released, got %s", retrieved.Reservation.Status)
+	}
+}
+
+func TestActiveReservationPreventsOperatorSale(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	catStore := &catalog.Store{Pool: pool}
+	ctx := context.Background()
+
+	productID := "p8"
+	setupCatalogFixture(t, pool, productID, 2, true, nil)
+
+	// Online customer reserves all 2 units
+	req := validReq(productID, 2)
+	_, err := store.CreateOrder(ctx, req)
+	if err != nil {
+		t.Fatalf("CreateOrder failed: %v", err)
+	}
+
+	// Operator tries to apply offline local sale for 1 unit
+	saleBatch := catalog.Batch{
+		ID:       "operator_oversell_attempt",
+		Kind:     "local_sale",
+		Actor:    "operator",
+		Evidence: "counter-sale-1",
+		Lines: []catalog.Line{
+			{ProductID: productID, Quantity: 1},
+		},
+	}
+	_, err = catStore.Apply(ctx, saleBatch)
+	if err == nil {
+		t.Fatal("expected operator sale to fail when stock is held by active reservation, but it succeeded")
+	}
+	if !strings.Contains(err.Error(), "insufficient unreserved stock") {
+		t.Fatalf("expected insufficient unreserved stock error, got: %v", err)
 	}
 }
