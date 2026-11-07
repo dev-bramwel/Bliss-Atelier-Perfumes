@@ -23,8 +23,10 @@ var (
 	ErrReservationNotActive  = errors.New("reservation is not active")
 	ErrLatePaymentResolution = errors.New("reservation expired; late payment requires explicit resolution")
 	ErrPayOnDeliveryProhib   = errors.New("payment on delivery is prohibited; verify payment before dispatch")
-	ErrInvalidPaymentMethod  = errors.New("invalid payment method")
-	ErrInvalidDeliveryOption = errors.New("invalid delivery option")
+	ErrInvalidPaymentMethod    = errors.New("invalid payment method")
+	ErrInvalidDeliveryOption   = errors.New("invalid delivery option")
+	ErrDeliveryQuoteUnaccepted = errors.New("delivery quote must be accepted before payment")
+	ErrQuoteExpired            = errors.New("delivery quote has expired")
 )
 
 const (

@@ -464,7 +464,8 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 	}
 
 	var currentPaymentStatus string
-	err = tx.QueryRow(ctx, `SELECT "paymentStatus" FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&currentPaymentStatus)
+	var deliveryOption string
+	err = tx.QueryRow(ctx, `SELECT "paymentStatus", COALESCE("deliveryOption", 'delivery') FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&currentPaymentStatus, &deliveryOption)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrOrderNotFound
@@ -473,6 +474,32 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 	}
 	if currentPaymentStatus == PaymentPaid {
 		return nil // Idempotent duplicate success
+	}
+
+	opt := strings.ToLower(strings.TrimSpace(deliveryOption))
+	isPickup := opt == "pickup" || opt == "showroom_pickup"
+	if !isPickup {
+		var quoteStatus string
+		var quoteExpiresAt time.Time
+		err = tx.QueryRow(ctx, `
+			SELECT status, expires_at
+			FROM public.delivery_quote
+			WHERE order_id = $1
+			ORDER BY version DESC
+			LIMIT 1
+		`, orderID).Scan(&quoteStatus, &quoteExpiresAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrDeliveryQuoteUnaccepted
+			}
+			return fmt.Errorf("failed to query delivery quote for order %s: %w", orderID, err)
+		}
+		if quoteStatus != "accepted" {
+			return ErrDeliveryQuoteUnaccepted
+		}
+		if now.After(quoteExpiresAt) {
+			return ErrQuoteExpired
+		}
 	}
 
 	// Verify both active status AND unexpired timestamp before committing hold

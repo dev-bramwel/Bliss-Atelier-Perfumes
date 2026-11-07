@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 )
 
@@ -19,13 +21,16 @@ type Ping func(context.Context) error
 
 // PublicOrder provides a sanitized, non-PII view of an order suitable for unauthenticated public inspection.
 type PublicOrder struct {
-	ID                string            `json:"id"`
-	PaymentStatus     string            `json:"payment_status"`
-	FulfillmentStatus string            `json:"fulfillment_status"`
-	PaymentMethod     string            `json:"payment_method"`
-	TotalKes          int               `json:"total_kes"`
-	CreatedAt         time.Time         `json:"created_at"`
-	Items             []PublicOrderItem `json:"items,omitempty"`
+	ID                string                     `json:"id"`
+	PaymentStatus     string                     `json:"payment_status"`
+	FulfillmentStatus string                     `json:"fulfillment_status"`
+	PaymentMethod     string                     `json:"payment_method"`
+	DeliveryOption    string                     `json:"delivery_option,omitempty"`
+	TotalKes          int                        `json:"total_kes"`
+	CreatedAt         time.Time                  `json:"created_at"`
+	Items             []PublicOrderItem          `json:"items,omitempty"`
+	DeliveryQuote     *delivery.PublicQuote      `json:"delivery_quote,omitempty"`
+	PayableBreakdown  *delivery.PayableBreakdown `json:"payable_breakdown,omitempty"`
 }
 
 // PublicOrderItem represents an order item in the sanitized public order view.
@@ -50,6 +55,14 @@ type OrderService interface {
 	ListRecent(ctx context.Context, limit int) ([]orders.Order, error)
 }
 
+type DeliveryService interface {
+	CreateQuote(ctx context.Context, orderID string, p delivery.CreateQuoteParams) (*delivery.DeliveryQuote, error)
+	GetActiveQuote(ctx context.Context, orderID string) (*delivery.DeliveryQuote, error)
+	AcceptQuote(ctx context.Context, orderID string, version int) (*delivery.DeliveryQuote, error)
+	RejectQuote(ctx context.Context, orderID string, version int, reason string) (*delivery.DeliveryQuote, error)
+	ExpireQuotes(ctx context.Context, asOf time.Time) (int64, error)
+}
+
 type API struct {
 	server   *http.Server
 	draining atomic.Bool
@@ -59,6 +72,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	a := &API{}
 	var catalogStore Catalog
 	var orderStore OrderService
+	var deliveryStore DeliveryService
 
 	for _, d := range deps {
 		switch v := d.(type) {
@@ -66,6 +80,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			catalogStore = v
 		case OrderService:
 			orderStore = v
+		case DeliveryService:
+			deliveryStore = v
 		}
 	}
 
@@ -215,15 +231,40 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					SubtotalKes:  item.SubtotalKes,
 				})
 			}
+			opt := strings.ToLower(strings.TrimSpace(order.DeliveryOption))
+			isPickup := opt == "pickup" || opt == "showroom_pickup"
+			var pubQuote *delivery.PublicQuote
+			var breakdown *delivery.PayableBreakdown
+			if deliveryStore != nil {
+				if q, err := deliveryStore.GetActiveQuote(ctx, id); err == nil {
+					pq := q.ToPublic()
+					pubQuote = &pq
+					if bd, err := delivery.CalculatePayable(order.TotalKes, q, isPickup); err == nil {
+						breakdown = bd
+					}
+				} else if isPickup {
+					if bd, err := delivery.CalculatePayable(order.TotalKes, nil, true); err == nil {
+						breakdown = bd
+					}
+				}
+			} else if isPickup {
+				if bd, err := delivery.CalculatePayable(order.TotalKes, nil, true); err == nil {
+					breakdown = bd
+				}
+			}
+
 			respond(w, 200, map[string]any{
 				"order": PublicOrder{
 					ID:                order.ID,
 					PaymentStatus:     order.PaymentStatus,
 					FulfillmentStatus: order.FulfillmentStatus,
 					PaymentMethod:     order.PaymentMethod,
+					DeliveryOption:    order.DeliveryOption,
 					TotalKes:          order.TotalKes,
 					CreatedAt:         order.CreatedAt,
 					Items:             publicItems,
+					DeliveryQuote:     pubQuote,
+					PayableBreakdown:  breakdown,
 				},
 			})
 		}
@@ -234,6 +275,174 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		mux.HandleFunc("GET /api/orders/{id}/payment-status", handlePaymentStatus)
 		mux.HandleFunc("GET /orders/{id}", handleGetOrder)
 		mux.HandleFunc("GET /api/orders/{id}", handleGetOrder)
+	}
+
+	if deliveryStore != nil {
+		handleCreateQuote := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			id := r.PathValue("id")
+			if id == "" {
+				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			var p delivery.CreateQuoteParams
+			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+				respond(w, 400, map[string]string{"error": "invalid json payload"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			quote, err := deliveryStore.CreateQuote(ctx, id, p)
+			if err != nil {
+				switch {
+				case errors.Is(err, delivery.ErrOrderNotFound):
+					respond(w, 404, map[string]string{"error": "order not found"})
+				case errors.Is(err, delivery.ErrOrderNotPending):
+					respond(w, 409, map[string]string{"error": err.Error()})
+				case errors.Is(err, delivery.ErrInvalidQuote):
+					respond(w, 400, map[string]string{"error": err.Error()})
+				default:
+					slog.Error("create_delivery_quote_failed", "order_id", id, "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+				}
+				return
+			}
+			pub := quote.ToPublic()
+			respond(w, 201, map[string]any{"quote": pub})
+		}
+
+		handleGetQuote := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			id := r.PathValue("id")
+			if id == "" {
+				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			quote, err := deliveryStore.GetActiveQuote(ctx, id)
+			if err != nil {
+				if errors.Is(err, delivery.ErrQuoteNotFound) {
+					respond(w, 404, map[string]string{"error": "delivery quote not found"})
+					return
+				}
+				slog.Error("get_delivery_quote_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			pub := quote.ToPublic()
+			resp := map[string]any{"quote": pub}
+			if orderStore != nil {
+				if order, err := orderStore.GetOrder(ctx, id); err == nil {
+					opt := strings.ToLower(strings.TrimSpace(order.DeliveryOption))
+					isPickup := opt == "pickup" || opt == "showroom_pickup"
+					if breakdown, err := delivery.CalculatePayable(order.TotalKes, quote, isPickup); err == nil {
+						resp["breakdown"] = breakdown
+					}
+				}
+			}
+			respond(w, 200, resp)
+		}
+
+		handleAcceptQuote := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			id := r.PathValue("id")
+			if id == "" {
+				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			var req struct {
+				Version int `json:"version"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				respond(w, 400, map[string]string{"error": "invalid json payload"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			quote, err := deliveryStore.AcceptQuote(ctx, id, req.Version)
+			if err != nil {
+				switch {
+				case errors.Is(err, delivery.ErrOrderNotFound):
+					respond(w, 404, map[string]string{"error": "order not found"})
+				case errors.Is(err, delivery.ErrQuoteNotFound):
+					respond(w, 404, map[string]string{"error": "delivery quote not found"})
+				case errors.Is(err, delivery.ErrQuoteExpired):
+					respond(w, 409, map[string]string{"error": "delivery quote has expired"})
+				case errors.Is(err, delivery.ErrQuoteNotPending):
+					respond(w, 409, map[string]string{"error": err.Error()})
+				case errors.Is(err, delivery.ErrInvalidQuote):
+					respond(w, 400, map[string]string{"error": err.Error()})
+				default:
+					slog.Error("accept_delivery_quote_failed", "order_id", id, "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+				}
+				return
+			}
+			pub := quote.ToPublic()
+			respond(w, 200, map[string]any{"quote": pub})
+		}
+
+		handleRejectQuote := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			id := r.PathValue("id")
+			if id == "" {
+				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			var req struct {
+				Version int    `json:"version"`
+				Reason  string `json:"reason"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				respond(w, 400, map[string]string{"error": "invalid json payload"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			quote, err := deliveryStore.RejectQuote(ctx, id, req.Version, req.Reason)
+			if err != nil {
+				switch {
+				case errors.Is(err, delivery.ErrQuoteNotFound):
+					respond(w, 404, map[string]string{"error": "delivery quote not found"})
+				case errors.Is(err, delivery.ErrQuoteNotPending):
+					respond(w, 409, map[string]string{"error": err.Error()})
+				case errors.Is(err, delivery.ErrInvalidQuote):
+					respond(w, 400, map[string]string{"error": err.Error()})
+				default:
+					slog.Error("reject_delivery_quote_failed", "order_id", id, "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+				}
+				return
+			}
+			pub := quote.ToPublic()
+			respond(w, 200, map[string]any{"quote": pub})
+		}
+
+		mux.HandleFunc("POST /orders/{id}/delivery-quote", handleCreateQuote)
+		mux.HandleFunc("POST /api/orders/{id}/delivery-quote", handleCreateQuote)
+		mux.HandleFunc("GET /orders/{id}/delivery-quote", handleGetQuote)
+		mux.HandleFunc("GET /api/orders/{id}/delivery-quote", handleGetQuote)
+		mux.HandleFunc("POST /orders/{id}/delivery-quote/accept", handleAcceptQuote)
+		mux.HandleFunc("POST /api/orders/{id}/delivery-quote/accept", handleAcceptQuote)
+		mux.HandleFunc("POST /orders/{id}/delivery-quote/reject", handleRejectQuote)
+		mux.HandleFunc("POST /api/orders/{id}/delivery-quote/reject", handleRejectQuote)
 	}
 
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
