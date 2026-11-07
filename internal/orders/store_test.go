@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
 )
@@ -76,6 +77,15 @@ func setupCatalogFixture(t *testing.T, pool *pgxpool.Pool, productID string, sto
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Insert or update stock_batch and stock_entry so ledger matches catalog_product.stock
+	batchID := "init_batch_" + productID
+	_, _ = pool.Exec(ctx, `INSERT INTO public.stock_batch (id, digest, kind, actor, evidence)
+		VALUES ($1, 'digest', 'opening', 'tester', 'test-fixture')
+		ON CONFLICT (id) DO NOTHING`, batchID)
+	_, _ = pool.Exec(ctx, `INSERT INTO public.stock_entry (batch_id, product_id, delta, balance)
+		VALUES ($1, $2, $3, $3)
+		ON CONFLICT (batch_id, product_id) DO UPDATE SET delta = $3, balance = $3`, batchID, productID, stock)
 }
 
 func validReq(productID string, qty int) CreateOrderRequest {
@@ -96,6 +106,7 @@ func validReq(productID string, qty int) CreateOrderRequest {
 func TestCreateOrderAndPriceSnapshot(t *testing.T) {
 	pool := testPool(t)
 	store := &Store{Pool: pool}
+	catStore := &catalog.Store{Pool: pool}
 	ctx := context.Background()
 
 	setupCatalogFixture(t, pool, "p1", 10, true, nil)
@@ -123,11 +134,23 @@ func TestCreateOrderAndPriceSnapshot(t *testing.T) {
 		t.Fatalf("invalid snapshotted items: %+v", order.Items)
 	}
 
-	// Verify stock was reduced in DB
-	var remainingStock int
-	err = pool.QueryRow(ctx, "SELECT stock FROM public.catalog_product WHERE id = $1", "p1").Scan(&remainingStock)
-	if err != nil || remainingStock != 8 {
-		t.Fatalf("expected remaining stock 8, got %d (err: %v)", remainingStock, err)
+	// Verify on-hand stock is preserved while reservation is active (maintaining ledger consistency)
+	var onHandStock int
+	err = pool.QueryRow(ctx, "SELECT stock FROM public.catalog_product WHERE id = $1", "p1").Scan(&onHandStock)
+	if err != nil || onHandStock != 10 {
+		t.Fatalf("expected on-hand stock 10, got %d (err: %v)", onHandStock, err)
+	}
+
+	// Verify available stock reflects active reservation hold (10 - 2 = 8)
+	avail, err := store.GetAvailableStock(ctx, "p1")
+	if err != nil || avail != 8 {
+		t.Fatalf("expected available stock 8, got %d (err: %v)", avail, err)
+	}
+
+	// Verify catalog store approval succeeds while reservation is active (proving no ledger mismatch)
+	err = catStore.Approve(ctx, "owner", "evidence", time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("catalog Approve failed during active reservation: %v", err)
 	}
 
 	// Change catalog settings common price to 3500
@@ -194,11 +217,10 @@ func TestConcurrentLastItemCannotOversell(t *testing.T) {
 		t.Fatalf("expected %d checkouts to fail with insufficient stock, got %d", concurrency-1, failCount)
 	}
 
-	// Stock must be exactly 0, never negative
-	var finalStock int
-	err := pool.QueryRow(ctx, "SELECT stock FROM public.catalog_product WHERE id = $1", productID).Scan(&finalStock)
-	if err != nil || finalStock != 0 {
-		t.Fatalf("expected stock 0, got %d (err: %v)", finalStock, err)
+	// Available stock must be exactly 0, never negative
+	avail, err := store.GetAvailableStock(ctx, productID)
+	if err != nil || avail != 0 {
+		t.Fatalf("expected available stock 0, got %d (err: %v)", avail, err)
 	}
 
 	// Active reservations count must be exactly 1
@@ -225,11 +247,10 @@ func TestIdempotentExpiryRelease(t *testing.T) {
 		t.Fatalf("CreateOrder failed: %v", err)
 	}
 
-	// Check stock decreased from 5 to 3
-	var stockAfterOrder int
-	_ = pool.QueryRow(ctx, "SELECT stock FROM public.catalog_product WHERE id = $1", productID).Scan(&stockAfterOrder)
-	if stockAfterOrder != 3 {
-		t.Fatalf("expected stock 3 after reservation, got %d", stockAfterOrder)
+	// Check available stock decreased from 5 to 3
+	availAfterOrder, err := store.GetAvailableStock(ctx, productID)
+	if err != nil || availAfterOrder != 3 {
+		t.Fatalf("expected available stock 3 after reservation, got %d", availAfterOrder)
 	}
 
 	// Backdate reservation expires_at to 10 minutes ago
@@ -248,11 +269,10 @@ func TestIdempotentExpiryRelease(t *testing.T) {
 		t.Fatalf("expected 1 released reservation, got %d", released)
 	}
 
-	// Stock must be restored to 5
-	var restoredStock int
-	_ = pool.QueryRow(ctx, "SELECT stock FROM public.catalog_product WHERE id = $1", productID).Scan(&restoredStock)
-	if restoredStock != 5 {
-		t.Fatalf("expected restored stock 5, got %d", restoredStock)
+	// Available stock must be restored to 5
+	restoredAvail, err := store.GetAvailableStock(ctx, productID)
+	if err != nil || restoredAvail != 5 {
+		t.Fatalf("expected restored available stock 5, got %d", restoredAvail)
 	}
 
 	// Order status must be EXPIRED and fulfillment cancelled
@@ -276,10 +296,9 @@ func TestIdempotentExpiryRelease(t *testing.T) {
 		t.Fatalf("expected 0 released on rerun, got %d", releasedAgain)
 	}
 
-	var stockAfterRerun int
-	_ = pool.QueryRow(ctx, "SELECT stock FROM public.catalog_product WHERE id = $1", productID).Scan(&stockAfterRerun)
-	if stockAfterRerun != 5 {
-		t.Fatalf("stock was double-restored! Expected 5, got %d", stockAfterRerun)
+	availAfterRerun, err := store.GetAvailableStock(ctx, productID)
+	if err != nil || availAfterRerun != 5 {
+		t.Fatalf("stock was double-restored! Expected 5, got %d", availAfterRerun)
 	}
 }
 
@@ -297,16 +316,21 @@ func TestCancelOrder(t *testing.T) {
 		t.Fatalf("CreateOrder failed: %v", err)
 	}
 
+	// Available stock should be 1
+	avail, err := store.GetAvailableStock(ctx, productID)
+	if err != nil || avail != 1 {
+		t.Fatalf("expected available stock 1, got %d", avail)
+	}
+
 	// Cancel the order
 	if err := store.CancelOrder(ctx, order.ID); err != nil {
 		t.Fatalf("CancelOrder failed: %v", err)
 	}
 
-	// Verify stock restored
-	var stock int
-	_ = pool.QueryRow(ctx, "SELECT stock FROM public.catalog_product WHERE id = $1", productID).Scan(&stock)
-	if stock != 4 {
-		t.Fatalf("expected stock restored to 4, got %d", stock)
+	// Verify available stock restored
+	restoredAvail, err := store.GetAvailableStock(ctx, productID)
+	if err != nil || restoredAvail != 4 {
+		t.Fatalf("expected available stock restored to 4, got %d", restoredAvail)
 	}
 
 	// Verify status
@@ -386,6 +410,7 @@ func TestLatePaymentExplicitResolution(t *testing.T) {
 func TestPromptPaymentConfirmation(t *testing.T) {
 	pool := testPool(t)
 	store := &Store{Pool: pool}
+	catStore := &catalog.Store{Pool: pool}
 	ctx := context.Background()
 
 	productID := "p6"
@@ -419,6 +444,24 @@ func TestPromptPaymentConfirmation(t *testing.T) {
 	err = pool.QueryRow(ctx, `SELECT status, "mpesaReceiptNumber" FROM public."MpesaTransaction" WHERE "orderId" = $1`, order.ID).Scan(&mpesaStatus, &storedReceipt)
 	if err != nil || mpesaStatus != "SUCCESS" || storedReceipt != receiptNo {
 		t.Fatalf("unexpected MpesaTransaction record: %s %s (err: %v)", mpesaStatus, storedReceipt, err)
+	}
+
+	// Verify stock was decremented in catalog_product and recorded in stock_entry ledger
+	var stockInCatalog int
+	err = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id = $1`, productID).Scan(&stockInCatalog)
+	if err != nil || stockInCatalog != 2 {
+		t.Fatalf("expected catalog stock decremented to 2, got %d (err: %v)", stockInCatalog, err)
+	}
+
+	var ledgerDeltaSum int
+	err = pool.QueryRow(ctx, `SELECT coalesce(sum(delta), 0) FROM public.stock_entry WHERE product_id = $1`, productID).Scan(&ledgerDeltaSum)
+	if err != nil || ledgerDeltaSum != 2 {
+		t.Fatalf("expected ledger delta sum 2, got %d (err: %v)", ledgerDeltaSum, err)
+	}
+
+	// Verify catalog Approve passes cleanly after sale (ledger matches stock)
+	if err := catStore.Approve(ctx, "owner", "evidence", time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("catalog Approve rejected after payment confirmation: %v", err)
 	}
 
 	// Duplicate payment confirmation is idempotent

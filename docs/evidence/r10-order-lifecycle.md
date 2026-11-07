@@ -8,7 +8,8 @@ Verification environment: Disposable local PostgreSQL 16 container, Docker Core 
 1. **Atomic Inventory Reservations (15-Minute Hold Window)**:
    - Order placement executes inside a single database transaction (`pgx.Tx`).
    - Catalog products are locked using deterministic alphabetical `ORDER BY id FOR UPDATE` ordering to serialize inventory deduction and eliminate deadlocks during concurrent checkouts.
-   - Stock is verified against available units (`stock >= requested_qty`) and immediately decremented in `catalog_product`.
+   - Available stock is calculated dynamically as physical on-hand stock minus active unexpired reservations (`available = stock - active_reserved`).
+   - Physical on-hand stock (`catalog_product.stock`) remains untouched during temporary checkout holds, ensuring continuous ledger balance parity (`stock == sum(delta)`) and avoiding ledger mismatch warnings in `cmd/stock report` or `catalog.Store.Approve`.
    - A linked `stock_reservation` record is created with `status = 'active'` and `expires_at = now() + 15 minutes`, along with `stock_reservation_item` records capturing exact reserved quantities.
 
 2. **Snapshotted Order Items (Immutable Price History)**:
@@ -24,20 +25,26 @@ Verification environment: Disposable local PostgreSQL 16 container, Docker Core 
 4. **Idempotent Expiry Release & Cancellation (Zero Double-Restoration)**:
    - `ReleaseExpired` identifies active reservations where `expires_at <= now()`.
    - Transitions reservation `status` from `'active'` to `'released'` using an atomic conditional update (`WHERE status = 'active' RETURNING id`).
-   - If 0 rows return, the reservation was already processed, ensuring stock is never restored twice even under repeated sequential or concurrent invocations.
+   - If 0 rows return, the reservation was already processed, ensuring holds are never released twice even under repeated sequential or concurrent invocations.
+   - Releasing the reservation automatically restores available stock without mutating physical ledger tables.
    - `CancelOrder` manually cancels pending orders, safely releasing held stock and transitioning payment status to `FAILED` and fulfillment status to `cancelled`.
 
-5. **Concurrency Protection Against Overselling**:
-   - Concurrency tests simulate 10 parallel goroutines competing for the final 1 unit of stock.
-   - Alphabetical row locking and inventory constraints guarantee that exactly 1 checkout succeeds, 9 fail with `ErrInsufficientStock`, and stock reaches 0 without going negative.
+5. **Prompt Payment Confirmation & Immutable Ledger Sales**:
+   - Timely payment confirmation marks the order `PAID`, commits the reservation (`status = 'committed'`), and records the `MpesaTransaction`.
+   - Records the sale in the immutable stock ledger with an audited `stock_batch` (`kind = 'local_sale'`) and itemized negative delta `stock_entry` records.
+   - Atomically decrements `catalog_product.stock` to reflect the completed sale, ensuring `catalog_product.stock == sum(e.delta)` and allowing owner approval renewals to succeed uninterrupted.
 
-6. **Late-Payment Explicit Resolution Requirement**:
+6. **Concurrency Protection Against Overselling**:
+   - Concurrency tests simulate 10 parallel goroutines competing for the final 1 unit of stock.
+   - Alphabetical row locking and inventory constraints guarantee that exactly 1 checkout succeeds, 9 fail with `ErrInsufficientStock`, and available stock reaches 0 without going negative.
+
+7. **Late-Payment Explicit Resolution Requirement**:
    - If payment confirmation arrives after a reservation has expired and released stock, `ConfirmPayment` detects that the reservation is no longer active.
    - The order is transitioned to `paymentStatus = 'RESOLUTION_REQUIRED'` and `fulfillmentStatus = 'cancelled'`.
    - Payment confirmation returns `ErrLatePaymentResolution` and records an M-Pesa transaction with status `'LATE_PAID'`.
    - Unreserved stock is never fulfilled silently.
 
-7. **HTTP Service Routes**:
+8. **HTTP Service Routes**:
    - `POST /orders` and `POST /api/orders`: Validates customer info and items, reserves stock, creates order, and returns HTTP 201 Created with `{ "order": ..., "stkPush": null }`. Returns 400 for validation errors, 409 for insufficient stock / unopened items, and 503 if catalog stock control is unconfirmed.
    - `GET /orders/{id}/payment-status` and `GET /api/orders/{id}/payment-status`: Public polling endpoint for checkout overlay returning payment status, fulfillment status, receipt number, and hold expiration. Returns 404 if not found.
    - `GET /orders/{id}` and `GET /api/orders/{id}`: Returns order details with snapshotted items. Returns 404 if not found.
