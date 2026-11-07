@@ -5,6 +5,7 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | Document                                                                | Purpose                                                                                                           |
 | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | [R01 decisions](release-scope-decisions.md)                             | Confirmed owner policies, current capacity decision and unresolved closure gates                                  |
+| [R02 NCBA payments](ncba-payments.md)                                   | Bank-guide contracts, collection mapping, onboarding owners and unresolved authorization/reconciliation gates     |
 | [R04 inventory reconciliation](inventory-reconciliation.md)             | Current stock workflow, proposed opening-count rules and remaining sign-off gates                                 |
 | [R04 reconciliation evidence](evidence/r04-inventory-reconciliation.md) | Authority, mock DB validation, mapping rejection examples and launch boundary                                     |
 | [Research decision 005](adr/005-opening-stock-and-product-images.md)    | Open comparison of Excel intake, PostgreSQL opening entry and product-image storage                               |
@@ -33,8 +34,8 @@ Planning baseline: 6 October 2026; updated with owner constraints. Target: 10 De
 | [SQL migration runbook](sql-migrations.md)                              | Implemented R06 commands, verified Prisma adoption, ownership and recovery                                        |
 | [R06 SQL evidence](evidence/r06-sql-baseline.md)                        | Local upgrade, mismatch, concurrency and backup/restore verification                                              |
 | [ADR 004](adr/004-sql-migration-baseline.md)                            | Selected transactional pgx SQL runner and baseline policy                                                         |
-| [Architecture & Go layout](architecture.md)                             | Implemented unified Go root, Templ SSR components, isolated harnesses and limits  |
-| [Scaling and load management](scaling-and-load-management.md)           | Architectural specification and operational guide for production scaling, pooling and SSR performance |
+| [Architecture & Go layout](architecture.md)                             | Implemented unified Go root, Templ SSR components, isolated harnesses and limits                                  |
+| [Scaling and load management](scaling-and-load-management.md)           | Architectural specification and operational guide for production scaling, pooling and SSR performance             |
 | [ADR 002](adr/002-go-backend-and-vanilla-frontend.md)                   | Accepted Go/vanilla direction and proposed technical defaults                                                     |
 | [ADR 001](adr/001-runtime-and-messaging.md)                             | Proposed runtime and messaging boundaries                                                                         |
 
