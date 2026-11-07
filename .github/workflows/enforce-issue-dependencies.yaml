@@ -132,13 +132,15 @@ jobs:
                 .map(b => `- **[#${b.number} - ${b.title}](${b.url})** (Status: \`OPEN\`)`)
                 .join('\n');
 
-              const commentBody = `> [!WARNING]
-> ### Issue Closure Blocked
-> **Issue #${issueNumber}** was automatically reopened because it is blocked by **${openBlockers.length} unresolved dependency issue(s)**:
->
-${blockerLines}
->
-> In accordance with project dependency rules, all blocking issues must be resolved and closed before this issue can be closed.`;
+              const commentBody = [
+                '> [!WARNING]',
+                '> ### Issue Closure Blocked',
+                `> **Issue #${issueNumber}** was automatically reopened because it is blocked by **${openBlockers.length} unresolved dependency issue(s)**:`,
+                '>',
+                blockerLines,
+                '>',
+                '> In accordance with project dependency rules, all blocking issues must be resolved and closed before this issue can be closed.'
+              ].join('\n');
 
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
