@@ -27,15 +27,15 @@ const (
 )
 
 var (
-	ErrQuoteNotFound             = errors.New("delivery quote not found")
-	ErrQuoteExpired              = errors.New("delivery quote has expired")
-	ErrQuoteConflict             = errors.New("delivery quote version conflict")
-	ErrQuoteNotPending           = errors.New("delivery quote is not pending")
-	ErrInvalidQuote              = errors.New("invalid delivery quote parameters")
-	ErrDeliveryQuoteUnaccepted   = errors.New("delivery quote must be accepted before payment")
-	ErrPayableMismatch           = errors.New("payable item and transport snapshots do not reconcile")
-	ErrOrderNotFound             = errors.New("order not found")
-	ErrOrderNotPending           = errors.New("order is not in pending state")
+	ErrQuoteNotFound           = errors.New("delivery quote not found")
+	ErrQuoteExpired            = errors.New("delivery quote has expired")
+	ErrQuoteConflict           = errors.New("delivery quote version conflict")
+	ErrQuoteNotPending         = errors.New("delivery quote is not pending")
+	ErrInvalidQuote            = errors.New("invalid delivery quote parameters")
+	ErrDeliveryQuoteUnaccepted = errors.New("delivery quote must be accepted before payment")
+	ErrPayableMismatch         = errors.New("payable item and transport snapshots do not reconcile")
+	ErrOrderNotFound           = errors.New("order not found")
+	ErrOrderNotPending         = errors.New("order is not in pending state")
 )
 
 // DeliveryQuote is the domain model corresponding to public.delivery_quote.

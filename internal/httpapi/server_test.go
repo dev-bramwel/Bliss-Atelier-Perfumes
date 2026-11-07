@@ -549,4 +549,3 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 		t.Fatalf("expected rejected status, got %s", rejectResp.Quote.Status)
 	}
 }
-

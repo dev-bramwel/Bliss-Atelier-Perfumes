@@ -727,4 +727,3 @@ func TestConfirmPaymentDeliveryQuoteGate(t *testing.T) {
 		t.Fatalf("expected order PAID, got %+v (err: %v)", ord, err)
 	}
 }
-

@@ -499,4 +499,3 @@ func TestGenerateSchemaV4(t *testing.T) {
 	}
 	t.Log("Successfully generated schema-v4.json")
 }
-
