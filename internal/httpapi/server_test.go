@@ -273,12 +273,25 @@ func TestOrderRoutes(t *testing.T) {
 		t.Fatalf("GET /orders/unknown/payment-status: expected 404, got %d", w.Code)
 	}
 
-	// 5. GET /api/orders/ord-test-123
+	// 5. GET /api/orders/ord-test-123 (sanitized non-PII order inspection)
 	req = httptest.NewRequest("GET", "/api/orders/ord-test-123", nil)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("GET /api/orders/ord-test-123: expected 200, got %d", w.Code)
+	}
+	var getResp struct {
+		Order map[string]any `json:"order"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("failed to decode get order response: %v", err)
+	}
+	if getResp.Order["id"] != "ord-test-123" {
+		t.Fatalf("expected order id ord-test-123, got %v", getResp.Order["id"])
+	}
+	if getResp.Order["customer_name"] != nil || getResp.Order["customer_phone"] != nil ||
+		getResp.Order["delivery_location"] != nil || getResp.Order["notes"] != nil {
+		t.Fatalf("GET /api/orders/{id} leaked customer PII: %v", getResp.Order)
 	}
 
 	// 6. GET /orders/unknown
