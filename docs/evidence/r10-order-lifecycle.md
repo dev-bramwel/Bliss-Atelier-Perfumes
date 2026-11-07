@@ -28,11 +28,14 @@ Verification environment: Disposable local PostgreSQL 16 container, Docker Core 
    - If 0 rows return, the reservation was already processed, ensuring holds are never released twice even under repeated sequential or concurrent invocations.
    - Releasing the reservation automatically restores available stock without mutating physical ledger tables.
    - `CancelOrder` manually cancels pending orders, safely releasing held stock and transitioning payment status to `FAILED` and fulfillment status to `cancelled`.
+   - Background worker (`cmd/worker`) runs automated 30-second expiry sweeps to guarantee abandoned checkouts never lock inventory indefinitely.
+   - Consistent lock ordering (`stock_reservation` first, then `"Order"`) is enforced across `ConfirmPayment`, `CancelOrder`, and `ReleaseExpired`, preventing deadlock cycles under concurrent payment confirmation and expiry sweeps.
 
 5. **Prompt Payment Confirmation & Immutable Ledger Sales**:
    - Timely payment confirmation marks the order `PAID`, commits the reservation (`status = 'committed'`), and records the `MpesaTransaction`.
    - Records the sale in the immutable stock ledger with an audited `stock_batch` (`kind = 'local_sale'`) and itemized negative delta `stock_entry` records.
    - Atomically decrements `catalog_product.stock` to reflect the completed sale, ensuring `catalog_product.stock == sum(e.delta)` and allowing owner approval renewals to succeed uninterrupted.
+   - `catalog.Store.Apply` verifies active unexpired holds before recording offline sales or reconciliations, preventing operator adjustments from overselling reserved inventory.
 
 6. **Concurrency Protection Against Overselling**:
    - Concurrency tests simulate 10 parallel goroutines competing for the final 1 unit of stock.
@@ -44,11 +47,11 @@ Verification environment: Disposable local PostgreSQL 16 container, Docker Core 
    - Payment confirmation returns `ErrLatePaymentResolution` and records an M-Pesa transaction with status `'LATE_PAID'`.
    - Unreserved stock is never fulfilled silently.
 
-8. **HTTP Service Routes**:
+8. **HTTP Service Routes & PII Authorization Boundaries**:
    - `POST /orders` and `POST /api/orders`: Validates customer info and items, reserves stock, creates order, and returns HTTP 201 Created with `{ "order": ..., "stkPush": null }`. Returns 400 for validation errors, 409 for insufficient stock / unopened items, and 503 if catalog stock control is unconfirmed.
-   - `GET /orders/{id}/payment-status` and `GET /api/orders/{id}/payment-status`: Public polling endpoint for checkout overlay returning payment status, fulfillment status, receipt number, and hold expiration. Returns 404 if not found.
+   - `GET /orders/{id}/payment-status` and `GET /api/orders/{id}/payment-status`: Public polling endpoint for checkout overlay returning payment status, fulfillment status, receipt number, and hold expiration without exposing customer PII. Returns 404 if not found.
    - `GET /orders/{id}` and `GET /api/orders/{id}`: Returns order details with snapshotted items. Returns 404 if not found.
-   - `GET /orders` and `GET /api/orders`: Returns recent orders for shop dashboard and fulfillment queue synchronization.
+   - Unauthenticated bulk order listings (`GET /orders`, `GET /api/orders`) are intentionally excluded from public routes to prevent customer personal information (names, phone numbers, delivery addresses, notes) from being scraped. Listing remains available internally via `OrderService.ListRecent`.
 
 ---
 

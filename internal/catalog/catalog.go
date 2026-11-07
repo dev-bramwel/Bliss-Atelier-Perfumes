@@ -188,6 +188,23 @@ func (s *Store) Apply(ctx context.Context, b Batch) (replayed bool, err error) {
 		if balance < 0 || balance > 1000000 {
 			return false, errors.New("insufficient stock or balance limit exceeded")
 		}
+		// If active checkout reservations exist, operator sales/reconciliations must not reduce stock below active holds
+		if b.Kind == "local_sale" || b.Kind == "reconcile" {
+			var hasTable bool
+			_ = tx.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasTable)
+			if hasTable {
+				var activeReserved int
+				_ = tx.QueryRow(ctx, `SELECT coalesce((
+					SELECT sum(ri.quantity)
+					FROM public.stock_reservation_item ri
+					JOIN public.stock_reservation r ON r.id = ri.reservation_id
+					WHERE ri.product_id = $1 AND r.status = 'active' AND r.expires_at > now()
+				), 0)`, l.ProductID).Scan(&activeReserved)
+				if balance < activeReserved {
+					return false, fmt.Errorf("insufficient unreserved stock for product %s (active holds: %d)", l.ProductID, activeReserved)
+				}
+			}
+		}
 		if _, err = tx.Exec(ctx, `UPDATE public.catalog_product SET stock=$2,opened=true WHERE id=$1`, l.ProductID, balance); err != nil {
 			return false, errors.New("stock update failed")
 		}

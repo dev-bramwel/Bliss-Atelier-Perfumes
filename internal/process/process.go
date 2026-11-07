@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
@@ -85,10 +86,39 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		defer listener.Close()
 		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
-		logger.Info("worker_idle", "mode", "foundation_no_jobs")
-		<-ctx.Done()
-		logger.Info("worker_stopped")
-		return nil
+		if orderStore == nil {
+			logger.Info("worker_idle", "mode", "no_database")
+			<-ctx.Done()
+			logger.Info("worker_stopped")
+			return nil
+		}
+		logger.Info("worker_started", "role", "reservation_expiry_sweep")
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		// Run immediate sweep on startup
+		if released, err := orderStore.ReleaseExpired(ctx, time.Now().UTC()); err != nil {
+			logger.Error("reservation_sweep_failed", "error", err.Error())
+		} else if released > 0 {
+			logger.Info("reservations_released", "count", released)
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Info("worker_stopped")
+				return nil
+			case <-ticker.C:
+				sweepCtx, cancel := context.WithTimeout(ctx, cfg.IOTimeout)
+				released, err := orderStore.ReleaseExpired(sweepCtx, time.Now().UTC())
+				cancel()
+				if err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error("reservation_sweep_failed", "error", err.Error())
+				} else if released > 0 {
+					logger.Info("reservations_released", "count", released)
+				}
+			}
+		}
 	default:
 		return errors.New("unknown command")
 	}

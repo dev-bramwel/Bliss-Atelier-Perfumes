@@ -128,10 +128,11 @@ func TestShutdownDeadlineClosesConnections(t *testing.T) {
 }
 
 type mockOrderService struct {
-	createFn func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
-	getFn    func(ctx context.Context, orderID string) (*orders.Order, error)
-	statusFn func(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
-	recentFn func(ctx context.Context, limit int) ([]orders.Order, error)
+	createFn  func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
+	getFn     func(ctx context.Context, orderID string) (*orders.Order, error)
+	statusFn  func(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
+	releaseFn func(ctx context.Context, now time.Time) (int, error)
+	recentFn  func(ctx context.Context, limit int) ([]orders.Order, error)
 }
 
 func (m *mockOrderService) CreateOrder(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
@@ -153,6 +154,13 @@ func (m *mockOrderService) GetPaymentStatus(ctx context.Context, orderID string)
 		return m.statusFn(ctx, orderID)
 	}
 	return nil, orders.ErrOrderNotFound
+}
+
+func (m *mockOrderService) ReleaseExpired(ctx context.Context, now time.Time) (int, error) {
+	if m.releaseFn != nil {
+		return m.releaseFn(ctx, now)
+	}
+	return 0, nil
 }
 
 func (m *mockOrderService) ListRecent(ctx context.Context, limit int) ([]orders.Order, error) {
@@ -281,11 +289,11 @@ func TestOrderRoutes(t *testing.T) {
 		t.Fatalf("GET /orders/unknown: expected 404, got %d", w.Code)
 	}
 
-	// 7. GET /api/orders
+	// 7. GET /api/orders must not be allowed (PII protection; method not allowed)
 	req = httptest.NewRequest("GET", "/api/orders", nil)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatalf("GET /api/orders: expected 200, got %d", w.Code)
+	if w.Code != http.StatusMethodNotAllowed && w.Code != http.StatusNotFound {
+		t.Fatalf("GET /api/orders should not be allowed: expected 404 or 405, got %d", w.Code)
 	}
 }

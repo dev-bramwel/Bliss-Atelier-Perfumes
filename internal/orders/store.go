@@ -321,8 +321,8 @@ func (s *Store) ReleaseExpired(ctx context.Context, now time.Time) (int, error) 
 	}
 	defer rollback(tx)
 
-	// Select active expired reservations with row locks
-	rows, err := tx.Query(ctx, `SELECT id, order_id FROM public.stock_reservation WHERE status = $1 AND expires_at <= $2 FOR UPDATE SKIP LOCKED`,
+	// Select active expired reservations with row locks in deterministic order
+	rows, err := tx.Query(ctx, `SELECT id, order_id FROM public.stock_reservation WHERE status = $1 AND expires_at <= $2 ORDER BY id FOR UPDATE SKIP LOCKED`,
 		ReservationActive, now)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query expired reservations: %w", err)
@@ -389,6 +389,16 @@ func (s *Store) CancelOrder(ctx context.Context, orderID string) error {
 	}
 	defer rollback(tx)
 
+	now := time.Now().UTC()
+
+	// Acquire locks in consistent order: stock_reservation first, then Order
+	var resID string
+	var resStatus string
+	err = tx.QueryRow(ctx, `SELECT id, status FROM public.stock_reservation WHERE order_id = $1 FOR UPDATE`, orderID).Scan(&resID, &resStatus)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("failed to query reservation for order %s: %w", orderID, err)
+	}
+
 	var currentPaymentStatus string
 	err = tx.QueryRow(ctx, `SELECT "paymentStatus" FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&currentPaymentStatus)
 	if err != nil {
@@ -399,14 +409,6 @@ func (s *Store) CancelOrder(ctx context.Context, orderID string) error {
 	}
 	if currentPaymentStatus != PaymentPending {
 		return ErrOrderNotPending
-	}
-
-	now := time.Now().UTC()
-	var resID string
-	var resStatus string
-	err = tx.QueryRow(ctx, `SELECT id, status FROM public.stock_reservation WHERE order_id = $1 FOR UPDATE`, orderID).Scan(&resID, &resStatus)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("failed to query reservation for order %s: %w", orderID, err)
 	}
 
 	if resID != "" && resStatus == ReservationActive {
@@ -444,6 +446,22 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 	}
 	defer rollback(tx)
 
+	now := time.Now().UTC()
+
+	// Acquire locks in consistent order: stock_reservation first, then Order
+	var resID, resStatus string
+	err = tx.QueryRow(ctx, `SELECT id, status FROM public.stock_reservation WHERE order_id = $1 FOR UPDATE`, orderID).Scan(&resID, &resStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			var dummy string
+			if tx.QueryRow(ctx, `SELECT id FROM public."Order" WHERE id = $1`, orderID).Scan(&dummy) != nil {
+				return ErrOrderNotFound
+			}
+			return ErrReservationNotFound
+		}
+		return fmt.Errorf("failed to query reservation for order %s: %w", orderID, err)
+	}
+
 	var currentPaymentStatus string
 	err = tx.QueryRow(ctx, `SELECT "paymentStatus" FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&currentPaymentStatus)
 	if err != nil {
@@ -454,16 +472,6 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 	}
 	if currentPaymentStatus == PaymentPaid {
 		return nil // Idempotent duplicate success
-	}
-
-	now := time.Now().UTC()
-	var resID, resStatus string
-	err = tx.QueryRow(ctx, `SELECT id, status FROM public.stock_reservation WHERE order_id = $1 FOR UPDATE`, orderID).Scan(&resID, &resStatus)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrReservationNotFound
-		}
-		return fmt.Errorf("failed to query reservation for order %s: %w", orderID, err)
 	}
 
 	if resStatus == ReservationActive {

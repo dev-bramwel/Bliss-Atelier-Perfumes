@@ -25,6 +25,7 @@ type OrderService interface {
 	CreateOrder(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
 	GetOrder(ctx context.Context, orderID string) (*orders.Order, error)
 	GetPaymentStatus(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
+	ReleaseExpired(ctx context.Context, now time.Time) (int, error)
 	ListRecent(ctx context.Context, limit int) ([]orders.Order, error)
 }
 
@@ -173,31 +174,12 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			respond(w, 200, map[string]any{"order": order})
 		}
 
-		handleListOrders := func(w http.ResponseWriter, r *http.Request) {
-			if a.draining.Load() {
-				respond(w, 503, map[string]string{"error": "service draining"})
-				return
-			}
-			ctx, cancel := context.WithTimeout(r.Context(), timeout)
-			defer cancel()
-
-			orderList, err := orderStore.ListRecent(ctx, 50)
-			if err != nil {
-				slog.Error("list_orders_failed", "reason", err.Error())
-				respond(w, 500, map[string]string{"error": "internal error"})
-				return
-			}
-			respond(w, 200, map[string]any{"orders": orderList})
-		}
-
 		mux.HandleFunc("POST /orders", handleCreateOrder)
 		mux.HandleFunc("POST /api/orders", handleCreateOrder)
 		mux.HandleFunc("GET /orders/{id}/payment-status", handlePaymentStatus)
 		mux.HandleFunc("GET /api/orders/{id}/payment-status", handlePaymentStatus)
 		mux.HandleFunc("GET /orders/{id}", handleGetOrder)
 		mux.HandleFunc("GET /api/orders/{id}", handleGetOrder)
-		mux.HandleFunc("GET /orders", handleListOrders)
-		mux.HandleFunc("GET /api/orders", handleListOrders)
 	}
 
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
