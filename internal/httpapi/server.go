@@ -1,21 +1,31 @@
-// Package httpapi provides the foundation HTTP surface, not order/payment routes.
+// Package httpapi provides HTTP surfaces for health, catalog, and order lifecycles.
 package httpapi
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"log/slog"
 	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 )
 
 type Ping func(context.Context) error
+
 type Catalog interface {
 	Products(context.Context) ([]catalog.Product, error)
+}
+
+type OrderService interface {
+	CreateOrder(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
+	GetOrder(ctx context.Context, orderID string) (*orders.Order, error)
+	GetPaymentStatus(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
+	ListRecent(ctx context.Context, limit int) ([]orders.Order, error)
 }
 
 type API struct {
@@ -23,8 +33,20 @@ type API struct {
 	draining atomic.Bool
 }
 
-func New(address string, timeout time.Duration, ping Ping, catalogs ...Catalog) *API {
+func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	a := &API{}
+	var catalogStore Catalog
+	var orderStore OrderService
+
+	for _, d := range deps {
+		switch v := d.(type) {
+		case Catalog:
+			catalogStore = v
+		case OrderService:
+			orderStore = v
+		}
+	}
+
 	mux := http.NewServeMux()
 	respond := func(w http.ResponseWriter, code int, body any) {
 		w.Header().Set("Content-Type", "application/json")
@@ -32,15 +54,16 @@ func New(address string, timeout time.Duration, ping Ping, catalogs ...Catalog) 
 		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(body)
 	}
+
 	mux.HandleFunc("GET /catalog", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
-		if a.draining.Load() || len(catalogs) == 0 || catalogs[0] == nil {
+		if a.draining.Load() || catalogStore == nil {
 			respond(w, 503, map[string]string{"error": "catalog unavailable"})
 			return
 		}
-		products, err := catalogs[0].Products(ctx)
+		products, err := catalogStore.Products(ctx)
 		if err != nil {
 			slog.Warn("catalog_unavailable", "reason", err.Error())
 			respond(w, 503, map[string]string{"error": "catalog unavailable"})
@@ -48,6 +71,135 @@ func New(address string, timeout time.Duration, ping Ping, catalogs ...Catalog) 
 		}
 		respond(w, 200, map[string]any{"products": products})
 	})
+
+	if orderStore != nil {
+		handleCreateOrder := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			var req orders.CreateOrderRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				respond(w, 400, map[string]string{"error": "invalid json payload"})
+				return
+			}
+
+			order, err := orderStore.CreateOrder(ctx, req)
+			if err != nil {
+				switch {
+				case errors.Is(err, orders.ErrCatalogUnavailable):
+					respond(w, 503, map[string]string{"error": "catalog unavailable"})
+				case errors.Is(err, orders.ErrInsufficientStock):
+					respond(w, 409, map[string]string{"error": err.Error()})
+				case errors.Is(err, orders.ErrProductUnopened):
+					respond(w, 409, map[string]string{"error": err.Error()})
+				case errors.Is(err, orders.ErrProductNotFound):
+					respond(w, 404, map[string]string{"error": err.Error()})
+				case errors.Is(err, orders.ErrInvalidCustomer),
+					errors.Is(err, orders.ErrEmptyOrder),
+					errors.Is(err, orders.ErrTooManyItems),
+					errors.Is(err, orders.ErrInvalidQuantity),
+					errors.Is(err, orders.ErrMissingProductID),
+					errors.Is(err, orders.ErrDuplicateProduct),
+					errors.Is(err, orders.ErrPayOnDeliveryProhib),
+					errors.Is(err, orders.ErrInvalidPaymentMethod),
+					errors.Is(err, orders.ErrInvalidDeliveryOption):
+					respond(w, 400, map[string]string{"error": err.Error()})
+				default:
+					slog.Error("create_order_failed", "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+				}
+				return
+			}
+
+			respond(w, 201, map[string]any{
+				"order":   order,
+				"stkPush": nil,
+			})
+		}
+
+		handlePaymentStatus := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			id := r.PathValue("id")
+			if id == "" {
+				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			statusResp, err := orderStore.GetPaymentStatus(ctx, id)
+			if err != nil {
+				if errors.Is(err, orders.ErrOrderNotFound) {
+					respond(w, 404, map[string]string{"error": "order not found"})
+					return
+				}
+				slog.Error("payment_status_failed", "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			respond(w, 200, statusResp)
+		}
+
+		handleGetOrder := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			id := r.PathValue("id")
+			if id == "" {
+				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			order, err := orderStore.GetOrder(ctx, id)
+			if err != nil {
+				if errors.Is(err, orders.ErrOrderNotFound) {
+					respond(w, 404, map[string]string{"error": "order not found"})
+					return
+				}
+				slog.Error("get_order_failed", "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			respond(w, 200, map[string]any{"order": order})
+		}
+
+		handleListOrders := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			orderList, err := orderStore.ListRecent(ctx, 50)
+			if err != nil {
+				slog.Error("list_orders_failed", "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			respond(w, 200, map[string]any{"orders": orderList})
+		}
+
+		mux.HandleFunc("POST /orders", handleCreateOrder)
+		mux.HandleFunc("POST /api/orders", handleCreateOrder)
+		mux.HandleFunc("GET /orders/{id}/payment-status", handlePaymentStatus)
+		mux.HandleFunc("GET /api/orders/{id}/payment-status", handlePaymentStatus)
+		mux.HandleFunc("GET /orders/{id}", handleGetOrder)
+		mux.HandleFunc("GET /api/orders/{id}", handleGetOrder)
+		mux.HandleFunc("GET /orders", handleListOrders)
+		mux.HandleFunc("GET /api/orders", handleListOrders)
+	}
+
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"status": "Bliss Atelier API running"})
 	})
@@ -67,11 +219,20 @@ func New(address string, timeout time.Duration, ping Ping, catalogs ...Catalog) 
 		}
 		respond(w, 200, map[string]string{"status": "ready"})
 	})
-	a.server = &http.Server{Addr: address, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		mux.ServeHTTP(w, r)
-	}), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: timeout + 5*time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+
+	a.server = &http.Server{
+		Addr: address,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			mux.ServeHTTP(w, r)
+		}),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      timeout + 5*time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
 	return a
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/httpapi"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 )
 
 func Main(command string) {
@@ -51,6 +52,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 	}
 	var ping httpapi.Ping
 	var catalogStore httpapi.Catalog
+	var orderStore httpapi.OrderService
 	if cfg.DatabaseURL != "" {
 		pool, e := database.Open(ctx, cfg.DatabaseURL, cfg.MaxConnections, cfg.IOTimeout)
 		if e != nil {
@@ -66,6 +68,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return nil
 		}
 		catalogStore = &catalog.Store{Pool: pool}
+		orderStore = &orders.Store{Pool: pool}
 		ping = pool.Ping
 		if cfg.RequireSchema {
 			ping = func(ctx context.Context) error {
@@ -80,7 +83,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return errors.New("HTTP listener unavailable")
 		}
 		defer listener.Close()
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		logger.Info("worker_idle", "mode", "foundation_no_jobs")
 		<-ctx.Done()

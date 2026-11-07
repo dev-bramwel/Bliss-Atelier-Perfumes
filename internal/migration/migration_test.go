@@ -244,12 +244,13 @@ func TestDisposableMigrations(t *testing.T) {
 	t.Run("failed SQL rolls back DDL and ledger", func(t *testing.T) {
 		reset(t, pool)
 		run(t, pool, "init")
-		broken := append(steps(), step{3, `CREATE TABLE public.partial_change(id int); SELECT 1/0;`})
+		nextVer := int64(len(steps()) + 1)
+		broken := append(steps(), step{nextVer, `CREATE TABLE public.partial_change(id int); SELECT 1/0;`})
 		if _, err := execute(context.Background(), pool, "up", broken); err == nil {
 			t.Fatal("bad SQL accepted")
 		}
 		var clean bool
-		if err := pool.QueryRow(context.Background(), "SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=2 FROM public.bliss_schema_migrations)").Scan(&clean); err != nil || !clean {
+		if err := pool.QueryRow(context.Background(), fmt.Sprintf("SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=%d FROM public.bliss_schema_migrations)", len(steps()))).Scan(&clean); err != nil || !clean {
 			t.Fatalf("partial changes: %v", err)
 		}
 		run(t, pool, "up")
@@ -259,7 +260,8 @@ func TestDisposableMigrations(t *testing.T) {
 		legacy(t, pool, true)
 		run(t, pool, "adopt-legacy")
 		before := snapshot(t, pool)
-		forward := append(steps(), step{3, `COMMENT ON TABLE public."Order" IS 'compatible upgrade';`}, step{4, `COMMENT ON TABLE public."Order" IS 'forward repair';`})
+		nextVer := int64(len(steps()) + 1)
+		forward := append(steps(), step{nextVer, `COMMENT ON TABLE public."Order" IS 'compatible upgrade';`}, step{nextVer + 1, `COMMENT ON TABLE public."Order" IS 'forward repair';`})
 		for range 2 {
 			if _, err := execute(context.Background(), pool, "up", forward); err != nil {
 				t.Fatal(err)
@@ -269,7 +271,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal("forward repair changed legacy records/history")
 		}
 		var count int
-		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM public.bliss_schema_migrations").Scan(&count); err != nil || count != 4 {
+		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM public.bliss_schema_migrations").Scan(&count); err != nil || count != len(steps())+2 {
 			t.Fatalf("repair ledger: %v", err)
 		}
 		forward[1].sql += " -- changed after application"
@@ -282,7 +284,8 @@ func TestDisposableMigrations(t *testing.T) {
 		run(t, pool, "init")
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		slow := append(steps(), step{3, `CREATE TABLE public.partial_change(id int); SELECT pg_sleep(10);`})
+		nextVer := int64(len(steps()) + 1)
+		slow := append(steps(), step{nextVer, `CREATE TABLE public.partial_change(id int); SELECT pg_sleep(10);`})
 		if _, err := execute(ctx, pool, "up", slow); err == nil {
 			t.Fatal("cancellation ignored")
 		}
@@ -300,7 +303,7 @@ func TestDisposableMigrations(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 		var clean bool
-		if err := pool.QueryRow(context.Background(), "SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=2 FROM public.bliss_schema_migrations)").Scan(&clean); err != nil || !clean {
+		if err := pool.QueryRow(context.Background(), fmt.Sprintf("SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=%d FROM public.bliss_schema_migrations)", len(steps()))).Scan(&clean); err != nil || !clean {
 			t.Fatalf("cancel left partial changes: %v", err)
 		}
 	})

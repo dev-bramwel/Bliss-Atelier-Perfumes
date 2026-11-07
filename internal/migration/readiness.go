@@ -32,10 +32,10 @@ func RuntimeReady(ctx context.Context, pool *pgxpool.Pool) error {
 		return errors.New("schema unavailable")
 	}
 	expected := map[string]json.RawMessage{}
-	if json.Unmarshal([]byte(read("schema-v2.json")), &expected) != nil {
+	if json.Unmarshal([]byte(read("schema-v3.json")), &expected) != nil {
 		return errors.New("schema unavailable")
 	}
-	for _, name := range []string{"Order", "MpesaTransaction", "bliss_schema_migrations", "catalog_settings", "catalog_product", "stock_control", "stock_batch", "stock_entry", "stock_approval"} {
+	for _, name := range []string{"Order", "MpesaTransaction", "bliss_schema_migrations", "catalog_settings", "catalog_product", "stock_control", "stock_batch", "stock_entry", "stock_approval", "order_item", "stock_reservation", "stock_reservation_item", "order_fulfillment"} {
 		if !sameJSON(actual[name], expected[name]) {
 			return errors.New("schema unavailable")
 		}
