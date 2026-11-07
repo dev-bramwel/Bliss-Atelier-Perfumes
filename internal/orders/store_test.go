@@ -575,3 +575,70 @@ func TestActiveReservationPreventsOperatorSale(t *testing.T) {
 		t.Fatalf("expected insufficient unreserved stock error, got: %v", err)
 	}
 }
+
+func TestActiveReservationReflectedInCatalogAvailability(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	catStore := &catalog.Store{Pool: pool}
+	ctx := context.Background()
+
+	productID := "p9"
+	setupCatalogFixture(t, pool, productID, 1, true, nil)
+
+	// Before reservation: catalog reports product as available
+	products, err := catStore.Products(ctx)
+	if err != nil {
+		t.Fatalf("Products failed: %v", err)
+	}
+	var p9Available bool
+	for _, p := range products {
+		if p.ID == productID {
+			p9Available = p.Available
+			break
+		}
+	}
+	if !p9Available {
+		t.Fatalf("expected product %s to be available initially", productID)
+	}
+
+	// Customer reserves the single unit
+	req := validReq(productID, 1)
+	order, err := store.CreateOrder(ctx, req)
+	if err != nil {
+		t.Fatalf("CreateOrder failed: %v", err)
+	}
+
+	// After reservation: catalog must report product as unavailable
+	products, err = catStore.Products(ctx)
+	if err != nil {
+		t.Fatalf("Products failed: %v", err)
+	}
+	for _, p := range products {
+		if p.ID == productID {
+			p9Available = p.Available
+			break
+		}
+	}
+	if p9Available {
+		t.Fatalf("expected product %s to be unavailable when all stock is held by active reservation", productID)
+	}
+
+	// Release reservation: catalog must report product as available again
+	if err := store.CancelOrder(ctx, order.ID); err != nil {
+		t.Fatalf("CancelOrder failed: %v", err)
+	}
+
+	products, err = catStore.Products(ctx)
+	if err != nil {
+		t.Fatalf("Products failed: %v", err)
+	}
+	for _, p := range products {
+		if p.ID == productID {
+			p9Available = p.Available
+			break
+		}
+	}
+	if !p9Available {
+		t.Fatalf("expected product %s to become available again after reservation cancellation", productID)
+	}
+}

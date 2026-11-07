@@ -9,6 +9,7 @@ Verification environment: Disposable local PostgreSQL 16 container, Docker Core 
    - Order placement executes inside a single database transaction (`pgx.Tx`).
    - Catalog products are locked using deterministic alphabetical `ORDER BY id FOR UPDATE` ordering to serialize inventory deduction and eliminate deadlocks during concurrent checkouts.
    - Available stock is calculated dynamically as physical on-hand stock minus active unexpired reservations (`available = stock - active_reserved`).
+   - Catalog availability in `catalog.Store.Products` dynamically deducts active unexpired reservation holds (`available = stock - active_reserved > 0`), ensuring storefront shoppers do not see out-of-stock items as available when all on-hand units are held by active checkouts.
    - Physical on-hand stock (`catalog_product.stock`) remains untouched during temporary checkout holds, ensuring continuous ledger balance parity (`stock == sum(delta)`) and avoiding ledger mismatch warnings in `cmd/stock report` or `catalog.Store.Approve`.
    - A linked `stock_reservation` record is created with `status = 'active'` and `expires_at = now() + 15 minutes`, along with `stock_reservation_item` records capturing exact reserved quantities.
 

@@ -36,10 +36,25 @@ type Product struct {
 type Store struct{ Pool *pgxpool.Pool }
 
 func (s *Store) Products(ctx context.Context) ([]Product, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT p.id,p.slug,p.name,p.category,p.category_slug,p.gender,p.size,p.notes,p.description,p.images,
+	var hasResTable bool
+	_ = s.Pool.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasResTable)
+
+	availExpr := `(i.authority='replacement' AND coalesce(i.reconciled_until>now(),false) AND p.opened AND p.stock>0)`
+	if hasResTable {
+		availExpr = `(i.authority='replacement' AND coalesce(i.reconciled_until>now(),false) AND p.opened AND (p.stock - coalesce((
+			SELECT sum(ri.quantity)
+			FROM public.stock_reservation_item ri
+			JOIN public.stock_reservation r ON r.id = ri.reservation_id
+			WHERE ri.product_id = p.id AND r.status = 'active' AND r.expires_at > now()
+		), 0)) > 0)`
+	}
+
+	query := fmt.Sprintf(`SELECT p.id,p.slug,p.name,p.category,p.category_slug,p.gender,p.size,p.notes,p.description,p.images,
  coalesce(p.price_override_kes,c.common_price_kes),
- (i.authority='replacement' AND coalesce(i.reconciled_until>now(),false) AND p.opened AND p.stock>0)
- FROM public.catalog_product p CROSS JOIN public.catalog_settings c CROSS JOIN public.stock_control i ORDER BY length(p.id),p.id`)
+ %s
+ FROM public.catalog_product p CROSS JOIN public.catalog_settings c CROSS JOIN public.stock_control i ORDER BY length(p.id),p.id`, availExpr)
+
+	rows, err := s.Pool.Query(ctx, query)
 	if err != nil {
 		return nil, errors.New("catalog unavailable")
 	}

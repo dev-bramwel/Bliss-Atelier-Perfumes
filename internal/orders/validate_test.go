@@ -2,7 +2,9 @@ package orders
 
 import (
 	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestValidateCustomer(t *testing.T) {
@@ -167,5 +169,25 @@ func TestValidateItems(t *testing.T) {
 				t.Fatalf("ValidateItems() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateCustomerNotesUTF8Truncation(t *testing.T) {
+	// Multibyte characters (e.g. Swahili greeting with accents / 3-byte characters)
+	longNotes := strings.Repeat("Habari ya asubuhi! Karibu sana ✨. ", 50) // ~1700 bytes
+	input := CustomerInput{
+		Name:     "Fatuma Hassan",
+		Phone:    "254712345678",
+		Location: "Mombasa Old Town",
+		Notes:    longNotes,
+	}
+	if err := ValidateCustomer(&input); err != nil {
+		t.Fatalf("expected valid customer, got err: %v", err)
+	}
+	if !utf8.ValidString(input.Notes) {
+		t.Fatalf("truncated notes produced invalid UTF-8 string: %q", input.Notes)
+	}
+	if runes := []rune(input.Notes); len(runes) > 500 {
+		t.Fatalf("expected <= 500 runes, got %d", len(runes))
 	}
 }

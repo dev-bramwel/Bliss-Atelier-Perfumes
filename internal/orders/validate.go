@@ -46,8 +46,9 @@ func ValidateCustomer(c *CustomerInput) error {
 	}
 
 	c.Notes = strings.TrimSpace(c.Notes)
-	if len(c.Notes) > 500 {
-		c.Notes = c.Notes[:500]
+	runes := []rune(c.Notes)
+	if len(runes) > 500 {
+		c.Notes = string(runes[:500])
 	}
 	return nil
 }
