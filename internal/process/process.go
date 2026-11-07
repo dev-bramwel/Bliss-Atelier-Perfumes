@@ -10,12 +10,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/httpapi"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 )
 
 func Main(command string) {
@@ -51,6 +53,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 	}
 	var ping httpapi.Ping
 	var catalogStore httpapi.Catalog
+	var orderStore httpapi.OrderService
 	if cfg.DatabaseURL != "" {
 		pool, e := database.Open(ctx, cfg.DatabaseURL, cfg.MaxConnections, cfg.IOTimeout)
 		if e != nil {
@@ -66,6 +69,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return nil
 		}
 		catalogStore = &catalog.Store{Pool: pool}
+		orderStore = &orders.Store{Pool: pool}
 		ping = pool.Ping
 		if cfg.RequireSchema {
 			ping = func(ctx context.Context) error {
@@ -80,12 +84,41 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return errors.New("HTTP listener unavailable")
 		}
 		defer listener.Close()
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
-		logger.Info("worker_idle", "mode", "foundation_no_jobs")
-		<-ctx.Done()
-		logger.Info("worker_stopped")
-		return nil
+		if orderStore == nil {
+			logger.Info("worker_idle", "mode", "no_database")
+			<-ctx.Done()
+			logger.Info("worker_stopped")
+			return nil
+		}
+		logger.Info("worker_started", "role", "reservation_expiry_sweep")
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		// Run immediate sweep on startup
+		if released, err := orderStore.ReleaseExpired(ctx, time.Now().UTC()); err != nil {
+			logger.Error("reservation_sweep_failed", "error", err.Error())
+		} else if released > 0 {
+			logger.Info("reservations_released", "count", released)
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Info("worker_stopped")
+				return nil
+			case <-ticker.C:
+				sweepCtx, cancel := context.WithTimeout(ctx, cfg.IOTimeout)
+				released, err := orderStore.ReleaseExpired(sweepCtx, time.Now().UTC())
+				cancel()
+				if err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error("reservation_sweep_failed", "error", err.Error())
+				} else if released > 0 {
+					logger.Info("reservations_released", "count", released)
+				}
+			}
+		}
 	default:
 		return errors.New("unknown command")
 	}

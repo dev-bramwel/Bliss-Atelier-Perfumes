@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 )
 
 func TestHealth(t *testing.T) {
@@ -120,5 +124,209 @@ func TestShutdownDeadlineClosesConnections(t *testing.T) {
 	case <-requestDone:
 	case <-time.After(time.Second):
 		t.Fatal("connection stayed open")
+	}
+}
+
+type mockOrderService struct {
+	createFn  func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
+	getFn     func(ctx context.Context, orderID string) (*orders.Order, error)
+	statusFn  func(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
+	releaseFn func(ctx context.Context, now time.Time) (int, error)
+	recentFn  func(ctx context.Context, limit int) ([]orders.Order, error)
+}
+
+func (m *mockOrderService) CreateOrder(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
+	if m.createFn != nil {
+		return m.createFn(ctx, req)
+	}
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockOrderService) GetOrder(ctx context.Context, orderID string) (*orders.Order, error) {
+	if m.getFn != nil {
+		return m.getFn(ctx, orderID)
+	}
+	return nil, orders.ErrOrderNotFound
+}
+
+func (m *mockOrderService) GetPaymentStatus(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error) {
+	if m.statusFn != nil {
+		return m.statusFn(ctx, orderID)
+	}
+	return nil, orders.ErrOrderNotFound
+}
+
+func (m *mockOrderService) ReleaseExpired(ctx context.Context, now time.Time) (int, error) {
+	if m.releaseFn != nil {
+		return m.releaseFn(ctx, now)
+	}
+	return 0, nil
+}
+
+func (m *mockOrderService) ListRecent(ctx context.Context, limit int) ([]orders.Order, error) {
+	if m.recentFn != nil {
+		return m.recentFn(ctx, limit)
+	}
+	return []orders.Order{}, nil
+}
+
+func TestOrderRoutes(t *testing.T) {
+	mock := &mockOrderService{
+		createFn: func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
+			if len(req.Items) > 0 && req.Items[0].ID == "out-of-stock" {
+				return nil, orders.ErrInsufficientStock
+			}
+			return &orders.Order{
+				ID:                "ord-test-123",
+				CustomerName:      req.Customer.Name,
+				PaymentStatus:     orders.PaymentPending,
+				FulfillmentStatus: orders.FulfillmentUnfulfilled,
+				TotalKes:          5000,
+			}, nil
+		},
+		getFn: func(ctx context.Context, orderID string) (*orders.Order, error) {
+			if orderID == "ord-test-123" {
+				return &orders.Order{
+					ID:                "ord-test-123",
+					CustomerName:      "Alice",
+					PaymentStatus:     orders.PaymentPending,
+					FulfillmentStatus: orders.FulfillmentUnfulfilled,
+					TotalKes:          5000,
+				}, nil
+			}
+			return nil, orders.ErrOrderNotFound
+		},
+		statusFn: func(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error) {
+			if orderID == "ord-test-123" {
+				return &orders.PaymentStatusResponse{
+					OrderID:           "ord-test-123",
+					PaymentStatus:     orders.PaymentPending,
+					FulfillmentStatus: orders.FulfillmentUnfulfilled,
+				}, nil
+			}
+			return nil, orders.ErrOrderNotFound
+		},
+		recentFn: func(ctx context.Context, limit int) ([]orders.Order, error) {
+			return []orders.Order{
+				{ID: "ord-test-123", CustomerName: "Alice"},
+			}, nil
+		},
+	}
+
+	api := New("127.0.0.1:0", time.Second, nil, mock)
+
+	// 1. POST /api/orders success
+	validBody, _ := json.Marshal(map[string]any{
+		"customer": map[string]string{
+			"name":     "Alice Wanjiku",
+			"phone":    "254712345678",
+			"location": "Mombasa",
+			"delivery": "delivery",
+			"payment":  "pay_now",
+		},
+		"items": []map[string]any{
+			{"id": "p1", "qty": 2},
+		},
+	})
+	req := httptest.NewRequest("POST", "/api/orders", bytes.NewReader(validBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 201 {
+		t.Fatalf("POST /api/orders: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 2. POST /orders insufficient stock
+	oosBody, _ := json.Marshal(map[string]any{
+		"customer": map[string]string{
+			"name":     "Alice Wanjiku",
+			"phone":    "254712345678",
+			"location": "Mombasa",
+			"delivery": "delivery",
+			"payment":  "pay_now",
+		},
+		"items": []map[string]any{
+			{"id": "out-of-stock", "qty": 1},
+		},
+	})
+	req = httptest.NewRequest("POST", "/orders", bytes.NewReader(oosBody))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 409 {
+		t.Fatalf("POST /orders insufficient stock: expected 409, got %d", w.Code)
+	}
+
+	// 3. GET /api/orders/ord-test-123/payment-status
+	req = httptest.NewRequest("GET", "/api/orders/ord-test-123/payment-status", nil)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("GET /api/orders/ord-test-123/payment-status: expected 200, got %d", w.Code)
+	}
+
+	// 4. GET /orders/unknown/payment-status
+	req = httptest.NewRequest("GET", "/orders/unknown/payment-status", nil)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Fatalf("GET /orders/unknown/payment-status: expected 404, got %d", w.Code)
+	}
+
+	// 5. GET /api/orders/ord-test-123 (sanitized non-PII order inspection)
+	req = httptest.NewRequest("GET", "/api/orders/ord-test-123", nil)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("GET /api/orders/ord-test-123: expected 200, got %d", w.Code)
+	}
+	var getResp struct {
+		Order map[string]any `json:"order"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("failed to decode get order response: %v", err)
+	}
+	if getResp.Order["id"] != "ord-test-123" {
+		t.Fatalf("expected order id ord-test-123, got %v", getResp.Order["id"])
+	}
+	if getResp.Order["customer_name"] != nil || getResp.Order["customer_phone"] != nil ||
+		getResp.Order["delivery_location"] != nil || getResp.Order["notes"] != nil {
+		t.Fatalf("GET /api/orders/{id} leaked customer PII: %v", getResp.Order)
+	}
+
+	// 6. GET /orders/unknown
+	req = httptest.NewRequest("GET", "/orders/unknown", nil)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Fatalf("GET /orders/unknown: expected 404, got %d", w.Code)
+	}
+
+	// 7. GET /api/orders must not be allowed (PII protection; method not allowed)
+	req = httptest.NewRequest("GET", "/api/orders", nil)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != http.StatusMethodNotAllowed && w.Code != http.StatusNotFound {
+		t.Fatalf("GET /api/orders should not be allowed: expected 404 or 405, got %d", w.Code)
+	}
+
+	// 8. POST /api/orders rate limit throttles excessive order creations from same client
+	var throttled bool
+	for i := 0; i < 15; i++ {
+		req = httptest.NewRequest("POST", "/api/orders", bytes.NewReader(validBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "192.0.2.1:12345"
+		w = httptest.NewRecorder()
+		api.server.Handler.ServeHTTP(w, req)
+		if w.Code == http.StatusTooManyRequests {
+			throttled = true
+			if w.Header().Get("Retry-After") == "" {
+				t.Fatalf("expected Retry-After header on 429 response")
+			}
+			break
+		}
+	}
+	if !throttled {
+		t.Fatalf("expected excessive order creations to be throttled with 429 Too Many Requests")
 	}
 }

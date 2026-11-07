@@ -28,3 +28,4 @@ Reference documentation for the probe commands/images: [PostgreSQL image](https:
 
 - [R02 NCBA integration and onboarding](r02-ncba-onboarding.md): contract documentation, identifier isolation, and launch cutover gate.
 - [R09 database catalog and stock](r09-catalog-stock.md): local tests, replacement policy and remaining real opening-count gate.
+- [R10 stock reservations and order lifecycle](r10-order-lifecycle.md): atomic 15-minute holds, snapshotted items, concurrency protections, and late-payment resolution.

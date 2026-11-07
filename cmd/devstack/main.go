@@ -143,7 +143,10 @@ func migrate() error {
 	predicate := migration.LedgerPredicate()
 	sql := `GRANT USAGE ON SCHEMA public TO bliss_runtime;
  GRANT SELECT,INSERT,UPDATE,DELETE ON public."Order",public."MpesaTransaction" TO bliss_runtime;
- GRANT SELECT ON public.catalog_product,public.catalog_settings,public.stock_control TO bliss_runtime;
+ GRANT SELECT,INSERT,UPDATE,DELETE ON public.order_item,public.stock_reservation,public.stock_reservation_item,public.order_fulfillment TO bliss_runtime;
+ GRANT SELECT,UPDATE(stock) ON public.catalog_product TO bliss_runtime;
+ GRANT SELECT ON public.catalog_settings,public.stock_control TO bliss_runtime;
+ GRANT INSERT ON public.stock_batch,public.stock_entry TO bliss_runtime;
  CREATE SCHEMA IF NOT EXISTS bliss_ops;
  REVOKE ALL ON SCHEMA bliss_ops FROM PUBLIC;
  GRANT USAGE ON SCHEMA bliss_ops TO bliss_runtime;
@@ -160,6 +163,13 @@ func migrate() error {
    GRANT SELECT ON public.catalog_product,public.catalog_settings,public.stock_control TO bliss_catalog;
    GRANT USAGE ON SCHEMA bliss_ops TO bliss_catalog;
    GRANT EXECUTE ON FUNCTION bliss_ops.schema_ready() TO bliss_catalog;
+  END IF;
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_stock_operator') THEN
+   GRANT USAGE ON SCHEMA public TO bliss_stock_operator;
+   GRANT SELECT ON public.catalog_product,public.stock_control,public.stock_batch,public.stock_entry,public.stock_approval,public.stock_reservation,public.stock_reservation_item TO bliss_stock_operator;
+   GRANT UPDATE(stock,opened) ON public.catalog_product TO bliss_stock_operator;
+   GRANT UPDATE ON public.stock_control TO bliss_stock_operator;
+   GRANT INSERT ON public.stock_batch,public.stock_entry,public.stock_approval TO bliss_stock_operator;
   END IF;
  END $$;`
 	if _, err = pool.Exec(ctx, sql); err != nil {

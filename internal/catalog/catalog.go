@@ -36,10 +36,25 @@ type Product struct {
 type Store struct{ Pool *pgxpool.Pool }
 
 func (s *Store) Products(ctx context.Context) ([]Product, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT p.id,p.slug,p.name,p.category,p.category_slug,p.gender,p.size,p.notes,p.description,p.images,
+	var hasResTable bool
+	_ = s.Pool.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasResTable)
+
+	availExpr := `(i.authority='replacement' AND coalesce(i.reconciled_until>now(),false) AND p.opened AND p.stock>0)`
+	if hasResTable {
+		availExpr = `(i.authority='replacement' AND coalesce(i.reconciled_until>now(),false) AND p.opened AND (p.stock - coalesce((
+			SELECT sum(ri.quantity)
+			FROM public.stock_reservation_item ri
+			JOIN public.stock_reservation r ON r.id = ri.reservation_id
+			WHERE ri.product_id = p.id AND r.status = 'active' AND r.expires_at > now()
+		), 0)) > 0)`
+	}
+
+	query := fmt.Sprintf(`SELECT p.id,p.slug,p.name,p.category,p.category_slug,p.gender,p.size,p.notes,p.description,p.images,
  coalesce(p.price_override_kes,c.common_price_kes),
- (i.authority='replacement' AND coalesce(i.reconciled_until>now(),false) AND p.opened AND p.stock>0)
- FROM public.catalog_product p CROSS JOIN public.catalog_settings c CROSS JOIN public.stock_control i ORDER BY length(p.id),p.id`)
+ %s
+ FROM public.catalog_product p CROSS JOIN public.catalog_settings c CROSS JOIN public.stock_control i ORDER BY length(p.id),p.id`, availExpr)
+
+	rows, err := s.Pool.Query(ctx, query)
 	if err != nil {
 		return nil, errors.New("catalog unavailable")
 	}
@@ -187,6 +202,27 @@ func (s *Store) Apply(ctx context.Context, b Batch) (replayed bool, err error) {
 		balance := stock + delta
 		if balance < 0 || balance > 1000000 {
 			return false, errors.New("insufficient stock or balance limit exceeded")
+		}
+		// If stock is reduced by sales, reconciliations or negative adjustments, protect active checkout holds
+		if b.Kind == "local_sale" || b.Kind == "reconcile" || (b.Kind == "adjustment" && delta < 0) {
+			var hasTable bool
+			if err := tx.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasTable); err != nil {
+				return false, fmt.Errorf("failed to check reservation schema: %w", err)
+			}
+			if hasTable {
+				var activeReserved int
+				if err := tx.QueryRow(ctx, `SELECT coalesce((
+					SELECT sum(ri.quantity)
+					FROM public.stock_reservation_item ri
+					JOIN public.stock_reservation r ON r.id = ri.reservation_id
+					WHERE ri.product_id = $1 AND r.status = 'active' AND r.expires_at > now()
+				), 0)`, l.ProductID).Scan(&activeReserved); err != nil {
+					return false, fmt.Errorf("failed to query active reservation holds: %w", err)
+				}
+				if balance < activeReserved {
+					return false, fmt.Errorf("insufficient unreserved stock for product %s (active holds: %d)", l.ProductID, activeReserved)
+				}
+			}
 		}
 		if _, err = tx.Exec(ctx, `UPDATE public.catalog_product SET stock=$2,opened=true WHERE id=$1`, l.ProductID, balance); err != nil {
 			return false, errors.New("stock update failed")

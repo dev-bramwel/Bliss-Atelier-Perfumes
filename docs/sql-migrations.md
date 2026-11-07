@@ -47,7 +47,12 @@ After `init`, before starting Express or another runtime, the table owner or dat
 \set runtime_role bliss_runtime
 GRANT USAGE ON SCHEMA public TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE, DELETE
-  ON TABLE public."Order", public."MpesaTransaction" TO :"runtime_role";
+  ON TABLE public."Order", public."MpesaTransaction",
+           public.order_item, public.stock_reservation,
+           public.stock_reservation_item, public.order_fulfillment TO :"runtime_role";
+GRANT SELECT, UPDATE(stock) ON TABLE public.catalog_product TO :"runtime_role";
+GRANT SELECT ON TABLE public.catalog_settings, public.stock_control TO :"runtime_role";
+GRANT INSERT ON TABLE public.stock_batch, public.stock_entry TO :"runtime_role";
 
 -- For read-only storefront SSR processes requiring direct catalog access:
 \set catalog_role bliss_catalog
