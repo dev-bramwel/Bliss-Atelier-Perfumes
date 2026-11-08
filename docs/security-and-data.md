@@ -6,6 +6,29 @@ Status: target requirements, not a completed security audit. Applies to Go rewri
 
 Browser inputs, provider callbacks and broker messages are untrusted until validated. Never trust client totals, quantities, roles or payment status. Administrative use cases enforce owner/manager permissions server-side, including object ownership and audited mutations. Guest order references alone are not sufficient authorization; use scoped high-entropy tokens with expiry/rotation policy and store only token hashes where appropriate. Avoid tokens in URLs/logs where possible.
 
+### Guest token lifecycle and customer recovery
+
+1. **Token Generation**:
+   - Each order creation generates a cryptographically secure, 256-bit random token prefixed with `gt_` and formatted as 64 lowercase hex characters (`gt_<64 hex chars>`).
+   - The raw token is returned to the client in the order creation response payload once (`guest_token`). It is never stored in plaintext on disk or in the database.
+
+2. **Secure Hash Persistence**:
+   - Only the SHA-256 cryptographic hash of the token is stored in the relational table `public.guest_order_access` alongside `order_id`, `created_at`, `expires_at`, `revoked_at`, and `last_used_at`.
+   - The table links to `"Order"(id)` with foreign key cascade on delete, leaving legacy `"Order"` and `"MpesaTransaction"` table schemas untouched.
+
+3. **Expiration and Revocation Policy**:
+   - Guest tokens have a default lifetime of **30 days** (`expires_at = created_at + 30 days`).
+   - After expiration, or if explicitly revoked via `revoked_at`, guest requests return `403 Forbidden` (`access denied for this order`).
+   - Every successful authorization updates `last_used_at` to provide auditability for customer access patterns.
+
+4. **Customer Recovery Policy**:
+   - If a customer clears browser storage or loses their guest credential, they can contact Bliss Atelier customer support via official WhatsApp (`+254 700 000 000`) or email.
+   - Support operators verify ownership using out-of-band proofs:
+     - M-Pesa transaction receipt number (`mpesaReceiptNumber`).
+     - Customer phone number matched to order.
+     - Approximate order timestamp and items ordered.
+   - Once verified, support managers inspect the order using authenticated manager credentials (`X-Manager-Id`) and assist the customer directly with order fulfillment status or quote acceptance. Manager interfaces never disclose raw or hashed tokens.
+
 Choose admin authentication/session mechanism in an ADR before implementing it. For cookies: Secure, HttpOnly, appropriate SameSite, CSRF protection for mutations, logout/revocation and inactivity limits. Hash passwords with a reviewed modern password hashing library and parameters; no custom cryptography. Rate-limit login, order creation, payment prompts and lookup without allowing arbitrary client headers to bypass identity/IP controls. Only trust forwarded headers from known proxy hops.
 
 ## Payment controls

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -284,6 +285,19 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		}
 	}
 
+	// Generate high-entropy guest token and persist its SHA-256 hash (30-day lifetime)
+	rawGuestToken, tokenHash, err := GenerateGuestToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate guest token: %w", err)
+	}
+	tokenExpiresAt := now.Add(30 * 24 * time.Hour)
+	_, err = tx.Exec(ctx, `INSERT INTO public.guest_order_access (order_id, token_hash, created_at, expires_at)
+		VALUES ($1, $2, $3, $4)`,
+		orderID, tokenHash, now, tokenExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert guest order access: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
 	}
@@ -309,6 +323,7 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 			ExpiresAt: expiresAt,
 			CreatedAt: now,
 		},
+		GuestToken: rawGuestToken,
 	}, nil
 }
 
@@ -843,4 +858,33 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Order, error) {
 	}
 
 	return orderList, nil
+}
+
+// ValidateGuestAccess checks whether the supplied guest token authorizes access to orderID.
+func (s *Store) ValidateGuestAccess(ctx context.Context, orderID string, rawToken string) (bool, error) {
+	orderID = strings.TrimSpace(orderID)
+	rawToken = strings.TrimSpace(rawToken)
+	if orderID == "" || rawToken == "" || !ValidateTokenFormat(rawToken) {
+		return false, nil
+	}
+
+	tokenHash := HashToken(rawToken)
+	var isValid bool
+	err := s.Pool.QueryRow(ctx, `
+		SELECT (expires_at > now() AND revoked_at IS NULL)
+		FROM public.guest_order_access
+		WHERE order_id = $1 AND token_hash = $2
+	`, orderID, tokenHash).Scan(&isValid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to validate guest access: %w", err)
+	}
+	if isValid {
+		if _, execErr := s.Pool.Exec(ctx, `UPDATE public.guest_order_access SET last_used_at = now() WHERE order_id = $1 AND token_hash = $2`, orderID, tokenHash); execErr != nil {
+			slog.Warn("update_guest_access_last_used_failed", "order_id", orderID, "reason", execErr.Error())
+		}
+	}
+	return isValid, nil
 }

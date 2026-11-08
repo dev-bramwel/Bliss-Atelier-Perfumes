@@ -87,7 +87,11 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return errors.New("HTTP listener unavailable")
 		}
 		defer listener.Close()
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		secConfig := httpapi.SecurityConfig{
+			AllowedOrigins: cfg.AllowedOrigins,
+			TrustedProxies: cfg.TrustedProxies,
+		}
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		if orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")

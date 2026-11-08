@@ -28,6 +28,9 @@ var (
 	ErrDeliveryQuoteUnaccepted = errors.New("delivery quote must be accepted before payment")
 	ErrQuoteExpired            = errors.New("delivery quote has expired")
 	ErrPayableMismatch         = errors.New("payable item and transport snapshots do not reconcile")
+	ErrUnauthorizedGuest       = errors.New("unauthorized guest access")
+	ErrGuestTokenExpired       = errors.New("guest token has expired")
+	ErrPayloadTooLarge         = errors.New("request payload too large")
 )
 
 const (
@@ -104,6 +107,7 @@ type Order struct {
 	TotalKes          int               `json:"totalKes"`
 	Items             []OrderItem       `json:"items"`
 	Reservation       *StockReservation `json:"reservation,omitempty"`
+	GuestToken        string            `json:"guestToken,omitempty"`
 }
 
 type PaymentStatusResponse struct {

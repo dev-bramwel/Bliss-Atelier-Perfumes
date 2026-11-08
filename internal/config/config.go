@@ -20,6 +20,8 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	MaxConnections  int32
 	RequireSchema   bool
+	AllowedOrigins  []string
+	TrustedProxies  string
 }
 
 // Load uses separate GO_ settings so the legacy backend remains independent.
@@ -80,6 +82,14 @@ func Load(get func(string) string) (Config, error) {
 	if c.RequireSchema && c.DatabaseURL == "" {
 		return Config{}, errors.New("GO_REQUIRE_SCHEMA requires database configuration")
 	}
+	if v := get("GO_ALLOWED_ORIGINS"); v != "" {
+		for _, o := range strings.Split(v, ",") {
+			if s := strings.TrimSpace(o); s != "" {
+				c.AllowedOrigins = append(c.AllowedOrigins, s)
+			}
+		}
+	}
+	c.TrustedProxies = strings.TrimSpace(get("GO_TRUSTED_PROXIES"))
 	if c.DatabaseURL != "" {
 		u, e := url.Parse(c.DatabaseURL)
 		if e != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Hostname() == "" || strings.ContainsAny(u.Hostname(), "% /\\") || (net.ParseIP(u.Hostname()) == nil && !regexp.MustCompile(`^[a-zA-Z0-9.-]+$`).MatchString(u.Hostname())) || u.Path == "" || u.Path == "/" {
