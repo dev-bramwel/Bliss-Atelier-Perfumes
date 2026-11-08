@@ -756,3 +756,164 @@ func TestConfirmPaymentDeliveryQuoteGate(t *testing.T) {
 		t.Fatalf("expected order PAID, got %+v (err: %v)", ord, err)
 	}
 }
+
+func TestIdempotencyLifecycle(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	setupCatalogFixture(t, pool, "p1", 10, true, nil)
+	store := &Store{Pool: pool}
+
+	key := "idemp-key-test-1"
+	scope := "guest"
+	op := "create_order"
+	hash1 := CanonicalRequestHash([]byte(`{"items":[{"id":"p1","qty":1}]}`))
+	hash2 := CanonicalRequestHash([]byte(`{"items":[{"id":"p1","qty":2}]}`))
+
+	// 1. Initial BeginIdempotent: should allow new operation
+	rec, isReplay, err := store.BeginIdempotent(ctx, key, scope, op, hash1, time.Hour)
+	if err != nil || isReplay || rec == nil || rec.Status != IdempotencyInProgress {
+		t.Fatalf("expected initial BeginIdempotent to succeed, got rec=%+v, replay=%v, err=%v", rec, isReplay, err)
+	}
+
+	// 2. Concurrent request with same key while in_progress: must return ErrIdempotencyInProgress
+	_, _, err = store.BeginIdempotent(ctx, key, scope, op, hash1, time.Hour)
+	if !errors.Is(err, ErrIdempotencyInProgress) {
+		t.Fatalf("expected ErrIdempotencyInProgress for concurrent call, got %v", err)
+	}
+
+	// 3. Complete the operation
+	err = store.CompleteIdempotent(ctx, key, scope, op, 201, map[string]string{"Content-Type": "application/json"}, `{"orderId":"ord-123"}`, "ord-123")
+	if err != nil {
+		t.Fatalf("failed to complete idempotency key: %v", err)
+	}
+
+	// 4. Identical replay: same hash must return isReplay=true with cached body
+	recReplay, isReplay, err := store.BeginIdempotent(ctx, key, scope, op, hash1, time.Hour)
+	if err != nil || !isReplay || recReplay.StatusCode != 201 || recReplay.ResponseBody != `{"orderId":"ord-123"}` {
+		t.Fatalf("expected successful replay, got rec=%+v, replay=%v, err=%v", recReplay, isReplay, err)
+	}
+
+	// 5. Changed payload: different hash must return ErrIdempotencyConflict (HTTP 409)
+	_, _, err = store.BeginIdempotent(ctx, key, scope, op, hash2, time.Hour)
+	if !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("expected ErrIdempotencyConflict on changed body, got %v", err)
+	}
+
+	// 5b. Calling FailIdempotent on an already completed key must NOT downgrade it to failed
+	err = store.FailIdempotent(ctx, key, scope, op)
+	if err != nil {
+		t.Fatalf("FailIdempotent returned error: %v", err)
+	}
+	recAfterFail, isReplay, err := store.BeginIdempotent(ctx, key, scope, op, hash1, time.Hour)
+	if err != nil || !isReplay || recAfterFail.Status != IdempotencyCompleted {
+		t.Fatalf("expected completed key to remain completed despite FailIdempotent call, got %+v (replay=%v, err=%v)", recAfterFail, isReplay, err)
+	}
+
+	// 6. Failed operation handling: when marked failed, subsequent request with that key can retry
+	failKey := "idemp-fail-key"
+	_, _, err = store.BeginIdempotent(ctx, failKey, scope, op, hash1, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.FailIdempotent(ctx, failKey, scope, op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryRec, isReplay, err := store.BeginIdempotent(ctx, failKey, scope, op, hash1, time.Hour)
+	if err != nil || isReplay || retryRec.Status != IdempotencyInProgress {
+		t.Fatalf("expected failed key to permit retry, got rec=%+v, replay=%v, err=%v", retryRec, isReplay, err)
+	}
+}
+
+func TestPaymentAttemptLifecycleAndExplicitRetry(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	setupCatalogFixture(t, pool, "p1", 10, true, nil)
+	store := &Store{Pool: pool}
+
+	// 1. Create order
+	req := CreateOrderRequest{
+		Customer: CustomerInput{
+			Name:     "Bob Test",
+			Phone:    "254711223344",
+			Location: "Mombasa Nyali",
+			Delivery: "pickup",
+			Payment:  "pay_now",
+		},
+		Items: []ItemInput{
+			{ID: "p1", Qty: 1},
+		},
+	}
+	order, err := store.CreateOrder(ctx, req)
+	if err != nil {
+		t.Fatalf("failed to create order: %v", err)
+	}
+
+	// Verify order has initial attempt #1
+	if order.LatestAttempt == nil {
+		t.Fatal("expected order to have LatestAttempt populated")
+	}
+	if order.LatestAttempt.AttemptNumber != 1 || order.LatestAttempt.Status != AttemptCreated {
+		t.Fatalf("unexpected initial attempt: %+v", order.LatestAttempt)
+	}
+
+	// 2. Query attempts
+	attempts, err := store.GetPaymentAttempts(ctx, order.ID)
+	if err != nil || len(attempts) != 1 {
+		t.Fatalf("expected 1 payment attempt, got %d (err: %v)", len(attempts), err)
+	}
+
+	// 3. Mark attempt 1 as 'initiating'
+	err = store.UpdatePaymentAttempt(ctx, attempts[0].ID, AttemptInitiating, "TX12345", "REF67890", "")
+	if err != nil {
+		t.Fatalf("failed to update attempt: %v", err)
+	}
+
+	// 4. Attempt to create a second attempt while attempt 1 is active (initiating): must fail with ErrUnresolvedPaymentAttempt
+	_, err = store.CreatePaymentAttempt(ctx, order.ID, "254711223344", order.TotalKes, "mpesa_stk")
+	if !errors.Is(err, ErrUnresolvedPaymentAttempt) {
+		t.Fatalf("expected ErrUnresolvedPaymentAttempt while active attempt in-flight, got %v", err)
+	}
+
+	// 5. Mark attempt 1 as 'failed'
+	err = store.UpdatePaymentAttempt(ctx, attempts[0].ID, AttemptFailed, "", "", "User cancelled on phone")
+	if err != nil {
+		t.Fatalf("failed to mark attempt failed: %v", err)
+	}
+
+	// 6. Explicit retry creates attempt #2
+	att2, err := store.CreatePaymentAttempt(ctx, order.ID, "254711223344", order.TotalKes, "mpesa_stk")
+	if err != nil {
+		t.Fatalf("failed to create retry payment attempt: %v", err)
+	}
+	if att2.AttemptNumber != 2 || att2.Status != AttemptCreated {
+		t.Fatalf("expected attempt #2 created, got %+v", att2)
+	}
+
+	// 7. GetLatestPaymentAttempt returns attempt #2
+	latest, err := store.GetLatestPaymentAttempt(ctx, order.ID)
+	if err != nil || latest.ID != att2.ID || latest.AttemptNumber != 2 {
+		t.Fatalf("expected latest attempt to be #2, got %+v (err: %v)", latest, err)
+	}
+
+	// 8. Confirm payment for order
+	err = store.ConfirmPayment(ctx, order.ID, "MPESARECEIPT99", order.TotalKes)
+	if err != nil {
+		t.Fatalf("failed to confirm payment: %v", err)
+	}
+
+	// Verify that latest attempt was updated to SUCCEEDED with provider transaction ID
+	latestAfterPaid, err := store.GetLatestPaymentAttempt(ctx, order.ID)
+	if err != nil {
+		t.Fatalf("failed to get latest attempt after payment: %v", err)
+	}
+	if latestAfterPaid.Status != AttemptSucceeded || latestAfterPaid.ProviderTransactionID != "MPESARECEIPT99" {
+		t.Fatalf("expected latest attempt SUCCEEDED with receipt MPESARECEIPT99, got %+v", latestAfterPaid)
+	}
+
+	// 9. Retry on PAID order must fail with ErrOrderAlreadyPaid
+	_, err = store.CreatePaymentAttempt(ctx, order.ID, "254711223344", order.TotalKes, "mpesa_stk")
+	if !errors.Is(err, ErrOrderAlreadyPaid) {
+		t.Fatalf("expected ErrOrderAlreadyPaid on paid order, got %v", err)
+	}
+}

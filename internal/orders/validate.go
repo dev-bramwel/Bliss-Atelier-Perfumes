@@ -23,6 +23,16 @@ func containsDisallowedChars(s string, disallowNewlines bool) bool {
 	return false
 }
 
+// ValidatePhone validates and cleans a customer telephone number according to approved Kenyan/E.164 patterns.
+func ValidatePhone(phone string) (string, error) {
+	phone = strings.TrimSpace(phone)
+	cleaned := strings.ReplaceAll(strings.ReplaceAll(phone, "-", ""), " ", "")
+	if !phoneRegex.MatchString(cleaned) {
+		return "", ErrInvalidCustomer
+	}
+	return cleaned, nil
+}
+
 // ValidateCustomer validates customer input against required fields and approved business policies.
 func ValidateCustomer(c *CustomerInput) error {
 	c.Name = strings.TrimSpace(c.Name)

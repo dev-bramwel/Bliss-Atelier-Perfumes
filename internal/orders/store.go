@@ -298,6 +298,28 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		return nil, fmt.Errorf("failed to insert guest order access: %w", err)
 	}
 
+	// Insert initial payment_attempt row (attempt #1, status created)
+	var initialAttempt PaymentAttempt
+	err = tx.QueryRow(ctx, `
+		INSERT INTO public.payment_attempt (
+			order_id, attempt_number, amount_kes, phone, status, provider, created_at, updated_at
+		) VALUES ($1, 1, $2, $3, $4, 'mpesa_stk', $5, $5)
+		RETURNING id, order_id, attempt_number, amount_kes, phone, status, provider, created_at, updated_at
+	`, orderID, totalKes, req.Customer.Phone, AttemptCreated, now).Scan(
+		&initialAttempt.ID,
+		&initialAttempt.OrderID,
+		&initialAttempt.AttemptNumber,
+		&initialAttempt.AmountKes,
+		&initialAttempt.Phone,
+		&initialAttempt.Status,
+		&initialAttempt.Provider,
+		&initialAttempt.CreatedAt,
+		&initialAttempt.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert initial payment attempt: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
 	}
@@ -323,7 +345,8 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 			ExpiresAt: expiresAt,
 			CreatedAt: now,
 		},
-		GuestToken: rawGuestToken,
+		GuestToken:    rawGuestToken,
+		LatestAttempt: &initialAttempt,
 	}, nil
 }
 
@@ -378,6 +401,21 @@ func (s *Store) ReleaseExpired(ctx context.Context, now time.Time) (int, error) 
 			PaymentExpired, now, r.orderID, PaymentPending)
 		if err != nil {
 			return 0, fmt.Errorf("failed to update order %s payment status to EXPIRED: %w", r.orderID, err)
+		}
+
+		// Update latest payment attempt to FAILED (reservation expired)
+		_, err = tx.Exec(ctx, `
+			UPDATE public.payment_attempt
+			SET status = $1, error_message = 'stock reservation expired', updated_at = $2
+			WHERE id = (
+				SELECT id FROM public.payment_attempt
+				WHERE order_id = $3
+				ORDER BY attempt_number DESC
+				LIMIT 1
+			) AND status IN ('created', 'initiating')
+		`, AttemptFailed, now, r.orderID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to update payment attempt for expired order %s: %w", r.orderID, err)
 		}
 
 		// Update order_fulfillment to cancelled
@@ -438,6 +476,22 @@ func (s *Store) CancelOrder(ctx context.Context, orderID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to update order status to FAILED: %w", err)
 	}
+
+	// Update latest payment attempt to CANCELLED
+	_, err = tx.Exec(ctx, `
+		UPDATE public.payment_attempt
+		SET status = $1, error_message = 'order cancelled', updated_at = $2
+		WHERE id = (
+			SELECT id FROM public.payment_attempt
+			WHERE order_id = $3
+			ORDER BY attempt_number DESC
+			LIMIT 1
+		) AND status IN ('created', 'initiating')
+	`, AttemptCancelled, now, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update payment attempt on cancel: %w", err)
+	}
+
 	_, err = tx.Exec(ctx, `UPDATE public.order_fulfillment SET status = $1, updated_at = $2 WHERE order_id = $3`,
 		FulfillmentCancelled, now, orderID)
 	if err != nil {
@@ -544,6 +598,25 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2 WHERE id = $3`, PaymentPaid, now, orderID)
 		if err != nil {
 			return fmt.Errorf("failed to mark order %s as PAID: %w", orderID, err)
+		}
+
+		// Update latest payment attempt to SUCCEEDED
+		var provTxID *string
+		if receiptNumber != "" {
+			provTxID = &receiptNumber
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE public.payment_attempt
+			SET status = $1, provider_transaction_id = coalesce($2, provider_transaction_id), updated_at = $3
+			WHERE id = (
+				SELECT id FROM public.payment_attempt
+				WHERE order_id = $4
+				ORDER BY attempt_number DESC
+				LIMIT 1
+			)
+		`, AttemptSucceeded, provTxID, now, orderID)
+		if err != nil {
+			return fmt.Errorf("failed to update payment attempt to SUCCEEDED: %w", err)
 		}
 
 		// Record M-Pesa transaction if receipt is supplied
@@ -684,6 +757,25 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		}
 	}
 
+	// Update latest payment attempt to ACCEPTED with note
+	var lateProvTxID *string
+	if receiptNumber != "" {
+		lateProvTxID = &receiptNumber
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE public.payment_attempt
+		SET status = $1, provider_transaction_id = coalesce($2, provider_transaction_id), error_message = 'reservation hold expired before payment confirmation', updated_at = $3
+		WHERE id = (
+			SELECT id FROM public.payment_attempt
+			WHERE order_id = $4
+			ORDER BY attempt_number DESC
+			LIMIT 1
+		)
+	`, AttemptAccepted, lateProvTxID, now, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update payment attempt for late payment: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit late payment resolution: %w", err)
 	}
@@ -779,6 +871,46 @@ func (s *Store) GetPaymentStatus(ctx context.Context, orderID string) (*PaymentS
 	if expiresAt != nil && expiresAt.Before(time.Now().UTC()) && paymentStatus != PaymentPaid {
 		resp.IsExpired = true
 	}
+
+	// Query latest attempt and total attempts
+	var latest PaymentAttempt
+	var pTxID, pRefID, errMsg *string
+	var attemptsCount int
+	attemptErr := s.Pool.QueryRow(ctx, `
+		SELECT count(*) OVER(), id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, created_at, updated_at
+		FROM public.payment_attempt
+		WHERE order_id = $1
+		ORDER BY attempt_number DESC
+		LIMIT 1
+	`, orderID).Scan(
+		&attemptsCount,
+		&latest.ID,
+		&latest.OrderID,
+		&latest.AttemptNumber,
+		&latest.AmountKes,
+		&latest.Phone,
+		&latest.Status,
+		&latest.Provider,
+		&pTxID,
+		&pRefID,
+		&errMsg,
+		&latest.CreatedAt,
+		&latest.UpdatedAt,
+	)
+	if attemptErr == nil {
+		if pTxID != nil {
+			latest.ProviderTransactionID = *pTxID
+		}
+		if pRefID != nil {
+			latest.ProviderReferenceID = *pRefID
+		}
+		if errMsg != nil {
+			latest.ErrorMessage = *errMsg
+		}
+		resp.LatestAttempt = &latest
+		resp.AttemptsCount = attemptsCount
+	}
+
 	return resp, nil
 }
 
@@ -887,4 +1019,32 @@ func (s *Store) ValidateGuestAccess(ctx context.Context, orderID string, rawToke
 		}
 	}
 	return isValid, nil
+}
+
+// IssueGuestToken generates a fresh scoped guest token for an order, updates its persistent hash,
+// and returns the raw bearer token without saving the raw token in database storage.
+func (s *Store) IssueGuestToken(ctx context.Context, orderID string) (string, error) {
+	rawToken, tokenHash, err := GenerateGuestToken()
+	if err != nil {
+		return "", err
+	}
+	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE public.guest_order_access
+		SET token_hash = $1, created_at = now(), expires_at = $2
+		WHERE order_id = $3
+	`, tokenHash, expiresAt, orderID)
+	if err != nil {
+		return "", fmt.Errorf("failed to update guest token hash: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		_, err = s.Pool.Exec(ctx, `
+			INSERT INTO public.guest_order_access (order_id, token_hash, created_at, expires_at)
+			VALUES ($1, $2, now(), $3)
+		`, orderID, tokenHash, expiresAt)
+		if err != nil {
+			return "", fmt.Errorf("failed to insert guest token hash: %w", err)
+		}
+	}
+	return rawToken, nil
 }
