@@ -20,6 +20,9 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	MaxConnections  int32
 	RequireSchema   bool
+	AllowedOrigins  []string
+	TrustedProxies  string
+	ManagerSecret   string
 }
 
 // Load uses separate GO_ settings so the legacy backend remains independent.
@@ -79,6 +82,33 @@ func Load(get func(string) string) (Config, error) {
 	}
 	if c.RequireSchema && c.DatabaseURL == "" {
 		return Config{}, errors.New("GO_REQUIRE_SCHEMA requires database configuration")
+	}
+	if v := get("GO_ALLOWED_ORIGINS"); v != "" {
+		for _, o := range strings.Split(v, ",") {
+			if s := strings.TrimSpace(o); s != "" {
+				c.AllowedOrigins = append(c.AllowedOrigins, s)
+			}
+		}
+	}
+	c.TrustedProxies = strings.TrimSpace(get("GO_TRUSTED_PROXIES"))
+	c.ManagerSecret = strings.TrimSpace(get("GO_MANAGER_SECRET"))
+	if path := get("GO_MANAGER_SECRET_FILE"); path != "" {
+		if c.ManagerSecret != "" {
+			return Config{}, errors.New("set only one of GO_MANAGER_SECRET and GO_MANAGER_SECRET_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_MANAGER_SECRET_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_MANAGER_SECRET_FILE could not be read")
+		}
+		c.ManagerSecret = strings.TrimSpace(string(data))
+		if c.ManagerSecret == "" {
+			return Config{}, errors.New("GO_MANAGER_SECRET_FILE is empty")
+		}
 	}
 	if c.DatabaseURL != "" {
 		u, e := url.Parse(c.DatabaseURL)

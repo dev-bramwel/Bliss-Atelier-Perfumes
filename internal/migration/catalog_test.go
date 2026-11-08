@@ -188,7 +188,7 @@ func TestStockOperatorGrants(t *testing.T) {
 	execSQL(t, pool, "CREATE ROLE "+role+" NOLOGIN NOSUPERUSER NOINHERIT")
 	t.Cleanup(func() { execSQL(t, pool, "DROP OWNED BY "+role); execSQL(t, pool, "DROP ROLE "+role) })
 	execSQL(t, pool, `GRANT USAGE ON SCHEMA public TO `+role+`;
- GRANT SELECT ON public.catalog_product,public.stock_control,public.stock_batch,public.stock_entry,public.stock_approval TO `+role+`;
+ GRANT SELECT ON public.catalog_product,public.stock_control,public.stock_batch,public.stock_entry,public.stock_approval,public.stock_reservation,public.stock_reservation_item TO `+role+`;
  GRANT UPDATE(stock,opened) ON public.catalog_product TO `+role+`;
  GRANT UPDATE ON public.stock_control TO `+role+`;
  GRANT INSERT ON public.stock_batch,public.stock_entry,public.stock_approval TO `+role)

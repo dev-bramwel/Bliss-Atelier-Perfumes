@@ -244,12 +244,13 @@ func TestDisposableMigrations(t *testing.T) {
 	t.Run("failed SQL rolls back DDL and ledger", func(t *testing.T) {
 		reset(t, pool)
 		run(t, pool, "init")
-		broken := append(steps(), step{3, `CREATE TABLE public.partial_change(id int); SELECT 1/0;`})
+		nextVer := int64(len(steps()) + 1)
+		broken := append(steps(), step{nextVer, `CREATE TABLE public.partial_change(id int); SELECT 1/0;`})
 		if _, err := execute(context.Background(), pool, "up", broken); err == nil {
 			t.Fatal("bad SQL accepted")
 		}
 		var clean bool
-		if err := pool.QueryRow(context.Background(), "SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=2 FROM public.bliss_schema_migrations)").Scan(&clean); err != nil || !clean {
+		if err := pool.QueryRow(context.Background(), fmt.Sprintf("SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=%d FROM public.bliss_schema_migrations)", len(steps()))).Scan(&clean); err != nil || !clean {
 			t.Fatalf("partial changes: %v", err)
 		}
 		run(t, pool, "up")
@@ -259,7 +260,8 @@ func TestDisposableMigrations(t *testing.T) {
 		legacy(t, pool, true)
 		run(t, pool, "adopt-legacy")
 		before := snapshot(t, pool)
-		forward := append(steps(), step{3, `COMMENT ON TABLE public."Order" IS 'compatible upgrade';`}, step{4, `COMMENT ON TABLE public."Order" IS 'forward repair';`})
+		nextVer := int64(len(steps()) + 1)
+		forward := append(steps(), step{nextVer, `COMMENT ON TABLE public."Order" IS 'compatible upgrade';`}, step{nextVer + 1, `COMMENT ON TABLE public."Order" IS 'forward repair';`})
 		for range 2 {
 			if _, err := execute(context.Background(), pool, "up", forward); err != nil {
 				t.Fatal(err)
@@ -269,7 +271,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal("forward repair changed legacy records/history")
 		}
 		var count int
-		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM public.bliss_schema_migrations").Scan(&count); err != nil || count != 4 {
+		if err := pool.QueryRow(context.Background(), "SELECT count(*) FROM public.bliss_schema_migrations").Scan(&count); err != nil || count != len(steps())+2 {
 			t.Fatalf("repair ledger: %v", err)
 		}
 		forward[1].sql += " -- changed after application"
@@ -282,7 +284,8 @@ func TestDisposableMigrations(t *testing.T) {
 		run(t, pool, "init")
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		slow := append(steps(), step{3, `CREATE TABLE public.partial_change(id int); SELECT pg_sleep(10);`})
+		nextVer := int64(len(steps()) + 1)
+		slow := append(steps(), step{nextVer, `CREATE TABLE public.partial_change(id int); SELECT pg_sleep(10);`})
 		if _, err := execute(ctx, pool, "up", slow); err == nil {
 			t.Fatal("cancellation ignored")
 		}
@@ -300,7 +303,7 @@ func TestDisposableMigrations(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 		var clean bool
-		if err := pool.QueryRow(context.Background(), "SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=2 FROM public.bliss_schema_migrations)").Scan(&clean); err != nil || !clean {
+		if err := pool.QueryRow(context.Background(), fmt.Sprintf("SELECT to_regclass('public.partial_change') IS NULL AND (SELECT count(*)=%d FROM public.bliss_schema_migrations)", len(steps()))).Scan(&clean); err != nil || !clean {
 			t.Fatalf("cancel left partial changes: %v", err)
 		}
 	})
@@ -329,6 +332,38 @@ func TestDisposableMigrations(t *testing.T) {
 		}
 		if len(actual) != len(expected) {
 			t.Fatal("contract tables differ")
+		}
+		for name, body := range actual {
+			if !sameJSON(body, expected[name]) {
+				t.Errorf("contract differs: %s", name)
+			}
+		}
+	})
+	t.Run("approved v5 schema contract matches SQL", func(t *testing.T) {
+		reset(t, pool)
+		legacy(t, pool, false)
+		execSQL(t, pool, read("ledger.sql"))
+		for _, s := range steps()[1:] {
+			execSQL(t, pool, s.sql)
+		}
+		tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(context.Background())
+		if _, err = tx.Exec(context.Background(), "SET LOCAL search_path=pg_catalog,public"); err != nil {
+			t.Fatal(err)
+		}
+		actual, err := inspect(context.Background(), tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := map[string]json.RawMessage{}
+		if err = json.Unmarshal([]byte(read("schema-v5.json")), &expected); err != nil {
+			t.Fatal(err)
+		}
+		if len(actual) != len(expected) {
+			t.Fatalf("contract tables differ: got %d, expected %d", len(actual), len(expected))
 		}
 		for name, body := range actual {
 			if !sameJSON(body, expected[name]) {
@@ -430,4 +465,70 @@ func TestRecoveryFixture(t *testing.T) {
 	default:
 		t.Fatal("unknown recovery phase")
 	}
+}
+
+func TestGenerateSchemaV4(t *testing.T) {
+	if os.Getenv("GENERATE_SCHEMA_V4") != "1" {
+		t.Skip("schema generation not requested")
+	}
+	pool := testPool(t)
+	reset(t, pool)
+	legacy(t, pool, false)
+	execSQL(t, pool, read("ledger.sql"))
+	for _, s := range steps()[1:4] {
+		execSQL(t, pool, s.sql)
+	}
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "SET LOCAL search_path=pg_catalog,public"); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := inspect(context.Background(), tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.MarshalIndent(actual, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("schema-v4.json", b, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Successfully generated schema-v4.json")
+}
+
+func TestGenerateSchemaV5(t *testing.T) {
+	if os.Getenv("GENERATE_SCHEMA_V5") != "1" {
+		t.Skip("schema generation not requested")
+	}
+	pool := testPool(t)
+	reset(t, pool)
+	legacy(t, pool, false)
+	execSQL(t, pool, read("ledger.sql"))
+	for _, s := range steps()[1:] {
+		execSQL(t, pool, s.sql)
+	}
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "SET LOCAL search_path=pg_catalog,public"); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := inspect(context.Background(), tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.MarshalIndent(actual, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("schema-v5.json", b, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Successfully generated schema-v5.json")
 }
