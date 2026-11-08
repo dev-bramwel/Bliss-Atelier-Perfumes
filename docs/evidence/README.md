@@ -29,3 +29,6 @@ Reference documentation for the probe commands/images: [PostgreSQL image](https:
 - [R02 NCBA integration and onboarding](r02-ncba-onboarding.md): contract documentation, identifier isolation, and launch cutover gate.
 - [R09 database catalog and stock](r09-catalog-stock.md): local tests, replacement policy and remaining real opening-count gate.
 - [R10 stock reservations and order lifecycle](r10-order-lifecycle.md): atomic 15-minute holds, snapshotted items, concurrency protections, and late-payment resolution.
+- [R11 quoted delivery lifecycle](r11-quoted-delivery.md): manager quote creation, expiration, and customer acceptance/rejection.
+- [R12 HTTP validation and scoped guest access](r12-http-validation-guest-access.md): request size limits, CORS, rate limiting, and cryptographic guest tokens.
+- [R13 payment attempts and durable idempotency](r13-payment-attempts-idempotency.md): operation/caller-scoped idempotency keys, request hashing, multiple payment attempts, and safe retry rules.

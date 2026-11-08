@@ -343,7 +343,7 @@ func TestDisposableMigrations(t *testing.T) {
 		reset(t, pool)
 		legacy(t, pool, false)
 		execSQL(t, pool, read("ledger.sql"))
-		for _, s := range steps()[1:] {
+		for _, s := range steps()[1:5] {
 			execSQL(t, pool, s.sql)
 		}
 		tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
@@ -360,6 +360,38 @@ func TestDisposableMigrations(t *testing.T) {
 		}
 		expected := map[string]json.RawMessage{}
 		if err = json.Unmarshal([]byte(read("schema-v5.json")), &expected); err != nil {
+			t.Fatal(err)
+		}
+		if len(actual) != len(expected) {
+			t.Fatalf("contract tables differ: got %d, expected %d", len(actual), len(expected))
+		}
+		for name, body := range actual {
+			if !sameJSON(body, expected[name]) {
+				t.Errorf("contract differs: %s", name)
+			}
+		}
+	})
+	t.Run("approved v6 schema contract matches SQL", func(t *testing.T) {
+		reset(t, pool)
+		legacy(t, pool, false)
+		execSQL(t, pool, read("ledger.sql"))
+		for _, s := range steps()[1:] {
+			execSQL(t, pool, s.sql)
+		}
+		tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(context.Background())
+		if _, err = tx.Exec(context.Background(), "SET LOCAL search_path=pg_catalog,public"); err != nil {
+			t.Fatal(err)
+		}
+		actual, err := inspect(context.Background(), tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := map[string]json.RawMessage{}
+		if err = json.Unmarshal([]byte(read("schema-v6.json")), &expected); err != nil {
 			t.Fatal(err)
 		}
 		if len(actual) != len(expected) {
@@ -531,4 +563,37 @@ func TestGenerateSchemaV5(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log("Successfully generated schema-v5.json")
+}
+
+func TestGenerateSchemaV6(t *testing.T) {
+	if os.Getenv("GENERATE_SCHEMA_V6") != "1" {
+		t.Skip("schema generation not requested")
+	}
+	pool := testPool(t)
+	reset(t, pool)
+	legacy(t, pool, false)
+	execSQL(t, pool, read("ledger.sql"))
+	for _, s := range steps()[1:] {
+		execSQL(t, pool, s.sql)
+	}
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "SET LOCAL search_path=pg_catalog,public"); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := inspect(context.Background(), tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.MarshalIndent(actual, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("schema-v6.json", b, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Successfully generated schema-v6.json")
 }

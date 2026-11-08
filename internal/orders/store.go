@@ -298,6 +298,28 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		return nil, fmt.Errorf("failed to insert guest order access: %w", err)
 	}
 
+	// Insert initial payment_attempt row (attempt #1, status created)
+	var initialAttempt PaymentAttempt
+	err = tx.QueryRow(ctx, `
+		INSERT INTO public.payment_attempt (
+			order_id, attempt_number, amount_kes, phone, status, provider, created_at, updated_at
+		) VALUES ($1, 1, $2, $3, $4, 'mpesa_stk', $5, $5)
+		RETURNING id, order_id, attempt_number, amount_kes, phone, status, provider, created_at, updated_at
+	`, orderID, totalKes, req.Customer.Phone, AttemptCreated, now).Scan(
+		&initialAttempt.ID,
+		&initialAttempt.OrderID,
+		&initialAttempt.AttemptNumber,
+		&initialAttempt.AmountKes,
+		&initialAttempt.Phone,
+		&initialAttempt.Status,
+		&initialAttempt.Provider,
+		&initialAttempt.CreatedAt,
+		&initialAttempt.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert initial payment attempt: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
 	}
@@ -323,7 +345,8 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 			ExpiresAt: expiresAt,
 			CreatedAt: now,
 		},
-		GuestToken: rawGuestToken,
+		GuestToken:    rawGuestToken,
+		LatestAttempt: &initialAttempt,
 	}, nil
 }
 
@@ -779,6 +802,46 @@ func (s *Store) GetPaymentStatus(ctx context.Context, orderID string) (*PaymentS
 	if expiresAt != nil && expiresAt.Before(time.Now().UTC()) && paymentStatus != PaymentPaid {
 		resp.IsExpired = true
 	}
+
+	// Query latest attempt and total attempts
+	var latest PaymentAttempt
+	var pTxID, pRefID, errMsg *string
+	var attemptsCount int
+	attemptErr := s.Pool.QueryRow(ctx, `
+		SELECT count(*) OVER(), id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, created_at, updated_at
+		FROM public.payment_attempt
+		WHERE order_id = $1
+		ORDER BY attempt_number DESC
+		LIMIT 1
+	`, orderID).Scan(
+		&attemptsCount,
+		&latest.ID,
+		&latest.OrderID,
+		&latest.AttemptNumber,
+		&latest.AmountKes,
+		&latest.Phone,
+		&latest.Status,
+		&latest.Provider,
+		&pTxID,
+		&pRefID,
+		&errMsg,
+		&latest.CreatedAt,
+		&latest.UpdatedAt,
+	)
+	if attemptErr == nil {
+		if pTxID != nil {
+			latest.ProviderTransactionID = *pTxID
+		}
+		if pRefID != nil {
+			latest.ProviderReferenceID = *pRefID
+		}
+		if errMsg != nil {
+			latest.ErrorMessage = *errMsg
+		}
+		resp.LatestAttempt = &latest
+		resp.AttemptsCount = attemptsCount
+	}
+
 	return resp, nil
 }
 

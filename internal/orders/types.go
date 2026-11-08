@@ -7,30 +7,36 @@ import (
 )
 
 var (
-	ErrInvalidCustomer         = errors.New("invalid customer information")
-	ErrEmptyOrder              = errors.New("order must contain between 1 and 50 items")
-	ErrTooManyItems            = errors.New("order must contain between 1 and 50 items")
-	ErrInvalidQuantity         = errors.New("invalid item quantity")
-	ErrMissingProductID        = errors.New("each order item must include a valid product ID")
-	ErrDuplicateProduct        = errors.New("duplicate product in order")
-	ErrCatalogUnavailable      = errors.New("catalog unavailable")
-	ErrProductNotFound         = errors.New("product not found in catalog")
-	ErrProductUnopened         = errors.New("product has not been opened for sale")
-	ErrInsufficientStock       = errors.New("insufficient stock")
-	ErrOrderNotFound           = errors.New("order not found")
-	ErrOrderNotPending         = errors.New("order is not pending")
-	ErrReservationNotFound     = errors.New("reservation not found")
-	ErrReservationNotActive    = errors.New("reservation is not active")
-	ErrLatePaymentResolution   = errors.New("reservation expired; late payment requires explicit resolution")
-	ErrPayOnDeliveryProhib     = errors.New("payment on delivery is prohibited; verify payment before dispatch")
-	ErrInvalidPaymentMethod    = errors.New("invalid payment method")
-	ErrInvalidDeliveryOption   = errors.New("invalid delivery option")
-	ErrDeliveryQuoteUnaccepted = errors.New("delivery quote must be accepted before payment")
-	ErrQuoteExpired            = errors.New("delivery quote has expired")
-	ErrPayableMismatch         = errors.New("payable item and transport snapshots do not reconcile")
-	ErrUnauthorizedGuest       = errors.New("unauthorized guest access")
-	ErrGuestTokenExpired       = errors.New("guest token has expired")
-	ErrPayloadTooLarge         = errors.New("request payload too large")
+	ErrInvalidCustomer          = errors.New("invalid customer information")
+	ErrEmptyOrder               = errors.New("order must contain between 1 and 50 items")
+	ErrTooManyItems             = errors.New("order must contain between 1 and 50 items")
+	ErrInvalidQuantity          = errors.New("invalid item quantity")
+	ErrMissingProductID         = errors.New("each order item must include a valid product ID")
+	ErrDuplicateProduct         = errors.New("duplicate product in order")
+	ErrCatalogUnavailable       = errors.New("catalog unavailable")
+	ErrProductNotFound          = errors.New("product not found in catalog")
+	ErrProductUnopened          = errors.New("product has not been opened for sale")
+	ErrInsufficientStock        = errors.New("insufficient stock")
+	ErrOrderNotFound            = errors.New("order not found")
+	ErrOrderNotPending          = errors.New("order is not pending")
+	ErrReservationNotFound      = errors.New("reservation not found")
+	ErrReservationNotActive     = errors.New("reservation is not active")
+	ErrLatePaymentResolution    = errors.New("reservation expired; late payment requires explicit resolution")
+	ErrPayOnDeliveryProhib      = errors.New("payment on delivery is prohibited; verify payment before dispatch")
+	ErrInvalidPaymentMethod     = errors.New("invalid payment method")
+	ErrInvalidDeliveryOption    = errors.New("invalid delivery option")
+	ErrDeliveryQuoteUnaccepted  = errors.New("delivery quote must be accepted before payment")
+	ErrQuoteExpired             = errors.New("delivery quote has expired")
+	ErrPayableMismatch          = errors.New("payable item and transport snapshots do not reconcile")
+	ErrUnauthorizedGuest        = errors.New("unauthorized guest access")
+	ErrGuestTokenExpired        = errors.New("guest token has expired")
+	ErrPayloadTooLarge          = errors.New("request payload too large")
+	ErrIdempotencyConflict      = errors.New("idempotency key reused with different request payload")
+	ErrIdempotencyInProgress    = errors.New("operation currently in progress; please retry shortly")
+	ErrUnresolvedPaymentAttempt = errors.New("active payment attempt in progress; please wait for resolution")
+	ErrAttemptNotFound          = errors.New("payment attempt not found")
+	ErrOrderAlreadyPaid         = errors.New("order is already paid")
+	ErrOrderReservationExpired  = errors.New("stock reservation for this order has expired")
 )
 
 const (
@@ -48,7 +54,20 @@ const (
 	ReservationReleased  = "released"
 	ReservationCommitted = "committed"
 
+	AttemptCreated    = "created"
+	AttemptInitiating = "initiating"
+	AttemptAccepted   = "accepted"
+	AttemptSucceeded  = "succeeded"
+	AttemptFailed     = "failed"
+	AttemptCancelled  = "cancelled"
+	AttemptUnknown    = "unknown"
+
+	IdempotencyInProgress = "in_progress"
+	IdempotencyCompleted  = "completed"
+	IdempotencyFailed     = "failed"
+
 	DefaultReservationDuration = 15 * time.Minute
+	DefaultIdempotencyTTL      = 24 * time.Hour
 )
 
 type CustomerInput struct {
@@ -92,6 +111,39 @@ type StockReservation struct {
 	ReleasedAt *time.Time `json:"releasedAt,omitempty"`
 }
 
+type PaymentAttempt struct {
+	ID                    string    `json:"id"`
+	OrderID               string    `json:"orderId"`
+	AttemptNumber         int       `json:"attemptNumber"`
+	AmountKes             int       `json:"amountKes"`
+	Phone                 string    `json:"phone"`
+	Status                string    `json:"status"`
+	Provider              string    `json:"provider"`
+	ProviderTransactionID string    `json:"providerTransactionId,omitempty"`
+	ProviderReferenceID   string    `json:"providerReferenceId,omitempty"`
+	ErrorMessage          string    `json:"errorMessage,omitempty"`
+	CreatedAt             time.Time `json:"createdAt"`
+	UpdatedAt             time.Time `json:"updatedAt"`
+}
+
+type IdempotencyRecord struct {
+	Key             string            `json:"key"`
+	CallerScope     string            `json:"callerScope"`
+	Operation       string            `json:"operation"`
+	RequestHash     string            `json:"requestHash"`
+	Status          string            `json:"status"`
+	StatusCode      int               `json:"statusCode"`
+	ResponseHeaders map[string]string `json:"responseHeaders"`
+	ResponseBody    string            `json:"responseBody"`
+	ResourceID      string            `json:"resourceId,omitempty"`
+	CreatedAt       time.Time         `json:"createdAt"`
+	ExpiresAt       time.Time         `json:"expiresAt"`
+}
+
+type RetryPaymentRequest struct {
+	Phone string `json:"phone,omitempty"`
+}
+
 type Order struct {
 	ID                string            `json:"id"`
 	CreatedAt         time.Time         `json:"createdAt"`
@@ -108,13 +160,16 @@ type Order struct {
 	Items             []OrderItem       `json:"items"`
 	Reservation       *StockReservation `json:"reservation,omitempty"`
 	GuestToken        string            `json:"guestToken,omitempty"`
+	LatestAttempt     *PaymentAttempt   `json:"latestAttempt,omitempty"`
 }
 
 type PaymentStatusResponse struct {
-	OrderID           string     `json:"orderId"`
-	PaymentStatus     string     `json:"paymentStatus"`
-	FulfillmentStatus string     `json:"fulfillmentStatus"`
-	ReceiptNumber     string     `json:"receiptNumber,omitempty"`
-	ExpiresAt         *time.Time `json:"expiresAt,omitempty"`
-	IsExpired         bool       `json:"isExpired"`
+	OrderID           string          `json:"orderId"`
+	PaymentStatus     string          `json:"paymentStatus"`
+	FulfillmentStatus string          `json:"fulfillmentStatus"`
+	ReceiptNumber     string          `json:"receiptNumber,omitempty"`
+	ExpiresAt         *time.Time      `json:"expiresAt,omitempty"`
+	IsExpired         bool            `json:"isExpired"`
+	LatestAttempt     *PaymentAttempt `json:"latestAttempt,omitempty"`
+	AttemptsCount     int             `json:"attemptsCount,omitempty"`
 }

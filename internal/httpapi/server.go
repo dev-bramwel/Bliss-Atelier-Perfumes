@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -31,6 +32,7 @@ type PublicOrder struct {
 	Items             []PublicOrderItem          `json:"items,omitempty"`
 	DeliveryQuote     *delivery.PublicQuote      `json:"delivery_quote,omitempty"`
 	PayableBreakdown  *delivery.PayableBreakdown `json:"payable_breakdown,omitempty"`
+	LatestAttempt     *orders.PaymentAttempt     `json:"latest_attempt,omitempty"`
 }
 
 // PublicOrderItem represents an order item in the sanitized public order view.
@@ -54,6 +56,12 @@ type OrderService interface {
 	ValidateGuestAccess(ctx context.Context, orderID string, rawToken string) (bool, error)
 	ReleaseExpired(ctx context.Context, now time.Time) (int, error)
 	ListRecent(ctx context.Context, limit int) ([]orders.Order, error)
+	BeginIdempotent(ctx context.Context, key, callerScope, operation, requestHash string, ttl time.Duration) (*orders.IdempotencyRecord, bool, error)
+	CompleteIdempotent(ctx context.Context, key, callerScope, operation string, statusCode int, headers map[string]string, responseBody, resourceID string) error
+	FailIdempotent(ctx context.Context, key, callerScope, operation string) error
+	CreatePaymentAttempt(ctx context.Context, orderID, phone string, amountKes int, provider string) (*orders.PaymentAttempt, error)
+	GetLatestPaymentAttempt(ctx context.Context, orderID string) (*orders.PaymentAttempt, error)
+	GetPaymentAttempts(ctx context.Context, orderID string) ([]orders.PaymentAttempt, error)
 }
 
 type DeliveryService interface {
@@ -137,21 +145,64 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			var req orders.CreateOrderRequest
 			var maxBytesErr *http.MaxBytesError
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
 				if errors.As(err, &maxBytesErr) {
 					respond(w, http.StatusRequestEntityTooLarge, map[string]string{
 						"error": "request body too large; maximum 64KB allowed",
 					})
 					return
 				}
+				respond(w, 400, map[string]string{"error": "failed to read request body"})
+				return
+			}
+
+			var req orders.CreateOrderRequest
+			if err := json.Unmarshal(bodyBytes, &req); err != nil {
 				respond(w, 400, map[string]string{"error": "invalid json payload"})
 				return
 			}
 
+			idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+			callerScope := "guest"
+			if mgr := extractManager(r); mgr != "" {
+				callerScope = "manager:" + mgr
+			}
+
+			if idempotencyKey != "" {
+				reqHash := orders.CanonicalRequestHash(bodyBytes)
+				rec, isReplay, err := orderStore.BeginIdempotent(ctx, idempotencyKey, callerScope, "create_order", reqHash, orders.DefaultIdempotencyTTL)
+				if err != nil {
+					switch {
+					case errors.Is(err, orders.ErrIdempotencyInProgress):
+						respond(w, http.StatusConflict, map[string]string{
+							"error": "operation currently in progress; please retry shortly",
+						})
+					case errors.Is(err, orders.ErrIdempotencyConflict):
+						respond(w, http.StatusConflict, map[string]string{
+							"error": "idempotency key reused with different request payload",
+						})
+					default:
+						slog.Error("idempotency_begin_failed", "reason", err.Error())
+						respond(w, 500, map[string]string{"error": "internal error"})
+					}
+					return
+				}
+				if isReplay {
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set("X-Idempotent-Replay", "true")
+					w.WriteHeader(rec.StatusCode)
+					_, _ = w.Write([]byte(rec.ResponseBody))
+					return
+				}
+			}
+
 			order, err := orderStore.CreateOrder(ctx, req)
 			if err != nil {
+				if idempotencyKey != "" {
+					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "create_order")
+				}
 				switch {
 				case errors.Is(err, orders.ErrCatalogUnavailable):
 					respond(w, 503, map[string]string{"error": "catalog unavailable"})
@@ -178,11 +229,25 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 
-			respond(w, 201, map[string]any{
+			respData := map[string]any{
 				"order":       order,
 				"guest_token": order.GuestToken,
 				"stkPush":     nil,
-			})
+			}
+			respBytes, err := json.Marshal(respData)
+			if err != nil {
+				slog.Error("marshal_create_order_response_failed", "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+
+			if idempotencyKey != "" {
+				_ = orderStore.CompleteIdempotent(ctx, idempotencyKey, callerScope, "create_order", http.StatusCreated, map[string]string{"Content-Type": "application/json"}, string(respBytes), order.ID)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write(respBytes)
 		}
 
 		handlePaymentStatus := func(w http.ResponseWriter, r *http.Request) {
@@ -312,7 +377,214 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					Items:             publicItems,
 					DeliveryQuote:     pubQuote,
 					PayableBreakdown:  breakdown,
+					LatestAttempt:     order.LatestAttempt,
 				},
+			})
+		}
+
+		handleRetryPayment := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			id := r.PathValue("id")
+			if id == "" {
+				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			ip := SafeClientIP(r, proxyChecker)
+			if !orderLimiter.Allow(ip, time.Now()) {
+				w.Header().Set("Retry-After", "60")
+				respond(w, http.StatusTooManyRequests, map[string]string{
+					"error": "too many requests; please wait before retrying",
+				})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
+			if err != nil {
+				slog.Error("authorize_retry_payment_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			if !ok {
+				if ExtractGuestToken(r) == "" && extractManager(r) == "" {
+					respond(w, 401, map[string]string{"error": "guest authorization required"})
+				} else {
+					respond(w, 403, map[string]string{"error": "access denied for this order"})
+				}
+				return
+			}
+
+			var maxBytesErr *http.MaxBytesError
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				if errors.As(err, &maxBytesErr) {
+					respond(w, http.StatusRequestEntityTooLarge, map[string]string{
+						"error": "request body too large; maximum 64KB allowed",
+					})
+					return
+				}
+				respond(w, 400, map[string]string{"error": "failed to read request body"})
+				return
+			}
+
+			var retryReq orders.RetryPaymentRequest
+			if len(bodyBytes) > 0 {
+				if err := json.Unmarshal(bodyBytes, &retryReq); err != nil {
+					respond(w, 400, map[string]string{"error": "invalid json payload"})
+					return
+				}
+			}
+
+			idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+			callerScope := "order:" + id
+			if mgr := extractManager(r); mgr != "" {
+				callerScope = "manager:" + mgr + ":order:" + id
+			}
+
+			if idempotencyKey != "" {
+				reqHash := orders.CanonicalRequestHash(bodyBytes)
+				rec, isReplay, err := orderStore.BeginIdempotent(ctx, idempotencyKey, callerScope, "retry_payment", reqHash, orders.DefaultIdempotencyTTL)
+				if err != nil {
+					switch {
+					case errors.Is(err, orders.ErrIdempotencyInProgress):
+						respond(w, http.StatusConflict, map[string]string{
+							"error": "operation currently in progress; please retry shortly",
+						})
+					case errors.Is(err, orders.ErrIdempotencyConflict):
+						respond(w, http.StatusConflict, map[string]string{
+							"error": "idempotency key reused with different request payload",
+						})
+					default:
+						slog.Error("idempotency_retry_begin_failed", "reason", err.Error())
+						respond(w, 500, map[string]string{"error": "internal error"})
+					}
+					return
+				}
+				if isReplay {
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set("X-Idempotent-Replay", "true")
+					w.WriteHeader(rec.StatusCode)
+					_, _ = w.Write([]byte(rec.ResponseBody))
+					return
+				}
+			}
+
+			order, err := orderStore.GetOrder(ctx, id)
+			if err != nil {
+				if idempotencyKey != "" {
+					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
+				}
+				if errors.Is(err, orders.ErrOrderNotFound) {
+					respond(w, 404, map[string]string{"error": "order not found"})
+					return
+				}
+				slog.Error("get_order_for_retry_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+
+			phone := order.CustomerPhone
+			if retryReq.Phone != "" {
+				normalizedPhone, pErr := orders.ValidatePhone(retryReq.Phone)
+				if pErr != nil {
+					if idempotencyKey != "" {
+						_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
+					}
+					respond(w, 400, map[string]string{"error": pErr.Error()})
+					return
+				}
+				phone = normalizedPhone
+			}
+
+			attempt, err := orderStore.CreatePaymentAttempt(ctx, id, phone, order.TotalKes, "mpesa_stk")
+			if err != nil {
+				if idempotencyKey != "" {
+					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
+				}
+				switch {
+				case errors.Is(err, orders.ErrUnresolvedPaymentAttempt):
+					respond(w, http.StatusConflict, map[string]string{
+						"error": "active payment attempt in progress; please wait for resolution",
+					})
+				case errors.Is(err, orders.ErrOrderAlreadyPaid):
+					respond(w, http.StatusConflict, map[string]string{
+						"error": "order is already paid",
+					})
+				case errors.Is(err, orders.ErrOrderReservationExpired):
+					respond(w, http.StatusConflict, map[string]string{
+						"error": "stock reservation for this order has expired",
+					})
+				case errors.Is(err, orders.ErrOrderNotFound):
+					respond(w, 404, map[string]string{"error": "order not found"})
+				default:
+					slog.Error("create_payment_attempt_failed", "order_id", id, "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+				}
+				return
+			}
+
+			respData := map[string]any{
+				"orderId": id,
+				"attempt": attempt,
+				"message": "payment retry initiated",
+			}
+			respBytes, err := json.Marshal(respData)
+			if err != nil {
+				slog.Error("marshal_retry_payment_response_failed", "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+
+			if idempotencyKey != "" {
+				_ = orderStore.CompleteIdempotent(ctx, idempotencyKey, callerScope, "retry_payment", http.StatusCreated, map[string]string{"Content-Type": "application/json"}, string(respBytes), attempt.ID)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write(respBytes)
+		}
+
+		handleGetAttempts := func(w http.ResponseWriter, r *http.Request) {
+			if a.draining.Load() {
+				respond(w, 503, map[string]string{"error": "service draining"})
+				return
+			}
+			id := r.PathValue("id")
+			if id == "" {
+				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
+			if err != nil {
+				slog.Error("authorize_get_attempts_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			if !ok {
+				if ExtractGuestToken(r) == "" && extractManager(r) == "" {
+					respond(w, 401, map[string]string{"error": "guest authorization required"})
+				} else {
+					respond(w, 403, map[string]string{"error": "access denied for this order"})
+				}
+				return
+			}
+
+			attempts, err := orderStore.GetPaymentAttempts(ctx, id)
+			if err != nil {
+				slog.Error("get_payment_attempts_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			respond(w, 200, map[string]any{
+				"orderId":  id,
+				"attempts": attempts,
 			})
 		}
 
@@ -322,6 +594,10 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		mux.HandleFunc("GET /api/orders/{id}/payment-status", handlePaymentStatus)
 		mux.HandleFunc("GET /orders/{id}", handleGetOrder)
 		mux.HandleFunc("GET /api/orders/{id}", handleGetOrder)
+		mux.HandleFunc("POST /orders/{id}/retry-payment", handleRetryPayment)
+		mux.HandleFunc("POST /api/orders/{id}/retry-payment", handleRetryPayment)
+		mux.HandleFunc("GET /orders/{id}/attempts", handleGetAttempts)
+		mux.HandleFunc("GET /api/orders/{id}/attempts", handleGetAttempts)
 	}
 
 	if deliveryStore != nil {
