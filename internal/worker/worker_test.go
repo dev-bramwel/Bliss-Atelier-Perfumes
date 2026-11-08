@@ -191,3 +191,43 @@ func TestNotificationConsumer_TransientFailureRequeued(t *testing.T) {
 		t.Error("message should not be routed to DLQ on transient failure")
 	}
 }
+
+func TestNotificationConsumer_PoisonPayloadQuarantined(t *testing.T) {
+	fakeMessaging := messaging.NewFakeMessaging()
+	defer fakeMessaging.Close()
+
+	consumer := NewNotificationConsumer(
+		nil,
+		fakeMessaging,
+		slog.New(slog.NewTextHandler(os.Stdout, nil)),
+	)
+
+	// Valid envelope but corrupt payload JSON that default handler cannot unmarshal
+	env := events.Envelope{
+		EventID:          "evt-poison-payload-1",
+		EventType:        events.TypeOrderCreated,
+		SchemaVersion:    1,
+		OccurredAt:       time.Now().UTC(),
+		AggregateID:      "ord-poison-1",
+		AggregateVersion: 1,
+		Payload:          []byte(`{not-json}`),
+	}
+	envBytes, _ := json.Marshal(env)
+
+	d := &mockDelivery{
+		msgID:      "evt-poison-payload-1",
+		routingKey: "order.created",
+		body:       envBytes,
+	}
+
+	err := consumer.ProcessDelivery(context.Background(), d)
+	if err != nil {
+		t.Fatalf("expected nil error on quarantined poison payload, got %v", err)
+	}
+	if !d.dlq {
+		t.Error("expected message with unparseable payload to be routed to DLQ")
+	}
+	if d.requeued {
+		t.Error("message with unparseable payload should not be requeued")
+	}
+}

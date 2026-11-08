@@ -202,6 +202,10 @@ func (c *RabbitMQClient) declareTopology() error {
 }
 
 func (c *RabbitMQClient) initPublisherChannel() error {
+	if c.pubChan != nil {
+		_ = c.pubChan.Close()
+		c.pubChan = nil
+	}
 	ch, err := c.conn.Channel()
 	if err != nil {
 		return err
@@ -256,6 +260,8 @@ func (c *RabbitMQClient) Publish(ctx context.Context, routingKey string, message
 		}
 		return nil
 	case <-ctx.Done():
+		// Reinitialize channel to purge any pending confirmation tags for this abandoned message
+		_ = c.initPublisherChannel()
 		return ctx.Err()
 	}
 }

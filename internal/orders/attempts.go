@@ -148,8 +148,13 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 		Status:        AttemptCreated,
 		Timestamp:     attempt.CreatedAt,
 	})
-	if err == nil {
-		_ = outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq")
+	if err != nil {
+		rollback(tx)
+		return nil, fmt.Errorf("failed to construct payment attempt event: %w", err)
+	}
+	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq"); err != nil {
+		rollback(tx)
+		return nil, fmt.Errorf("failed to enqueue payment attempt outbox event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

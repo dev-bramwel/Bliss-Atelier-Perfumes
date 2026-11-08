@@ -1561,7 +1561,7 @@
       ],
       [
         "outbox_event_pending_idx",
-        "CREATE INDEX outbox_event_pending_idx ON public.outbox_event USING btree (destination, status, created_at) WHERE (status = 'pending'::text)",
+        "CREATE INDEX outbox_event_pending_idx ON public.outbox_event USING btree (destination, status, created_at) WHERE (status = ANY (ARRAY['pending'::text, 'publishing'::text]))",
         true,
         true
       ],
@@ -1586,7 +1586,7 @@
       ],
       [
         "outbox_event_status_check",
-        "CHECK ((status = ANY (ARRAY['pending'::text, 'published'::text, 'failed'::text])))",
+        "CHECK ((status = ANY (ARRAY['pending'::text, 'publishing'::text, 'published'::text, 'failed'::text])))",
         true
       ]
     ],

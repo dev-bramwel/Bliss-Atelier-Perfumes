@@ -6,10 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
@@ -21,9 +22,13 @@ const ConsumerName = "bliss-notification-worker"
 
 // Status constants for inbox messages.
 const (
+	InboxProcessing   = "processing"
 	InboxProcessed    = "processed"
 	InboxDeadLettered = "dead_lettered"
 )
+
+// ErrPoisonPayload indicates a deterministic unrecoverable payload error that should route directly to DLQ.
+var ErrPoisonPayload = errors.New("poison payload")
 
 // HandlerFunc processes a validated event envelope.
 type HandlerFunc func(ctx context.Context, env events.Envelope) error
@@ -72,7 +77,7 @@ func (c *NotificationConsumer) Start(ctx context.Context) error {
 	return c.consumer.Consume(ctx, c.ProcessDelivery)
 }
 
-// ProcessDelivery handles a single delivered message with deduplication and DLQ routing.
+// ProcessDelivery handles a single delivered message with deduplication, atomic pre-claiming, and DLQ routing.
 func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.Delivery) error {
 	msgID := d.MessageID()
 	if msgID == "" {
@@ -82,21 +87,7 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 		return errors.New("delivery missing message ID")
 	}
 
-	// 1. Durable Consumer Deduplication Check
-	// If this message was already processed, immediately ACK and avoid duplicate side effects.
-	alreadyProcessed, err := c.isMessageProcessed(ctx, msgID)
-	if err != nil {
-		c.logger.Error("consumer_inbox_check_failed", "msg_id", msgID, "error", err.Error())
-		// Transient DB error: requeue message
-		_ = d.Nack(true)
-		return err
-	}
-	if alreadyProcessed {
-		c.logger.Info("consumer_duplicate_delivery_ignored", "msg_id", msgID, "redelivered", d.Redelivered())
-		return d.Ack()
-	}
-
-	// 2. Parse and Validate Envelope (Poison Message Detection)
+	// 1. Parse and Validate Envelope (Poison Message Detection)
 	var env events.Envelope
 	if err := json.Unmarshal(d.Body(), &env); err != nil {
 		c.logger.Error("consumer_poison_message_unmarshal_failed", "msg_id", msgID, "error", err.Error())
@@ -112,6 +103,23 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 		return nil
 	}
 
+	// 2. Atomic Pre-Claim and Durable Deduplication
+	claimed, isDuplicate, err := c.claimMessage(ctx, msgID, d.Body())
+	if err != nil {
+		c.logger.Error("consumer_inbox_claim_failed", "msg_id", msgID, "error", err.Error())
+		_ = d.Nack(true)
+		return err
+	}
+	if !claimed {
+		if isDuplicate {
+			c.logger.Info("consumer_duplicate_delivery_ignored", "msg_id", msgID, "redelivered", d.Redelivered())
+			return d.Ack()
+		}
+		// Another worker is actively processing this message; requeue
+		_ = d.Nack(true)
+		return nil
+	}
+
 	// 3. Dispatch to Event Handler
 	c.mu.RLock()
 	handler, exists := c.handlers[env.EventType]
@@ -119,8 +127,16 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 
 	if exists && handler != nil {
 		if err := handler(ctx, env); err != nil {
+			if errors.Is(err, ErrPoisonPayload) {
+				c.logger.Error("consumer_poison_payload_quarantined", "msg_id", msgID, "event_id", env.EventID, "error", err.Error())
+				c.recordDeadLetter(ctx, msgID, d.Body(), "payload rejected: "+err.Error())
+				_ = d.RejectToDLQ()
+				return nil
+			}
+
 			c.logger.Warn("consumer_handler_failed", "event_id", env.EventID, "type", env.EventType, "error", err.Error())
-			// Transient handler failure: requeue for retry
+			// Transient handler failure: release claim and requeue for retry
+			c.releaseProcessingClaim(ctx, msgID)
 			_ = d.Nack(true)
 			return err
 		}
@@ -129,9 +145,8 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	}
 
 	// 4. Record Successful Processing in Inbox
-	if err := c.recordProcessed(ctx, env.EventID, d.Body()); err != nil {
+	if err := c.recordProcessed(ctx, msgID, d.Body()); err != nil {
 		c.logger.Error("consumer_record_inbox_failed", "event_id", env.EventID, "error", err.Error())
-		// If inbox write fails, requeue
 		_ = d.Nack(true)
 		return err
 	}
@@ -140,25 +155,64 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	return d.Ack()
 }
 
-// isMessageProcessed checks if public.inbox_message already has a record for (msgID, ConsumerName).
-func (c *NotificationConsumer) isMessageProcessed(ctx context.Context, msgID string) (bool, error) {
+// claimMessage atomically inserts a processing row into public.inbox_message.
+func (c *NotificationConsumer) claimMessage(ctx context.Context, msgID string, payload []byte) (claimed bool, isDuplicate bool, err error) {
 	if c.pool == nil {
-		return false, nil
+		return true, false, nil
 	}
 
+	tag, insertErr := c.pool.Exec(ctx, `
+		INSERT INTO public.inbox_message (id, consumer_name, status, payload, created_at)
+		VALUES ($1, $2, $3, $4, now())
+		ON CONFLICT (id, consumer_name) DO NOTHING
+	`, msgID, ConsumerName, InboxProcessing, payload)
+	if insertErr != nil {
+		return false, false, insertErr
+	}
+
+	if tag.RowsAffected() == 1 {
+		return true, false, nil
+	}
+
+	// Row already exists: check its status
 	var status string
-	err := c.pool.QueryRow(ctx, `
-		SELECT status FROM public.inbox_message
+	var createdAt time.Time
+	queryErr := c.pool.QueryRow(ctx, `
+		SELECT status, created_at FROM public.inbox_message
 		WHERE id = $1 AND consumer_name = $2
-	`, msgID, ConsumerName).Scan(&status)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
-		}
-		return false, err
+	`, msgID, ConsumerName).Scan(&status, &createdAt)
+	if queryErr != nil {
+		return false, false, queryErr
 	}
 
-	return status == InboxProcessed, nil
+	if status == InboxProcessed || status == InboxDeadLettered {
+		return false, true, nil
+	}
+
+	// If processing status was set over 1 minute ago, reclaim abandoned lock
+	if status == InboxProcessing && time.Since(createdAt) > 1*time.Minute {
+		updateTag, updateErr := c.pool.Exec(ctx, `
+			UPDATE public.inbox_message
+			SET created_at = now()
+			WHERE id = $1 AND consumer_name = $2 AND status = $3
+		`, msgID, ConsumerName, InboxProcessing)
+		if updateErr == nil && updateTag.RowsAffected() == 1 {
+			return true, false, nil
+		}
+	}
+
+	return false, false, nil
+}
+
+// releaseProcessingClaim removes the processing claim on transient handler failure so retries can proceed.
+func (c *NotificationConsumer) releaseProcessingClaim(ctx context.Context, msgID string) {
+	if c.pool == nil {
+		return
+	}
+	_, _ = c.pool.Exec(ctx, `
+		DELETE FROM public.inbox_message
+		WHERE id = $1 AND consumer_name = $2 AND status = $3
+	`, msgID, ConsumerName, InboxProcessing)
 }
 
 // recordProcessed persists the message in public.inbox_message as processed.
@@ -195,13 +249,12 @@ func (c *NotificationConsumer) recordDeadLetter(ctx context.Context, msgID strin
 func (c *NotificationConsumer) handleOrderCreated(ctx context.Context, env events.Envelope) error {
 	var payload events.OrderCreatedPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrPoisonPayload, err)
 	}
 	c.logger.Info("notification_order_created",
 		"order_id", payload.OrderID,
-		"customer", payload.CustomerName,
-		"phone", payload.CustomerPhone,
 		"total_kes", payload.TotalKes,
+		"item_count", len(payload.Items),
 	)
 	return nil
 }
@@ -209,7 +262,7 @@ func (c *NotificationConsumer) handleOrderCreated(ctx context.Context, env event
 func (c *NotificationConsumer) handleOrderPaid(ctx context.Context, env events.Envelope) error {
 	var payload events.OrderPaidPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrPoisonPayload, err)
 	}
 	c.logger.Info("notification_order_paid",
 		"order_id", payload.OrderID,
@@ -222,7 +275,7 @@ func (c *NotificationConsumer) handleOrderPaid(ctx context.Context, env events.E
 func (c *NotificationConsumer) handlePaymentAttempt(ctx context.Context, env events.Envelope) error {
 	var payload events.PaymentAttemptPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", ErrPoisonPayload, err)
 	}
 	c.logger.Info("notification_payment_attempt",
 		"order_id", payload.OrderID,

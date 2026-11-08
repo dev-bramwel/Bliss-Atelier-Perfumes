@@ -16,9 +16,10 @@ import (
 
 // Status constants for outbox events.
 const (
-	StatusPending   = "pending"
-	StatusPublished = "published"
-	StatusFailed    = "failed"
+	StatusPending    = "pending"
+	StatusPublishing = "publishing"
+	StatusPublished  = "published"
+	StatusFailed     = "failed"
 
 	DefaultDestination = "rabbitmq"
 	DefaultMaxRetries  = 5
@@ -82,7 +83,7 @@ func (s *Store) Enqueue(ctx context.Context, tx pgx.Tx, env events.Envelope, des
 	return nil
 }
 
-// FetchPending retrieves pending outbox events using FOR UPDATE SKIP LOCKED to allow concurrent workers.
+// FetchPending atomically claims pending outbox events using FOR UPDATE SKIP LOCKED and leases them to the caller.
 func (s *Store) FetchPending(ctx context.Context, batchSize int, destination string) ([]EventRecord, error) {
 	if s.Pool == nil {
 		return nil, errors.New("outbox: database pool not initialized")
@@ -95,15 +96,23 @@ func (s *Store) FetchPending(ctx context.Context, batchSize int, destination str
 	}
 
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, event_type, aggregate_id, aggregate_version, correlation_id, schema_version,
-		       payload, destination, status, retry_count, error_message, published_at, created_at, updated_at
-		FROM public.outbox_event
-		WHERE destination = $1 AND status = 'pending'
-		ORDER BY created_at ASC
-		LIMIT $2
+		WITH batch AS (
+			SELECT id
+			FROM public.outbox_event
+			WHERE destination = $1 AND (status = 'pending' OR (status = 'publishing' AND updated_at < now() - INTERVAL '1 minute'))
+			ORDER BY created_at ASC
+			LIMIT $2
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE public.outbox_event o
+		SET status = 'publishing', updated_at = now()
+		FROM batch
+		WHERE o.id = batch.id
+		RETURNING o.id, o.event_type, o.aggregate_id, o.aggregate_version, o.correlation_id, o.schema_version,
+		          o.payload, o.destination, o.status, o.retry_count, o.error_message, o.published_at, o.created_at, o.updated_at
 	`, destination, batchSize)
 	if err != nil {
-		return nil, fmt.Errorf("outbox: failed to query pending events: %w", err)
+		return nil, fmt.Errorf("outbox: failed to query and claim pending events: %w", err)
 	}
 	defer rows.Close()
 

@@ -336,8 +336,13 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		Items:            orderItemsPayload,
 		CreatedAt:        now,
 	})
-	if err == nil {
-		_ = outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq")
+	if err != nil {
+		rollback(tx)
+		return nil, fmt.Errorf("failed to construct order created event: %w", err)
+	}
+	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq"); err != nil {
+		rollback(tx)
+		return nil, fmt.Errorf("failed to enqueue order created outbox event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -747,8 +752,13 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 			AmountKes:     totalKes,
 			PaidAt:        now,
 		})
-		if err == nil {
-			_ = outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq")
+		if err != nil {
+			rollback(tx)
+			return fmt.Errorf("failed to construct order paid event: %w", err)
+		}
+		if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq"); err != nil {
+			rollback(tx)
+			return fmt.Errorf("failed to enqueue order paid outbox event: %w", err)
 		}
 
 		if err := tx.Commit(ctx); err != nil {

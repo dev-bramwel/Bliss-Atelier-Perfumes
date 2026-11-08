@@ -7,7 +7,7 @@ CREATE TABLE public.outbox_event (
     schema_version integer NOT NULL DEFAULT 1,
     payload jsonb NOT NULL,
     destination text NOT NULL DEFAULT 'rabbitmq',
-    status text NOT NULL CHECK (status IN ('pending', 'published', 'failed')),
+    status text NOT NULL CHECK (status IN ('pending', 'publishing', 'published', 'failed')),
     retry_count integer NOT NULL DEFAULT 0,
     error_message text,
     published_at timestamptz,
@@ -15,7 +15,7 @@ CREATE TABLE public.outbox_event (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX outbox_event_pending_idx ON public.outbox_event (destination, status, created_at) WHERE status = 'pending';
+CREATE INDEX outbox_event_pending_idx ON public.outbox_event (destination, status, created_at) WHERE status IN ('pending', 'publishing');
 CREATE INDEX outbox_event_aggregate_idx ON public.outbox_event (aggregate_id);
 
 CREATE TABLE public.inbox_message (

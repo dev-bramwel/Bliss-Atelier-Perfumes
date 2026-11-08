@@ -24,15 +24,16 @@ Directly publishing asynchronous broker events inside business request transacti
    - Event Queues: `bliss.notifications.v1` (bound to `order.*`, `payment.*`, `delivery.*`).
    - Dead Letter Queue: `bliss.notifications.v1.dead` (durable, captures unparseable/poison payloads).
    - Delayed Retry Queue: `bliss.notifications.v1.retry` (with DLX routing back to main exchange after 5,000ms TTL).
+   - Stale confirm purge: Reinitializes publisher channel on context timeout so abandoned delivery tags never leak to subsequent dispatches.
 3. **Publisher Confirms & Dispatcher (`internal/outbox`)**:
-   - Background dispatcher polls pending outbox events (`SELECT ... FOR UPDATE SKIP LOCKED`).
+   - Background dispatcher atomically claims pending outbox events using `WITH batch AS (SELECT id ... FOR UPDATE SKIP LOCKED) UPDATE ... SET status = 'publishing'`.
    - Confirms are verified from RabbitMQ broker; events are only marked `published` upon explicit ACK.
    - On broker NACK or publish failure, retry counters increment up to `max_retries` before being marked `failed`.
 4. **Durable Consumer Deduplication (`public.inbox_message`)**:
-   - Background worker processes messages with unique deduplication keys (`message_id` + `consumer_name`).
-   - Redelivered messages that were already marked `processed` immediately acknowledge (ACK) to the broker without re-executing business side effects.
+   - Background worker atomically pre-claims deliveries by inserting `status = 'processing'` with `ON CONFLICT (id, consumer_name) DO NOTHING` before executing any business handlers.
+   - Redelivered messages that were already marked `processed` or `dead_lettered` immediately acknowledge (ACK) to the broker without re-executing business side effects.
 5. **Poison Message Quarantine to DLQ (`internal/worker`)**:
-   - Malformed JSON envelopes, unrecognized schemas, or missing message IDs are rejected immediately (`Reject(false)` / `x-dead-letter-exchange`) into `bliss.notifications.v1.dead` without blocking valid queue traffic.
+   - Malformed JSON envelopes, unrecognized schemas, missing message IDs, or unparseable event payloads are rejected immediately (`Reject(false)` / `x-dead-letter-exchange`) into `bliss.notifications.v1.dead` without blocking valid queue traffic.
 6. **Broker Outage Independence**:
    - Customer order creation and payment confirmation never depend on RabbitMQ being online. If RabbitMQ is unavailable, outbox events safely accumulate in `pending` status in PostgreSQL.
    - The worker supervisor automatically retries connection with backoff, resuming publishing and draining pending outbox batches once the broker recovers.
