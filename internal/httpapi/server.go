@@ -165,11 +165,12 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 
-			idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+			rawIdempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+			idempotencyKey := rawIdempotencyKey
 			if idempotencyKey == "" {
 				idempotencyKey = "auto_" + orders.CanonicalRequestHash([]byte(ip+":"+string(bodyBytes)))
 			}
-			callerScope := "guest"
+			callerScope := "guest:" + ip
 			if mgr := extractManager(r); mgr != "" {
 				callerScope = "manager:" + mgr
 			}
@@ -194,8 +195,9 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 			if isReplay {
 				// Replay cached response without leaking plaintext tokens from database.
-				// Issue a fresh guest token dynamically for the customer session if resource ID is present.
-				if rec.ResourceID != "" {
+				// Issue a fresh guest token dynamically for the customer session if resource ID is present
+				// and the client explicitly provided an idempotency key (preventing cross-session token minting for implicit/auto keys).
+				if rec.ResourceID != "" && rawIdempotencyKey != "" {
 					freshGuestToken, tokenErr := orderStore.IssueGuestToken(ctx, rec.ResourceID)
 					if tokenErr == nil && freshGuestToken != "" {
 						var replayData map[string]any

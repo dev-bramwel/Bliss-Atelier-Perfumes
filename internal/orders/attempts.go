@@ -34,10 +34,10 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 	}
 	defer rollback(tx)
 
-	// 1. Verify order state
+	// 1. Verify order state with row lock to serialize concurrent attempts and prevent race conditions
 	var paymentStatus string
 	var totalKes int
-	err = tx.QueryRow(ctx, `SELECT "paymentStatus", "totalKes" FROM public."Order" WHERE id = $1`, orderID).Scan(&paymentStatus, &totalKes)
+	err = tx.QueryRow(ctx, `SELECT "paymentStatus", "totalKes" FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&paymentStatus, &totalKes)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrOrderNotFound

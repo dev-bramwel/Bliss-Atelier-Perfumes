@@ -1008,6 +1008,43 @@ func TestIdempotentOrderCreation(t *testing.T) {
 	if !strings.Contains(errResp["error"], "idempotency key reused") {
 		t.Errorf("unexpected error message: %v", errResp)
 	}
+
+	// 4. Request without Idempotency-Key (auto-generated key)
+	payloadAuto := `{"customer":{"name":"Bob","phone":"254799887766","location":"Nairobi","delivery":"delivery"},"items":[{"id":"p1","qty":1}]}`
+	req4 := httptest.NewRequest("POST", "/api/orders", strings.NewReader(payloadAuto))
+	req4.Header.Set("Content-Type", "application/json")
+	req4.RemoteAddr = "192.168.1.100:12345"
+	w4 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w4, req4)
+
+	if w4.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on auto key first request, got %d", w4.Code)
+	}
+	var resp4 map[string]any
+	_ = json.Unmarshal(w4.Body.Bytes(), &resp4)
+	if resp4["guest_token"] != "gt_testtoken123" {
+		t.Errorf("expected original response to have guest token, got %v", resp4["guest_token"])
+	}
+
+	// 5. Replay of request without Idempotency-Key from same IP: must return 201 with X-Idempotent-Replay,
+	// but guest token MUST NOT be dynamically minted (remains redacted/empty) to prevent CGNAT cross-session hijacking.
+	req5 := httptest.NewRequest("POST", "/api/orders", strings.NewReader(payloadAuto))
+	req5.Header.Set("Content-Type", "application/json")
+	req5.RemoteAddr = "192.168.1.100:12345"
+	w5 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w5, req5)
+
+	if w5.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on auto key replay, got %d", w5.Code)
+	}
+	if w5.Header().Get("X-Idempotent-Replay") != "true" {
+		t.Fatalf("expected X-Idempotent-Replay header on replayed auto key response")
+	}
+	var resp5 map[string]any
+	_ = json.Unmarshal(w5.Body.Bytes(), &resp5)
+	if resp5["guest_token"] != "" {
+		t.Errorf("expected replayed auto key response to have redacted guest token, got %v", resp5["guest_token"])
+	}
 }
 
 func TestRetryPaymentEndpoint(t *testing.T) {
