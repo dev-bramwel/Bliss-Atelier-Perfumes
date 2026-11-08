@@ -1,13 +1,18 @@
 [CmdletBinding()]
-param([string]$EvidenceDirectory = '')
+param(
+    [string]$EvidenceDirectory = '',
+    [string]$ImageTag = ''
+)
 
 $ErrorActionPreference = 'Stop'
 # The migration-failure drill deliberately expects a nonzero native exit code.
 $PSNativeCommandUseErrorActionPreference = $false
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$suffix = [guid]::NewGuid().ToString('N').Substring(0, 10)
-$project = 'bliss-r07-check-' + $suffix
-$secretDirectory = Join-Path $repoRoot ('.local/check-' + $suffix)
+$runId = [guid]::NewGuid().ToString('N').Substring(0, 10)
+$project = 'bliss-r07-check-' + $runId
+$secretDirectory = Join-Path $repoRoot ('.local/check-' + $runId)
+$isDisposableTag = (-not $ImageTag) -and (-not $env:BLISS_IMAGE_TAG)
+$suffix = if ($ImageTag) { $ImageTag } elseif ($env:BLISS_IMAGE_TAG) { $env:BLISS_IMAGE_TAG } else { $runId }
 $evidence = $null
 if ($EvidenceDirectory) {
     $evidence = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $EvidenceDirectory))
@@ -159,6 +164,14 @@ VALUES ('r07-persistence',now(),'Synthetic Customer','254700000000','Synthetic p
     # Destructive cleanup is confined to this generated disposable project.
     if ($env:COMPOSE_PROJECT_NAME -eq $project -and $project.StartsWith('bliss-r07-check-')) {
         docker compose down --volumes --remove-orphans
+        if ($isDisposableTag) {
+            foreach ($image in @("bliss-backend:$suffix", "bliss-frontend:$suffix", "bliss-postgres:$suffix")) {
+                docker image rm -f $image *> $null
+            }
+        }
+    }
+    if (Test-Path -LiteralPath $secretDirectory) {
+        Remove-Item -Recurse -Force -LiteralPath $secretDirectory *> $null
     }
     foreach ($key in $previous.Keys) {[Environment]::SetEnvironmentVariable($key,$previous[$key],'Process')}
     Pop-Location
