@@ -403,21 +403,19 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			if orderStore != nil {
-				ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
-				if err != nil {
-					slog.Error("authorize_get_quote_failed", "order_id", id, "reason", err.Error())
-					respond(w, 500, map[string]string{"error": "internal error"})
-					return
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			if err != nil {
+				slog.Error("authorize_get_quote_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			if !ok {
+				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+					respond(w, 401, map[string]string{"error": "guest authorization required"})
+				} else {
+					respond(w, 403, map[string]string{"error": "access denied for this order"})
 				}
-				if !ok {
-					if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
-						respond(w, 401, map[string]string{"error": "guest authorization required"})
-					} else {
-						respond(w, 403, map[string]string{"error": "access denied for this order"})
-					}
-					return
-				}
+				return
 			}
 
 			quote, err := deliveryStore.GetActiveQuote(ctx, id)
@@ -457,21 +455,19 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			if orderStore != nil {
-				ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
-				if err != nil {
-					slog.Error("authorize_accept_quote_failed", "order_id", id, "reason", err.Error())
-					respond(w, 500, map[string]string{"error": "internal error"})
-					return
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			if err != nil {
+				slog.Error("authorize_accept_quote_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			if !ok {
+				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+					respond(w, 401, map[string]string{"error": "guest authorization required"})
+				} else {
+					respond(w, 403, map[string]string{"error": "access denied for this order"})
 				}
-				if !ok {
-					if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
-						respond(w, 401, map[string]string{"error": "guest authorization required"})
-					} else {
-						respond(w, 403, map[string]string{"error": "access denied for this order"})
-					}
-					return
-				}
+				return
 			}
 
 			var req struct {
@@ -525,21 +521,19 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			if orderStore != nil {
-				ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
-				if err != nil {
-					slog.Error("authorize_reject_quote_failed", "order_id", id, "reason", err.Error())
-					respond(w, 500, map[string]string{"error": "internal error"})
-					return
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			if err != nil {
+				slog.Error("authorize_reject_quote_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			if !ok {
+				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+					respond(w, 401, map[string]string{"error": "guest authorization required"})
+				} else {
+					respond(w, 403, map[string]string{"error": "access denied for this order"})
 				}
-				if !ok {
-					if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
-						respond(w, 401, map[string]string{"error": "guest authorization required"})
-					} else {
-						respond(w, 403, map[string]string{"error": "access denied for this order"})
-					}
-					return
-				}
+				return
 			}
 
 			var req struct {
