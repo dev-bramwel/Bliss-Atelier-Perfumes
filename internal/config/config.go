@@ -34,6 +34,9 @@ type Config struct {
 	NCBAIPNPassword     string
 	NCBAIPNSecretKey    string
 	MpesaCallbackSecret string
+
+	// RabbitMQ messaging configuration
+	RabbitMQURL string
 }
 
 // Load uses separate GO_ settings so the legacy backend remains independent.
@@ -170,6 +173,23 @@ func Load(get func(string) string) (Config, error) {
 			return Config{}, errors.New("GO_MPESA_CALLBACK_SECRET_FILE could not be read")
 		}
 		c.MpesaCallbackSecret = strings.TrimSpace(string(data))
+	}
+
+	c.RabbitMQURL = strings.TrimSpace(get("GO_RABBITMQ_URL"))
+	if path := get("GO_RABBITMQ_URL_FILE"); path != "" {
+		if c.RabbitMQURL != "" {
+			return Config{}, errors.New("set only one of GO_RABBITMQ_URL and GO_RABBITMQ_URL_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_RABBITMQ_URL_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_RABBITMQ_URL_FILE could not be read")
+		}
+		c.RabbitMQURL = strings.TrimSpace(string(data))
 	}
 
 	if c.DatabaseURL != "" {

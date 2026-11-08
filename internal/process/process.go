@@ -9,17 +9,23 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/httpapi"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/worker"
 )
 
 func Main(command string) {
@@ -53,12 +59,14 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 	} else if len(args) != 0 {
 		return errors.New("unexpected command arguments")
 	}
+	var pool *pgxpool.Pool
 	var ping httpapi.Ping
 	var catalogStore httpapi.Catalog
 	var orderStore httpapi.OrderService
 	var deliveryStore *delivery.Store
 	if cfg.DatabaseURL != "" {
-		pool, e := database.Open(ctx, cfg.DatabaseURL, cfg.MaxConnections, cfg.IOTimeout)
+		var e error
+		pool, e = database.Open(ctx, cfg.DatabaseURL, cfg.MaxConnections, cfg.IOTimeout)
 		if e != nil {
 			return e
 		}
@@ -111,13 +119,28 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		}
 		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
-		if orderStore == nil {
+		if pool == nil || orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")
 			<-ctx.Done()
 			logger.Info("worker_stopped")
 			return nil
 		}
 		logger.Info("worker_started", "role", "reservation_expiry_sweep")
+
+		workerCtx, cancelWorker := context.WithCancel(ctx)
+		defer cancelWorker()
+
+		var msgWg sync.WaitGroup
+		if cfg.RabbitMQURL != "" {
+			msgWg.Add(1)
+			go func() {
+				defer msgWg.Done()
+				runMessagingWorker(workerCtx, pool, cfg.RabbitMQURL, logger)
+			}()
+		} else {
+			logger.Info("worker_messaging_disabled", "reason", "no_rabbitmq_url")
+		}
+
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
@@ -138,6 +161,8 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		for {
 			select {
 			case <-ctx.Done():
+				cancelWorker()
+				msgWg.Wait()
 				logger.Info("worker_stopped")
 				return nil
 			case <-ticker.C:
@@ -161,5 +186,72 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		}
 	default:
 		return errors.New("unknown command")
+	}
+}
+
+func runMessagingWorker(ctx context.Context, pool *pgxpool.Pool, rabbitURL string, logger *slog.Logger) {
+	outboxStore := outbox.NewStore(pool)
+	backoff := 2 * time.Second
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		client, err := messaging.Dial(rabbitURL)
+		if err != nil {
+			logger.Warn("messaging_connect_failed", "error", err.Error(), "retry_in", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+		}
+
+		logger.Info("messaging_connected", "topology", messaging.ExchangeEvents)
+		backoff = 2 * time.Second
+
+		msgCtx, cancelMsg := context.WithCancel(ctx)
+		var wg sync.WaitGroup
+
+		pub := outbox.NewBackgroundPublisher(outboxStore, client, outbox.DefaultPublisherConfig(), logger)
+		cons := worker.NewNotificationConsumer(pool, client, logger)
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := pub.Start(msgCtx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("outbox_publisher_error", "error", err.Error())
+				cancelMsg()
+			}
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := cons.Start(msgCtx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("notification_consumer_error", "error", err.Error())
+				cancelMsg()
+			}
+		}()
+
+		<-msgCtx.Done()
+		cancelMsg()
+		_ = client.Close()
+		wg.Wait()
+
+		if ctx.Err() != nil {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
 	}
 }

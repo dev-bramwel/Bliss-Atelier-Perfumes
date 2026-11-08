@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
 )
 
 // CreatePaymentAttempt registers a new payment attempt for an order under strict safety constraints.
@@ -132,6 +135,21 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 	}
 	if errMsg != nil {
 		attempt.ErrorMessage = *errMsg
+	}
+
+	// Transactional outbox event enqueue
+	evt, err := events.NewEvent(events.TypePaymentAttempt, orderID, nextAttemptNum, "", events.PaymentAttemptPayload{
+		AttemptID:     attempt.ID,
+		OrderID:       orderID,
+		AttemptNumber: nextAttemptNum,
+		AmountKes:     amountKes,
+		Phone:         phone,
+		Provider:      provider,
+		Status:        AttemptCreated,
+		Timestamp:     attempt.CreatedAt,
+	})
+	if err == nil {
+		_ = outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq")
 	}
 
 	if err := tx.Commit(ctx); err != nil {

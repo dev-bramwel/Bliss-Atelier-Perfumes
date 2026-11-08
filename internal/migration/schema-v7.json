@@ -1,0 +1,2275 @@
+{
+  "MpesaTransaction": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "createdAt",
+        "timestamp(3) without time zone",
+        true,
+        "CURRENT_TIMESTAMP",
+        "",
+        "",
+        null
+      ],
+      [
+        "updatedAt",
+        "timestamp(3) without time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "orderId",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "merchantRequestId",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "checkoutRequestId",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "resultCode",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "resultDesc",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "mpesaReceiptNumber",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "transactionDate",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "phoneNumber",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        "'PENDING'::text",
+        "",
+        "",
+        "default"
+      ]
+    ],
+    "indexes": [
+      [
+        "MpesaTransaction_checkoutRequestId_key",
+        "CREATE UNIQUE INDEX \"MpesaTransaction_checkoutRequestId_key\" ON public.\"MpesaTransaction\" USING btree (\"checkoutRequestId\")",
+        true,
+        true
+      ],
+      [
+        "MpesaTransaction_orderId_key",
+        "CREATE UNIQUE INDEX \"MpesaTransaction_orderId_key\" ON public.\"MpesaTransaction\" USING btree (\"orderId\")",
+        true,
+        true
+      ],
+      [
+        "MpesaTransaction_pkey",
+        "CREATE UNIQUE INDEX \"MpesaTransaction_pkey\" ON public.\"MpesaTransaction\" USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "MpesaTransaction_orderId_fkey",
+        "FOREIGN KEY (\"orderId\") REFERENCES \"Order\"(id) ON UPDATE CASCADE ON DELETE RESTRICT",
+        true
+      ],
+      [
+        "MpesaTransaction_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "Order": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "createdAt",
+        "timestamp(3) without time zone",
+        true,
+        "CURRENT_TIMESTAMP",
+        "",
+        "",
+        null
+      ],
+      [
+        "updatedAt",
+        "timestamp(3) without time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "customerName",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "customerPhone",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "deliveryLocation",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "deliveryOption",
+        "text",
+        true,
+        "'delivery'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "notes",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "paymentMethod",
+        "text",
+        true,
+        "'on_delivery'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "paymentStatus",
+        "text",
+        true,
+        "'PENDING'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "totalKes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "items",
+        "jsonb",
+        true,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "Order_pkey",
+        "CREATE UNIQUE INDEX \"Order_pkey\" ON public.\"Order\" USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "Order_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "_prisma_migrations": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "character varying(36)",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "checksum",
+        "character varying(64)",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "finished_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "migration_name",
+        "character varying(255)",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "logs",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "rolled_back_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "started_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "applied_steps_count",
+        "integer",
+        true,
+        "0",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "_prisma_migrations_pkey",
+        "CREATE UNIQUE INDEX _prisma_migrations_pkey ON public._prisma_migrations USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "_prisma_migrations_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "bliss_schema_migrations": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "version",
+        "bigint",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "checksum",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "origin",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "applied_at",
+        "timestamp with time zone",
+        true,
+        "CURRENT_TIMESTAMP",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "bliss_schema_migrations_pkey",
+        "CREATE UNIQUE INDEX bliss_schema_migrations_pkey ON public.bliss_schema_migrations USING btree (version)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "bliss_schema_migrations_origin_check",
+        "CHECK ((origin = ANY (ARRAY['empty'::text, 'prisma'::text])))",
+        true
+      ],
+      [
+        "bliss_schema_migrations_pkey",
+        "PRIMARY KEY (version)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "catalog_product": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "slug",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "name",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "category",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "category_slug",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "gender",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "size",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "notes",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "description",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "images",
+        "jsonb",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "price_override_kes",
+        "integer",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "stock",
+        "integer",
+        true,
+        "0",
+        "",
+        "",
+        null
+      ],
+      [
+        "opened",
+        "boolean",
+        true,
+        "false",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "catalog_product_pkey",
+        "CREATE UNIQUE INDEX catalog_product_pkey ON public.catalog_product USING btree (id)",
+        true,
+        true
+      ],
+      [
+        "catalog_product_slug_key",
+        "CREATE UNIQUE INDEX catalog_product_slug_key ON public.catalog_product USING btree (slug)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "catalog_product_images_check",
+        "CHECK ((jsonb_typeof(images) = 'array'::text))",
+        true
+      ],
+      [
+        "catalog_product_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ],
+      [
+        "catalog_product_price_override_kes_check",
+        "CHECK ((price_override_kes \u003e 0))",
+        true
+      ],
+      [
+        "catalog_product_slug_key",
+        "UNIQUE (slug)",
+        true
+      ],
+      [
+        "catalog_product_stock_check",
+        "CHECK ((stock \u003e= 0))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "catalog_settings": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "singleton",
+        "boolean",
+        true,
+        "true",
+        "",
+        "",
+        null
+      ],
+      [
+        "common_price_kes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "catalog_settings_pkey",
+        "CREATE UNIQUE INDEX catalog_settings_pkey ON public.catalog_settings USING btree (singleton)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "catalog_settings_common_price_kes_check",
+        "CHECK ((common_price_kes \u003e 0))",
+        true
+      ],
+      [
+        "catalog_settings_pkey",
+        "PRIMARY KEY (singleton)",
+        true
+      ],
+      [
+        "catalog_settings_singleton_check",
+        "CHECK (singleton)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "delivery_quote": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "uuid",
+        true,
+        "gen_random_uuid()",
+        "",
+        "",
+        null
+      ],
+      [
+        "order_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "version",
+        "integer",
+        true,
+        "1",
+        "",
+        "",
+        null
+      ],
+      [
+        "amount_kes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "fee_recipient",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "arrangement",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        "'pending'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "expires_at",
+        "timestamp with time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "accepted_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "rejected_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "created_by",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "customer_notes",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ]
+    ],
+    "indexes": [
+      [
+        "delivery_quote_order_id_status_idx",
+        "CREATE INDEX delivery_quote_order_id_status_idx ON public.delivery_quote USING btree (order_id, status)",
+        true,
+        true
+      ],
+      [
+        "delivery_quote_order_id_version_key",
+        "CREATE UNIQUE INDEX delivery_quote_order_id_version_key ON public.delivery_quote USING btree (order_id, version)",
+        true,
+        true
+      ],
+      [
+        "delivery_quote_pkey",
+        "CREATE UNIQUE INDEX delivery_quote_pkey ON public.delivery_quote USING btree (id)",
+        true,
+        true
+      ],
+      [
+        "delivery_quote_status_expires_idx",
+        "CREATE INDEX delivery_quote_status_expires_idx ON public.delivery_quote USING btree (status, expires_at)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "delivery_quote_amount_kes_check",
+        "CHECK ((amount_kes \u003e= 0))",
+        true
+      ],
+      [
+        "delivery_quote_fee_recipient_check",
+        "CHECK ((fee_recipient = ANY (ARRAY['merchant'::text, 'courier'::text])))",
+        true
+      ],
+      [
+        "delivery_quote_order_id_fkey",
+        "FOREIGN KEY (order_id) REFERENCES \"Order\"(id) ON DELETE CASCADE",
+        true
+      ],
+      [
+        "delivery_quote_order_id_version_key",
+        "UNIQUE (order_id, version)",
+        true
+      ],
+      [
+        "delivery_quote_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ],
+      [
+        "delivery_quote_status_check",
+        "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'rejected'::text, 'expired'::text])))",
+        true
+      ],
+      [
+        "delivery_quote_version_check",
+        "CHECK ((version \u003e 0))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "guest_order_access": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "order_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "token_hash",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "expires_at",
+        "timestamp with time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "revoked_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "last_used_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "guest_order_access_order_expires_idx",
+        "CREATE INDEX guest_order_access_order_expires_idx ON public.guest_order_access USING btree (order_id, expires_at)",
+        true,
+        true
+      ],
+      [
+        "guest_order_access_pkey",
+        "CREATE UNIQUE INDEX guest_order_access_pkey ON public.guest_order_access USING btree (order_id, token_hash)",
+        true,
+        true
+      ],
+      [
+        "guest_order_access_token_hash_idx",
+        "CREATE INDEX guest_order_access_token_hash_idx ON public.guest_order_access USING btree (token_hash)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "guest_order_access_order_fkey",
+        "FOREIGN KEY (order_id) REFERENCES \"Order\"(id) ON DELETE CASCADE",
+        true
+      ],
+      [
+        "guest_order_access_pkey",
+        "PRIMARY KEY (order_id, token_hash)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "idempotency_key": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "key",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "caller_scope",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "operation",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "request_hash",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status_code",
+        "integer",
+        true,
+        "0",
+        "",
+        "",
+        null
+      ],
+      [
+        "response_headers",
+        "jsonb",
+        true,
+        "'{}'::jsonb",
+        "",
+        "",
+        null
+      ],
+      [
+        "response_body",
+        "text",
+        true,
+        "''::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "resource_id",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "expires_at",
+        "timestamp with time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "idempotency_key_expires_idx",
+        "CREATE INDEX idempotency_key_expires_idx ON public.idempotency_key USING btree (expires_at)",
+        true,
+        true
+      ],
+      [
+        "idempotency_key_pkey",
+        "CREATE UNIQUE INDEX idempotency_key_pkey ON public.idempotency_key USING btree (key, caller_scope, operation)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "idempotency_key_pkey",
+        "PRIMARY KEY (key, caller_scope, operation)",
+        true
+      ],
+      [
+        "idempotency_key_status_check",
+        "CHECK ((status = ANY (ARRAY['in_progress'::text, 'completed'::text, 'failed'::text])))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "inbox_message": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "consumer_name",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "payload",
+        "jsonb",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "error_message",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "processed_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "inbox_message_pkey",
+        "CREATE UNIQUE INDEX inbox_message_pkey ON public.inbox_message USING btree (id, consumer_name)",
+        true,
+        true
+      ],
+      [
+        "inbox_message_status_idx",
+        "CREATE INDEX inbox_message_status_idx ON public.inbox_message USING btree (status)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "inbox_message_pkey",
+        "PRIMARY KEY (id, consumer_name)",
+        true
+      ],
+      [
+        "inbox_message_status_check",
+        "CHECK ((status = ANY (ARRAY['processing'::text, 'processed'::text, 'dead_lettered'::text])))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "order_fulfillment": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "order_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        "'unfulfilled'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "updated_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "order_fulfillment_pkey",
+        "CREATE UNIQUE INDEX order_fulfillment_pkey ON public.order_fulfillment USING btree (order_id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "order_fulfillment_order_id_fkey",
+        "FOREIGN KEY (order_id) REFERENCES \"Order\"(id) ON DELETE CASCADE",
+        true
+      ],
+      [
+        "order_fulfillment_pkey",
+        "PRIMARY KEY (order_id)",
+        true
+      ],
+      [
+        "order_fulfillment_status_check",
+        "CHECK ((status = ANY (ARRAY['unfulfilled'::text, 'fulfilled'::text, 'cancelled'::text])))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "order_item": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "uuid",
+        true,
+        "gen_random_uuid()",
+        "",
+        "",
+        null
+      ],
+      [
+        "order_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "product_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "product_name",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "product_size",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "unit_price_kes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "quantity",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "subtotal_kes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "order_item_order_id_idx",
+        "CREATE INDEX order_item_order_id_idx ON public.order_item USING btree (order_id)",
+        true,
+        true
+      ],
+      [
+        "order_item_pkey",
+        "CREATE UNIQUE INDEX order_item_pkey ON public.order_item USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "order_item_order_id_fkey",
+        "FOREIGN KEY (order_id) REFERENCES \"Order\"(id) ON DELETE CASCADE",
+        true
+      ],
+      [
+        "order_item_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ],
+      [
+        "order_item_product_id_fkey",
+        "FOREIGN KEY (product_id) REFERENCES catalog_product(id)",
+        true
+      ],
+      [
+        "order_item_quantity_check",
+        "CHECK ((quantity \u003e 0))",
+        true
+      ],
+      [
+        "order_item_subtotal_kes_check",
+        "CHECK ((subtotal_kes \u003e 0))",
+        true
+      ],
+      [
+        "order_item_unit_price_kes_check",
+        "CHECK ((unit_price_kes \u003e 0))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "outbox_event": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "event_type",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "aggregate_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "aggregate_version",
+        "integer",
+        true,
+        "1",
+        "",
+        "",
+        null
+      ],
+      [
+        "correlation_id",
+        "text",
+        true,
+        "''::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "schema_version",
+        "integer",
+        true,
+        "1",
+        "",
+        "",
+        null
+      ],
+      [
+        "payload",
+        "jsonb",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "destination",
+        "text",
+        true,
+        "'rabbitmq'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "retry_count",
+        "integer",
+        true,
+        "0",
+        "",
+        "",
+        null
+      ],
+      [
+        "error_message",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "published_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "updated_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "outbox_event_aggregate_idx",
+        "CREATE INDEX outbox_event_aggregate_idx ON public.outbox_event USING btree (aggregate_id)",
+        true,
+        true
+      ],
+      [
+        "outbox_event_pending_idx",
+        "CREATE INDEX outbox_event_pending_idx ON public.outbox_event USING btree (destination, status, created_at) WHERE (status = 'pending'::text)",
+        true,
+        true
+      ],
+      [
+        "outbox_event_pkey",
+        "CREATE UNIQUE INDEX outbox_event_pkey ON public.outbox_event USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "outbox_event_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ],
+      [
+        "outbox_event_status_check",
+        "CHECK ((status = ANY (ARRAY['pending'::text, 'published'::text, 'failed'::text])))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "payment_attempt": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "uuid",
+        true,
+        "gen_random_uuid()",
+        "",
+        "",
+        null
+      ],
+      [
+        "order_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "attempt_number",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "amount_kes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "phone",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "provider",
+        "text",
+        true,
+        "'mpesa_stk'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "provider_transaction_id",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "provider_reference_id",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "error_message",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "updated_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "payment_attempt_order_id_attempt_number_key",
+        "CREATE UNIQUE INDEX payment_attempt_order_id_attempt_number_key ON public.payment_attempt USING btree (order_id, attempt_number)",
+        true,
+        true
+      ],
+      [
+        "payment_attempt_order_idx",
+        "CREATE INDEX payment_attempt_order_idx ON public.payment_attempt USING btree (order_id)",
+        true,
+        true
+      ],
+      [
+        "payment_attempt_pkey",
+        "CREATE UNIQUE INDEX payment_attempt_pkey ON public.payment_attempt USING btree (id)",
+        true,
+        true
+      ],
+      [
+        "payment_attempt_status_idx",
+        "CREATE INDEX payment_attempt_status_idx ON public.payment_attempt USING btree (status)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "payment_attempt_amount_kes_check",
+        "CHECK ((amount_kes \u003e 0))",
+        true
+      ],
+      [
+        "payment_attempt_attempt_number_check",
+        "CHECK ((attempt_number \u003e 0))",
+        true
+      ],
+      [
+        "payment_attempt_order_id_attempt_number_key",
+        "UNIQUE (order_id, attempt_number)",
+        true
+      ],
+      [
+        "payment_attempt_order_id_fkey",
+        "FOREIGN KEY (order_id) REFERENCES \"Order\"(id) ON DELETE CASCADE",
+        true
+      ],
+      [
+        "payment_attempt_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ],
+      [
+        "payment_attempt_status_check",
+        "CHECK ((status = ANY (ARRAY['created'::text, 'initiating'::text, 'accepted'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text, 'unknown'::text])))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_approval": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "uuid",
+        true,
+        "gen_random_uuid()",
+        "",
+        "",
+        null
+      ],
+      [
+        "actor",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "evidence",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "valid_until",
+        "timestamp with time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_approval_pkey",
+        "CREATE UNIQUE INDEX stock_approval_pkey ON public.stock_approval USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_approval_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_batch": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "digest",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "kind",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "actor",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "evidence",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_batch_pkey",
+        "CREATE UNIQUE INDEX stock_batch_pkey ON public.stock_batch USING btree (id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_batch_kind_check",
+        "CHECK ((kind = ANY (ARRAY['opening'::text, 'receipt'::text, 'local_sale'::text, 'adjustment'::text, 'reconcile'::text])))",
+        true
+      ],
+      [
+        "stock_batch_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_control": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "singleton",
+        "boolean",
+        true,
+        "true",
+        "",
+        "",
+        null
+      ],
+      [
+        "authority",
+        "text",
+        true,
+        "'unconfirmed'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "reconciled_until",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "approved_by",
+        "text",
+        true,
+        "''::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "evidence",
+        "text",
+        true,
+        "''::text",
+        "",
+        "",
+        "default"
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_control_pkey",
+        "CREATE UNIQUE INDEX stock_control_pkey ON public.stock_control USING btree (singleton)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_control_authority_check",
+        "CHECK ((authority = ANY (ARRAY['unconfirmed'::text, 'replacement'::text])))",
+        true
+      ],
+      [
+        "stock_control_pkey",
+        "PRIMARY KEY (singleton)",
+        true
+      ],
+      [
+        "stock_control_singleton_check",
+        "CHECK (singleton)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_entry": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "batch_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "product_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "delta",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "balance",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_entry_pkey",
+        "CREATE UNIQUE INDEX stock_entry_pkey ON public.stock_entry USING btree (batch_id, product_id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_entry_balance_check",
+        "CHECK ((balance \u003e= 0))",
+        true
+      ],
+      [
+        "stock_entry_batch_id_fkey",
+        "FOREIGN KEY (batch_id) REFERENCES stock_batch(id)",
+        true
+      ],
+      [
+        "stock_entry_pkey",
+        "PRIMARY KEY (batch_id, product_id)",
+        true
+      ],
+      [
+        "stock_entry_product_id_fkey",
+        "FOREIGN KEY (product_id) REFERENCES catalog_product(id)",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_reservation": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "uuid",
+        true,
+        "gen_random_uuid()",
+        "",
+        "",
+        null
+      ],
+      [
+        "order_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        "'active'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "expires_at",
+        "timestamp with time zone",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "released_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_reservation_order_id_key",
+        "CREATE UNIQUE INDEX stock_reservation_order_id_key ON public.stock_reservation USING btree (order_id)",
+        true,
+        true
+      ],
+      [
+        "stock_reservation_pkey",
+        "CREATE UNIQUE INDEX stock_reservation_pkey ON public.stock_reservation USING btree (id)",
+        true,
+        true
+      ],
+      [
+        "stock_reservation_status_expires_idx",
+        "CREATE INDEX stock_reservation_status_expires_idx ON public.stock_reservation USING btree (status, expires_at)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_reservation_order_id_fkey",
+        "FOREIGN KEY (order_id) REFERENCES \"Order\"(id) ON DELETE CASCADE",
+        true
+      ],
+      [
+        "stock_reservation_order_id_key",
+        "UNIQUE (order_id)",
+        true
+      ],
+      [
+        "stock_reservation_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ],
+      [
+        "stock_reservation_status_check",
+        "CHECK ((status = ANY (ARRAY['active'::text, 'released'::text, 'committed'::text])))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "stock_reservation_item": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "reservation_id",
+        "uuid",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "product_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "quantity",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "stock_reservation_item_pkey",
+        "CREATE UNIQUE INDEX stock_reservation_item_pkey ON public.stock_reservation_item USING btree (reservation_id, product_id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "stock_reservation_item_pkey",
+        "PRIMARY KEY (reservation_id, product_id)",
+        true
+      ],
+      [
+        "stock_reservation_item_product_id_fkey",
+        "FOREIGN KEY (product_id) REFERENCES catalog_product(id)",
+        true
+      ],
+      [
+        "stock_reservation_item_quantity_check",
+        "CHECK ((quantity \u003e 0))",
+        true
+      ],
+      [
+        "stock_reservation_item_reservation_id_fkey",
+        "FOREIGN KEY (reservation_id) REFERENCES stock_reservation(id) ON DELETE CASCADE",
+        true
+      ]
+    ],
+    "persistence": "p"
+  }
+}
