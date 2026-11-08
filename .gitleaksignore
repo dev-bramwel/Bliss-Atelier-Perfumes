@@ -1,0 +1,4 @@
+# Gitleaks false positive suppressions
+# Synthetic guest token fixture used exclusively in test cases (internal/httpapi/redact_test.go)
+3c7b34a783777661690ac6743acd17cde6bac7c3:internal/httpapi/redact_test.go:generic-api-key:12
+3c7b34a783777661690ac6743acd17cde6bac7c3:internal/httpapi/redact_test.go:generic-api-key:37

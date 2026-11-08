@@ -9,7 +9,7 @@ import (
 )
 
 func TestRedactString(t *testing.T) {
-	rawToken := "gt_4f1b777a8898b9fca02d13ec8ef1e1c3a649a8de4d16d0046b02a24bc9e81b67"
+	rawToken := "gt_" + strings.Repeat("0123456789abcdef", 4)
 	text := "Error handling token " + rawToken + " for customer phone +254712345678"
 
 	redacted := RedactString(text)
@@ -34,7 +34,7 @@ func TestRedactingReplaceAttr(t *testing.T) {
 	})
 	logger := slog.New(handler)
 
-	rawToken := "gt_4f1b777a8898b9fca02d13ec8ef1e1c3a649a8de4d16d0046b02a24bc9e81b67"
+	rawToken := "gt_" + strings.Repeat("0123456789abcdef", 4)
 	logger.Info("order_debug",
 		"guest_token", rawToken,
 		"authorization", "Bearer my-secret-token",
