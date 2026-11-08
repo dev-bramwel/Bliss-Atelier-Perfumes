@@ -16,7 +16,15 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
 )
+
+func respond(w http.ResponseWriter, code int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(body)
+}
 
 type Ping func(context.Context) error
 
@@ -63,6 +71,11 @@ type OrderService interface {
 	CreatePaymentAttempt(ctx context.Context, orderID, phone string, amountKes int, provider string) (*orders.PaymentAttempt, error)
 	GetLatestPaymentAttempt(ctx context.Context, orderID string) (*orders.PaymentAttempt, error)
 	GetPaymentAttempts(ctx context.Context, orderID string) ([]orders.PaymentAttempt, error)
+	ConfirmPayment(ctx context.Context, orderID string, receiptNumber string, paidAmountKes ...int) error
+	UpdatePaymentAttempt(ctx context.Context, attemptID, status, providerTxID, providerRefID, errorMsg string) error
+	FindPaymentAttemptByProviderTx(ctx context.Context, providerTxID string) (*orders.PaymentAttempt, error)
+	FindInFlightPaymentAttempt(ctx context.Context, phone string, amountKes int, within time.Duration) (*orders.PaymentAttempt, error)
+	FindReceiptOrder(ctx context.Context, receiptNumber string) (string, error)
 }
 
 type DeliveryService interface {
@@ -84,6 +97,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	var orderStore OrderService
 	var deliveryStore DeliveryService
 	var secConfig SecurityConfig
+	var paymentProv provider.PaymentProvider
+	var ncbaConfig provider.NCBAConfig
 
 	for _, d := range deps {
 		switch v := d.(type) {
@@ -95,6 +110,10 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			deliveryStore = v
 		case SecurityConfig:
 			secConfig = v
+		case provider.PaymentProvider:
+			paymentProv = v
+		case provider.NCBAConfig:
+			ncbaConfig = v
 		}
 	}
 
@@ -104,12 +123,6 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	}
 
 	mux := http.NewServeMux()
-	respond := func(w http.ResponseWriter, code int, body any) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(code)
-		_ = json.NewEncoder(w).Encode(body)
-	}
 
 	mux.HandleFunc("GET /catalog", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -252,10 +265,46 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 
+			var stkPushData any
+			var orderWarning string
+
+			if order.PaymentMethod == "mpesa" && paymentProv != nil && order.LatestAttempt != nil {
+				stkResp, stkErr := paymentProv.InitiateSTK(ctx, provider.STKInitiateRequest{
+					OrderID:   order.ID,
+					AttemptID: order.LatestAttempt.ID,
+					Phone:     order.CustomerPhone,
+					AmountKes: order.TotalKes,
+				})
+				if stkErr == nil && stkResp != nil {
+					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptAccepted, stkResp.TransactionID, stkResp.ReferenceID, "")
+					order.LatestAttempt.Status = orders.AttemptAccepted
+					order.LatestAttempt.ProviderTransactionID = stkResp.TransactionID
+					order.LatestAttempt.ProviderReferenceID = stkResp.ReferenceID
+					stkPushData = map[string]string{
+						"merchantRequestId":   stkResp.ReferenceID,
+						"checkoutRequestId":   stkResp.TransactionID,
+						"responseDescription": stkResp.StatusDescription,
+					}
+				} else if errors.Is(stkErr, provider.ErrProviderTimeout) {
+					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptUnknown, "", "", "provider initiation timed out")
+					order.LatestAttempt.Status = orders.AttemptUnknown
+					order.LatestAttempt.ErrorMessage = "provider initiation timed out"
+					orderWarning = "M-Pesa accepted the payment request. The callback will recover its transaction mapping."
+				} else if stkErr != nil {
+					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptFailed, "", "", stkErr.Error())
+					order.LatestAttempt.Status = orders.AttemptFailed
+					order.LatestAttempt.ErrorMessage = stkErr.Error()
+					orderWarning = "Order saved but M-Pesa STK initiation failed. Check your Daraja credentials."
+				}
+			}
+
 			respData := map[string]any{
 				"order":       order,
 				"guest_token": order.GuestToken,
-				"stkPush":     nil,
+				"stkPush":     stkPushData,
+			}
+			if orderWarning != "" {
+				respData["warning"] = orderWarning
 			}
 			respBytes, err := json.Marshal(respData)
 			if err != nil {
@@ -270,7 +319,10 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			cachedRespData := map[string]any{
 				"order":       cachedOrder,
 				"guest_token": "",
-				"stkPush":     nil,
+				"stkPush":     stkPushData,
+			}
+			if orderWarning != "" {
+				cachedRespData["warning"] = orderWarning
 			}
 			cachedRespBytes, err := json.Marshal(cachedRespData)
 			if err != nil {
@@ -594,10 +646,49 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 
+			var stkPushData any
+			var retryWarning string
+
+			if paymentProv != nil {
+				stkResp, stkErr := paymentProv.InitiateSTK(ctx, provider.STKInitiateRequest{
+					OrderID:   id,
+					AttemptID: attempt.ID,
+					Phone:     phone,
+					AmountKes: payableAmount,
+				})
+				if stkErr == nil && stkResp != nil {
+					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptAccepted, stkResp.TransactionID, stkResp.ReferenceID, "")
+					attempt.Status = orders.AttemptAccepted
+					attempt.ProviderTransactionID = stkResp.TransactionID
+					attempt.ProviderReferenceID = stkResp.ReferenceID
+					stkPushData = map[string]string{
+						"merchantRequestId":   stkResp.ReferenceID,
+						"checkoutRequestId":   stkResp.TransactionID,
+						"responseDescription": stkResp.StatusDescription,
+					}
+				} else if errors.Is(stkErr, provider.ErrProviderTimeout) {
+					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptUnknown, "", "", "provider initiation timed out")
+					attempt.Status = orders.AttemptUnknown
+					attempt.ErrorMessage = "provider initiation timed out"
+					retryWarning = "M-Pesa accepted the payment request. The callback will recover its transaction mapping."
+				} else if stkErr != nil {
+					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, "", "", stkErr.Error())
+					attempt.Status = orders.AttemptFailed
+					attempt.ErrorMessage = stkErr.Error()
+					retryWarning = "Payment retry saved but STK initiation failed."
+				}
+			}
+
 			respData := map[string]any{
 				"orderId": id,
 				"attempt": attempt,
 				"message": "payment retry initiated",
+			}
+			if stkPushData != nil {
+				respData["stkPush"] = stkPushData
+			}
+			if retryWarning != "" {
+				respData["warning"] = retryWarning
 			}
 			respBytes, err := json.Marshal(respData)
 			if err != nil {
@@ -669,6 +760,12 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		mux.HandleFunc("POST /api/orders/{id}/retry-payment", handleRetryPayment)
 		mux.HandleFunc("GET /orders/{id}/attempts", handleGetAttempts)
 		mux.HandleFunc("GET /api/orders/{id}/attempts", handleGetAttempts)
+
+		ncbaHandler, mpesaHandler := newPaymentCallbackHandlers(orderStore, ncbaConfig, secConfig.MpesaCallbackSecret, timeout)
+		mux.HandleFunc("POST /api/payments/ncba/ipn", ncbaHandler)
+		mux.HandleFunc("POST /payments/ncba/ipn", ncbaHandler)
+		mux.HandleFunc("POST /api/mpesa/callback", mpesaHandler)
+		mux.HandleFunc("POST /mpesa/callback", mpesaHandler)
 	}
 
 	if deliveryStore != nil {

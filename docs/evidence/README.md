@@ -32,3 +32,4 @@ Reference documentation for the probe commands/images: [PostgreSQL image](https:
 - [R11 quoted delivery lifecycle](r11-quoted-delivery.md): manager quote creation, expiration, and customer acceptance/rejection.
 - [R12 HTTP validation and scoped guest access](r12-http-validation-guest-access.md): request size limits, CORS, rate limiting, and cryptographic guest tokens.
 - [R13 payment attempts and durable idempotency](r13-payment-attempts-idempotency.md): operation/caller-scoped idempotency keys, request hashing, multiple payment attempts, and safe retry rules.
+- [R14 bounded provider adapter and guarded callbacks](r14-bounded-provider-callbacks.md): bounded NCBA transport, token caching, SHA-256 IPN verification, receipt deduplication, and non-regression of paid orders.

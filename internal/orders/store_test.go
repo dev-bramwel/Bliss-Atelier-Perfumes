@@ -917,3 +917,77 @@ func TestPaymentAttemptLifecycleAndExplicitRetry(t *testing.T) {
 		t.Fatalf("expected ErrOrderAlreadyPaid on paid order, got %v", err)
 	}
 }
+
+func TestFindPaymentAttemptHelpers(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	setupCatalogFixture(t, pool, "p1", 10, true, nil)
+	store := &Store{Pool: pool}
+
+	req := CreateOrderRequest{
+		Customer: CustomerInput{
+			Name:     "Alice Helper",
+			Phone:    "254700112233",
+			Location: "Westlands",
+			Delivery: "pickup",
+			Payment:  "pay_now",
+		},
+		Items: []ItemInput{
+			{ID: "p1", Qty: 1},
+		},
+	}
+	order, err := store.CreateOrder(ctx, req)
+	if err != nil {
+		t.Fatalf("failed to create order: %v", err)
+	}
+
+	// 1. Initial attempt is 'created'. FindInFlightPaymentAttempt finds 'created', 'initiating', 'accepted', 'unknown'
+	inFlight, err := store.FindInFlightPaymentAttempt(ctx, "254700112233", order.TotalKes, 10*time.Minute)
+	if err != nil || inFlight == nil || inFlight.ID != order.LatestAttempt.ID {
+		t.Fatalf("expected in-flight attempt found for created status, got %+v (err: %v)", inFlight, err)
+	}
+
+	// 2. Update attempt to initiating with provider tx & ref IDs
+	err = store.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, AttemptInitiating, "NCBA_TX_999", "NCBA_REF_888", "")
+	if err != nil {
+		t.Fatalf("failed to update attempt: %v", err)
+	}
+
+	// Now in-flight attempt should still be found
+	inFlight, err = store.FindInFlightPaymentAttempt(ctx, "254700112233", order.TotalKes, 10*time.Minute)
+	if err != nil || inFlight == nil || inFlight.ID != order.LatestAttempt.ID {
+		t.Fatalf("expected in-flight attempt %+v, got %+v (err: %v)", order.LatestAttempt, inFlight, err)
+	}
+
+	// 3. FindPaymentAttemptByProviderTx by transaction ID and reference ID
+	byTx, err := store.FindPaymentAttemptByProviderTx(ctx, "NCBA_TX_999")
+	if err != nil || byTx == nil || byTx.ID != order.LatestAttempt.ID {
+		t.Fatalf("expected attempt found by provider tx ID, got %+v (err: %v)", byTx, err)
+	}
+	byRef, err := store.FindPaymentAttemptByProviderTx(ctx, "NCBA_REF_888")
+	if err != nil || byRef == nil || byRef.ID != order.LatestAttempt.ID {
+		t.Fatalf("expected attempt found by provider ref ID, got %+v (err: %v)", byRef, err)
+	}
+	nonExistent, err := store.FindPaymentAttemptByProviderTx(ctx, "DOES_NOT_EXIST")
+	if !errors.Is(err, ErrAttemptNotFound) || nonExistent != nil {
+		t.Fatalf("expected ErrAttemptNotFound for non-existent provider tx, got %+v (err: %v)", nonExistent, err)
+	}
+
+	// 4. FindReceiptOrder should be empty string before confirmation
+	receiptOrder, err := store.FindReceiptOrder(ctx, "NCBA_RECEIPT_777")
+	if err != nil || receiptOrder != "" {
+		t.Fatalf("expected empty receipt order, got %q (err: %v)", receiptOrder, err)
+	}
+
+	// 5. Confirm payment with receipt
+	err = store.ConfirmPayment(ctx, order.ID, "NCBA_RECEIPT_777", order.TotalKes)
+	if err != nil {
+		t.Fatalf("failed to confirm payment: %v", err)
+	}
+
+	// FindReceiptOrder should now return the order ID
+	receiptOrder, err = store.FindReceiptOrder(ctx, "NCBA_RECEIPT_777")
+	if err != nil || receiptOrder != order.ID {
+		t.Fatalf("expected receipt order ID %q, got %q (err: %v)", order.ID, receiptOrder, err)
+	}
+}

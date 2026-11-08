@@ -19,6 +19,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/httpapi"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
 )
 
 func Main(command string) {
@@ -88,11 +89,27 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		}
 		defer listener.Close()
 		secConfig := httpapi.SecurityConfig{
-			AllowedOrigins: cfg.AllowedOrigins,
-			TrustedProxies: cfg.TrustedProxies,
-			ManagerSecret:  cfg.ManagerSecret,
+			AllowedOrigins:      cfg.AllowedOrigins,
+			TrustedProxies:      cfg.TrustedProxies,
+			ManagerSecret:       cfg.ManagerSecret,
+			MpesaCallbackSecret: cfg.MpesaCallbackSecret,
 		}
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		ncbaConfig := provider.NCBAConfig{
+			BaseURL:      cfg.NCBABaseURL,
+			Username:     cfg.NCBAUsername,
+			Password:     cfg.NCBAPassword,
+			PayBillNo:    cfg.NCBAPayBillNo,
+			AccountNo:    cfg.NCBAAccountNo,
+			IPNUsername:  cfg.NCBAIPNUsername,
+			IPNPassword:  cfg.NCBAIPNPassword,
+			IPNSecretKey: cfg.NCBAIPNSecretKey,
+		}
+		var paymentProv provider.PaymentProvider
+		if cfg.NCBAUsername != "" && cfg.NCBAPassword != "" {
+			ncbaClient, _ := provider.New(cfg.IOTimeout)
+			paymentProv, _ = provider.NewNCBA(ncbaConfig, ncbaClient)
+		}
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		if orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")

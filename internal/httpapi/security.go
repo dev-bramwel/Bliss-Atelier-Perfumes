@@ -171,11 +171,12 @@ func AuthorizeOrderAccess(ctx context.Context, r *http.Request, orderID string, 
 	return false, nil
 }
 
-// SecurityConfig contains CORS, trusted proxy, and manager authentication settings.
+// SecurityConfig contains CORS, trusted proxy, manager authentication, and callback secret settings.
 type SecurityConfig struct {
-	AllowedOrigins []string
-	TrustedProxies string
-	ManagerSecret  string
+	AllowedOrigins      []string
+	TrustedProxies      string
+	ManagerSecret       string
+	MpesaCallbackSecret string
 }
 
 // CORSHandler applies standard security headers, CORS headers, and handles OPTIONS preflights.
