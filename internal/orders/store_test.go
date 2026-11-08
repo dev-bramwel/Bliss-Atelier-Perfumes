@@ -799,6 +799,16 @@ func TestIdempotencyLifecycle(t *testing.T) {
 		t.Fatalf("expected ErrIdempotencyConflict on changed body, got %v", err)
 	}
 
+	// 5b. Calling FailIdempotent on an already completed key must NOT downgrade it to failed
+	err = store.FailIdempotent(ctx, key, scope, op)
+	if err != nil {
+		t.Fatalf("FailIdempotent returned error: %v", err)
+	}
+	recAfterFail, isReplay, err := store.BeginIdempotent(ctx, key, scope, op, hash1, time.Hour)
+	if err != nil || !isReplay || recAfterFail.Status != IdempotencyCompleted {
+		t.Fatalf("expected completed key to remain completed despite FailIdempotent call, got %+v (replay=%v, err=%v)", recAfterFail, isReplay, err)
+	}
+
 	// 6. Failed operation handling: when marked failed, subsequent request with that key can retry
 	failKey := "idemp-fail-key"
 	_, _, err = store.BeginIdempotent(ctx, failKey, scope, op, hash1, time.Hour)
@@ -890,6 +900,15 @@ func TestPaymentAttemptLifecycleAndExplicitRetry(t *testing.T) {
 	err = store.ConfirmPayment(ctx, order.ID, "MPESARECEIPT99", order.TotalKes)
 	if err != nil {
 		t.Fatalf("failed to confirm payment: %v", err)
+	}
+
+	// Verify that latest attempt was updated to SUCCEEDED with provider transaction ID
+	latestAfterPaid, err := store.GetLatestPaymentAttempt(ctx, order.ID)
+	if err != nil {
+		t.Fatalf("failed to get latest attempt after payment: %v", err)
+	}
+	if latestAfterPaid.Status != AttemptSucceeded || latestAfterPaid.ProviderTransactionID != "MPESARECEIPT99" {
+		t.Fatalf("expected latest attempt SUCCEEDED with receipt MPESARECEIPT99, got %+v", latestAfterPaid)
 	}
 
 	// 9. Retry on PAID order must fail with ErrOrderAlreadyPaid

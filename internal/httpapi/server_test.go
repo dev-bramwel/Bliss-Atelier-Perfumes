@@ -1068,10 +1068,21 @@ func TestRetryPaymentEndpoint(t *testing.T) {
 		t.Fatalf("expected 401 Unauthorized for unauthenticated retry, got %d", w.Code)
 	}
 
-	// 2. Authenticated guest retry when previous attempt failed returns 201 Created
+	// 2a. Missing Idempotency-Key returns 400 Bad Request
+	noIdempReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/retry-payment", strings.NewReader(`{"phone":"254722000000"}`))
+	noIdempReq.Header.Set("X-Guest-Token", validToken)
+	noIdempReq.Header.Set("Content-Type", "application/json")
+	wNoIdemp := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(wNoIdemp, noIdempReq)
+	if wNoIdemp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for retry without Idempotency-Key, got %d", wNoIdemp.Code)
+	}
+
+	// 2b. Authenticated guest retry when previous attempt failed returns 201 Created
 	req := httptest.NewRequest("POST", "/api/orders/"+orderID+"/retry-payment", strings.NewReader(`{"phone":"254722000000"}`))
 	req.Header.Set("X-Guest-Token", validToken)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "retry-key-test-1")
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
@@ -1087,6 +1098,7 @@ func TestRetryPaymentEndpoint(t *testing.T) {
 	activeAttemptStatus = orders.AttemptInitiating
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/retry-payment", nil)
 	req.Header.Set("X-Guest-Token", validToken)
+	req.Header.Set("Idempotency-Key", "retry-key-test-2")
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != http.StatusConflict {
@@ -1098,6 +1110,7 @@ func TestRetryPaymentEndpoint(t *testing.T) {
 	isOrderPaid = true
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/retry-payment", nil)
 	req.Header.Set("X-Guest-Token", validToken)
+	req.Header.Set("Idempotency-Key", "retry-key-test-3")
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != http.StatusConflict {

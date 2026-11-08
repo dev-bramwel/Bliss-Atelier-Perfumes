@@ -403,6 +403,21 @@ func (s *Store) ReleaseExpired(ctx context.Context, now time.Time) (int, error) 
 			return 0, fmt.Errorf("failed to update order %s payment status to EXPIRED: %w", r.orderID, err)
 		}
 
+		// Update latest payment attempt to FAILED (reservation expired)
+		_, err = tx.Exec(ctx, `
+			UPDATE public.payment_attempt
+			SET status = $1, error_message = 'stock reservation expired', updated_at = $2
+			WHERE id = (
+				SELECT id FROM public.payment_attempt
+				WHERE order_id = $3
+				ORDER BY attempt_number DESC
+				LIMIT 1
+			) AND status IN ('created', 'initiating')
+		`, AttemptFailed, now, r.orderID)
+		if err != nil {
+			return 0, fmt.Errorf("failed to update payment attempt for expired order %s: %w", r.orderID, err)
+		}
+
 		// Update order_fulfillment to cancelled
 		_, err = tx.Exec(ctx, `UPDATE public.order_fulfillment SET status = $1, updated_at = $2 WHERE order_id = $3 AND status = $4`,
 			FulfillmentCancelled, now, r.orderID, FulfillmentUnfulfilled)
@@ -461,6 +476,22 @@ func (s *Store) CancelOrder(ctx context.Context, orderID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to update order status to FAILED: %w", err)
 	}
+
+	// Update latest payment attempt to CANCELLED
+	_, err = tx.Exec(ctx, `
+		UPDATE public.payment_attempt
+		SET status = $1, error_message = 'order cancelled', updated_at = $2
+		WHERE id = (
+			SELECT id FROM public.payment_attempt
+			WHERE order_id = $3
+			ORDER BY attempt_number DESC
+			LIMIT 1
+		) AND status IN ('created', 'initiating')
+	`, AttemptCancelled, now, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update payment attempt on cancel: %w", err)
+	}
+
 	_, err = tx.Exec(ctx, `UPDATE public.order_fulfillment SET status = $1, updated_at = $2 WHERE order_id = $3`,
 		FulfillmentCancelled, now, orderID)
 	if err != nil {
@@ -567,6 +598,25 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2 WHERE id = $3`, PaymentPaid, now, orderID)
 		if err != nil {
 			return fmt.Errorf("failed to mark order %s as PAID: %w", orderID, err)
+		}
+
+		// Update latest payment attempt to SUCCEEDED
+		var provTxID *string
+		if receiptNumber != "" {
+			provTxID = &receiptNumber
+		}
+		_, err = tx.Exec(ctx, `
+			UPDATE public.payment_attempt
+			SET status = $1, provider_transaction_id = coalesce($2, provider_transaction_id), updated_at = $3
+			WHERE id = (
+				SELECT id FROM public.payment_attempt
+				WHERE order_id = $4
+				ORDER BY attempt_number DESC
+				LIMIT 1
+			)
+		`, AttemptSucceeded, provTxID, now, orderID)
+		if err != nil {
+			return fmt.Errorf("failed to update payment attempt to SUCCEEDED: %w", err)
 		}
 
 		// Record M-Pesa transaction if receipt is supplied
@@ -705,6 +755,25 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		if err != nil {
 			return fmt.Errorf("failed to record late mpesa transaction: %w", err)
 		}
+	}
+
+	// Update latest payment attempt to ACCEPTED with note
+	var lateProvTxID *string
+	if receiptNumber != "" {
+		lateProvTxID = &receiptNumber
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE public.payment_attempt
+		SET status = $1, provider_transaction_id = coalesce($2, provider_transaction_id), error_message = 'reservation hold expired before payment confirmation', updated_at = $3
+		WHERE id = (
+			SELECT id FROM public.payment_attempt
+			WHERE order_id = $4
+			ORDER BY attempt_number DESC
+			LIMIT 1
+		)
+	`, AttemptAccepted, lateProvTxID, now, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to update payment attempt for late payment: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

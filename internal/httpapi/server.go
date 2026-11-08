@@ -480,7 +480,10 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 			if idempotencyKey == "" {
-				idempotencyKey = "auto_" + orders.CanonicalRequestHash([]byte(ip+":"+id+":"+string(bodyBytes)))
+				respond(w, 400, map[string]string{
+					"error": "Idempotency-Key header is required for payment retry",
+				})
+				return
 			}
 			callerScope := "order:" + id
 			if mgr := extractManager(r); mgr != "" {

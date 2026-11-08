@@ -189,12 +189,14 @@ func (s *Store) CompleteIdempotent(ctx context.Context, key, callerScope, operat
 }
 
 // FailIdempotent marks an operation as failed or removes the in_progress lock so the client can fix or retry.
+// It strictly guards that only in_progress records can be marked failed, preventing any accidental
+// downgrade of an already-completed idempotency record.
 func (s *Store) FailIdempotent(ctx context.Context, key, callerScope, operation string) error {
 	_, err := s.Pool.Exec(ctx, `
 		UPDATE public.idempotency_key
 		SET status = $1
-		WHERE key = $2 AND caller_scope = $3 AND operation = $4
-	`, IdempotencyFailed, key, callerScope, operation)
+		WHERE key = $2 AND caller_scope = $3 AND operation = $4 AND status = $5
+	`, IdempotencyFailed, key, callerScope, operation, IdempotencyInProgress)
 	if err != nil {
 		return fmt.Errorf("failed to mark idempotency key failed: %w", err)
 	}
