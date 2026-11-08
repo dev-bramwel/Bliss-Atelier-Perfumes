@@ -951,3 +951,31 @@ func (s *Store) ValidateGuestAccess(ctx context.Context, orderID string, rawToke
 	}
 	return isValid, nil
 }
+
+// IssueGuestToken generates a fresh scoped guest token for an order, updates its persistent hash,
+// and returns the raw bearer token without saving the raw token in database storage.
+func (s *Store) IssueGuestToken(ctx context.Context, orderID string) (string, error) {
+	rawToken, tokenHash, err := GenerateGuestToken()
+	if err != nil {
+		return "", err
+	}
+	expiresAt := time.Now().Add(30 * 24 * time.Hour)
+	tag, err := s.Pool.Exec(ctx, `
+		UPDATE public.guest_order_access
+		SET token_hash = $1, created_at = now(), expires_at = $2
+		WHERE order_id = $3
+	`, tokenHash, expiresAt, orderID)
+	if err != nil {
+		return "", fmt.Errorf("failed to update guest token hash: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		_, err = s.Pool.Exec(ctx, `
+			INSERT INTO public.guest_order_access (order_id, token_hash, created_at, expires_at)
+			VALUES ($1, $2, now(), $3)
+		`, orderID, tokenHash, expiresAt)
+		if err != nil {
+			return "", fmt.Errorf("failed to insert guest token hash: %w", err)
+		}
+	}
+	return rawToken, nil
+}

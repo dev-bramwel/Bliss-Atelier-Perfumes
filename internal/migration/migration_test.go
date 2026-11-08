@@ -452,7 +452,7 @@ func testRuntimeGrants(t *testing.T, admin *pgxpool.Pool) {
 	denied(`SELECT * FROM public."Order"`)
 	denied(`SELECT * FROM public."MpesaTransaction"`)
 	// Same explicit business-table grant as the operator runbook; no ledger grant.
-	execSQL(t, admin, `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."Order", public."MpesaTransaction" TO `+identifier(runtime))
+	execSQL(t, admin, `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."Order", public."MpesaTransaction", public.order_item, public.stock_reservation, public.stock_reservation_item, public.order_fulfillment, public.delivery_quote, public.guest_order_access, public.idempotency_key, public.payment_attempt TO `+identifier(runtime))
 	execSQL(t, runtimePool, `INSERT INTO public."Order"(id,"updatedAt","customerName","customerPhone","deliveryLocation","totalKes",items)
  VALUES ('runtime-order',now(),'Synthetic','254700000000','Test',2000,'[]');
  INSERT INTO public."MpesaTransaction"(id,"updatedAt","orderId") VALUES ('runtime-payment',now(),'runtime-order');

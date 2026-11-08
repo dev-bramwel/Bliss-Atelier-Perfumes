@@ -126,10 +126,18 @@ checkoutForm?.addEventListener("submit", async (e) => {
       submitBtn.textContent = "Placing order…";
     }
 
+    const idempotencyKey =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : "ord_" + Date.now() + "_" + Math.random().toString(36).substring(2, 10);
+
     try {
       const res = await fetch(`${API_BASE}/api/orders`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify(orderPayload),
       });
 

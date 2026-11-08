@@ -137,6 +137,7 @@ type mockOrderService struct {
 	releaseFn        func(ctx context.Context, now time.Time) (int, error)
 	recentFn         func(ctx context.Context, limit int) ([]orders.Order, error)
 	validateAccessFn func(ctx context.Context, orderID string, rawToken string) (bool, error)
+	issueTokenFn     func(ctx context.Context, orderID string) (string, error)
 	beginIdempFn     func(ctx context.Context, key, callerScope, operation, requestHash string, ttl time.Duration) (*orders.IdempotencyRecord, bool, error)
 	completeIdempFn  func(ctx context.Context, key, callerScope, operation string, statusCode int, headers map[string]string, responseBody, resourceID string) error
 	failIdempFn      func(ctx context.Context, key, callerScope, operation string) error
@@ -171,6 +172,13 @@ func (m *mockOrderService) ValidateGuestAccess(ctx context.Context, orderID stri
 		return m.validateAccessFn(ctx, orderID, rawToken)
 	}
 	return true, nil
+}
+
+func (m *mockOrderService) IssueGuestToken(ctx context.Context, orderID string) (string, error) {
+	if m.issueTokenFn != nil {
+		return m.issueTokenFn(ctx, orderID)
+	}
+	return "gt_" + strings.Repeat("a", 64), nil
 }
 
 func (m *mockOrderService) ReleaseExpired(ctx context.Context, now time.Time) (int, error) {
@@ -947,6 +955,21 @@ func TestIdempotentOrderCreation(t *testing.T) {
 		t.Fatalf("expected orderCreatedCount=1, got %d", orderCreatedCount)
 	}
 
+	var resp1 map[string]any
+	_ = json.Unmarshal(w1.Body.Bytes(), &resp1)
+	if resp1["guest_token"] != "gt_testtoken123" {
+		t.Errorf("expected original response to contain customer guest token, got %v", resp1["guest_token"])
+	}
+
+	// Verify that the saved record in the idempotency store has redacted the guest token!
+	for _, rec := range idempStore {
+		var cached map[string]any
+		_ = json.Unmarshal([]byte(rec.ResponseBody), &cached)
+		if cached["guest_token"] != "" {
+			t.Errorf("expected stored idempotency record to redact guest_token, got %v", cached["guest_token"])
+		}
+	}
+
 	// 2. Exact same request with same Idempotency-Key: must return 201 with X-Idempotent-Replay without recreating order
 	req2 := httptest.NewRequest("POST", "/api/orders", strings.NewReader(payload1))
 	req2.Header.Set("Content-Type", "application/json")
@@ -962,6 +985,12 @@ func TestIdempotentOrderCreation(t *testing.T) {
 	}
 	if orderCreatedCount != 1 {
 		t.Fatalf("expected orderCreatedCount still 1 after replay, got %d", orderCreatedCount)
+	}
+
+	var resp2 map[string]any
+	_ = json.Unmarshal(w2.Body.Bytes(), &resp2)
+	if resp2["guest_token"] == "" || resp2["guest_token"] == "gt_testtoken123" {
+		t.Errorf("expected replayed response to dynamically issue fresh guest token, got %v", resp2["guest_token"])
 	}
 
 	// 3. Different request body with same Idempotency-Key: must return 409 Conflict
@@ -1073,5 +1102,155 @@ func TestRetryPaymentEndpoint(t *testing.T) {
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409 Conflict when order is already paid, got %d", w.Code)
+	}
+}
+
+func TestRetryPaymentPayableAndIdempotency(t *testing.T) {
+	orderID := "ord-deliv-retry"
+	validToken, _, _ := orders.GenerateGuestToken()
+
+	var recordedAmount int
+	deliveryQuoteStatus := delivery.QuoteStatusAccepted
+	deliveryFeeRecipient := delivery.FeeRecipientMerchant
+
+	idempStore := make(map[string]*orders.IdempotencyRecord)
+
+	mockOrder := &mockOrderService{
+		validateAccessFn: func(ctx context.Context, id, token string) (bool, error) {
+			return id == orderID && token == validToken, nil
+		},
+		getFn: func(ctx context.Context, id string) (*orders.Order, error) {
+			return &orders.Order{
+				ID:             orderID,
+				CustomerPhone:  "254711223344",
+				DeliveryOption: "delivery",
+				TotalKes:       3000,
+				PaymentStatus:  orders.PaymentPending,
+			}, nil
+		},
+		createAttemptFn: func(ctx context.Context, id, phone string, amountKes int, provider string) (*orders.PaymentAttempt, error) {
+			recordedAmount = amountKes
+			return &orders.PaymentAttempt{
+				ID:            "att-deliv-retry",
+				OrderID:       id,
+				AttemptNumber: 2,
+				AmountKes:     amountKes,
+				Phone:         phone,
+				Status:        orders.AttemptCreated,
+				Provider:      provider,
+				CreatedAt:     time.Now(),
+				UpdatedAt:     time.Now(),
+			}, nil
+		},
+		beginIdempFn: func(ctx context.Context, key, callerScope, operation, requestHash string, ttl time.Duration) (*orders.IdempotencyRecord, bool, error) {
+			compound := key + ":" + callerScope + ":" + operation
+			rec, exists := idempStore[compound]
+			if !exists {
+				r := &orders.IdempotencyRecord{
+					Key:         key,
+					CallerScope: callerScope,
+					Operation:   operation,
+					RequestHash: requestHash,
+					Status:      orders.IdempotencyInProgress,
+				}
+				idempStore[compound] = r
+				return r, false, nil
+			}
+			if rec.Status == orders.IdempotencyCompleted {
+				if rec.RequestHash != requestHash {
+					return nil, false, orders.ErrIdempotencyConflict
+				}
+				return rec, true, nil
+			}
+			return nil, false, orders.ErrIdempotencyInProgress
+		},
+		completeIdempFn: func(ctx context.Context, key, callerScope, operation string, statusCode int, headers map[string]string, responseBody, resourceID string) error {
+			compound := key + ":" + callerScope + ":" + operation
+			if r, ok := idempStore[compound]; ok {
+				r.Status = orders.IdempotencyCompleted
+				r.StatusCode = statusCode
+				r.ResponseBody = responseBody
+				r.ResourceID = resourceID
+			}
+			return nil
+		},
+		failIdempFn: func(ctx context.Context, key, callerScope, operation string) error {
+			compound := key + ":" + callerScope + ":" + operation
+			delete(idempStore, compound)
+			return nil
+		},
+	}
+
+	mockDelivery := &mockDeliveryService{
+		quotes: map[string][]*delivery.DeliveryQuote{
+			orderID: {
+				{
+					ID:           "dq-1",
+					OrderID:      orderID,
+					Version:      1,
+					AmountKES:    450,
+					FeeRecipient: deliveryFeeRecipient,
+					Status:       deliveryQuoteStatus,
+					ExpiresAt:    time.Now().Add(24 * time.Hour),
+				},
+			},
+		},
+	}
+
+	api := New("127.0.0.1:0", time.Second, nil, mockOrder, mockDelivery)
+
+	// 1. Retry with accepted merchant delivery quote: amount must be reconciled (3000 + 450 = 3450)
+	req1 := httptest.NewRequest("POST", "/api/orders/"+orderID+"/retry-payment", strings.NewReader(`{}`))
+	req1.Header.Set("X-Guest-Token", validToken)
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("Idempotency-Key", "retry-key-uuid-1")
+	w1 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w1, req1)
+
+	if w1.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on first retry, got %d (body: %s)", w1.Code, w1.Body.String())
+	}
+	if recordedAmount != 3450 {
+		t.Errorf("expected payable amount 3450 (items 3000 + delivery 450), got %d", recordedAmount)
+	}
+
+	// 2. Replay with same Idempotency-Key: returns 201 with X-Idempotent-Replay
+	req2 := httptest.NewRequest("POST", "/api/orders/"+orderID+"/retry-payment", strings.NewReader(`{}`))
+	req2.Header.Set("X-Guest-Token", validToken)
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Idempotency-Key", "retry-key-uuid-1")
+	w2 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on replay, got %d", w2.Code)
+	}
+	if w2.Header().Get("X-Idempotent-Replay") != "true" {
+		t.Fatalf("expected X-Idempotent-Replay header on replayed retry response")
+	}
+
+	// 3. Reusing key with different request payload: returns 409 Conflict
+	req3 := httptest.NewRequest("POST", "/api/orders/"+orderID+"/retry-payment", strings.NewReader(`{"phone":"254700000000"}`))
+	req3.Header.Set("X-Guest-Token", validToken)
+	req3.Header.Set("Content-Type", "application/json")
+	req3.Header.Set("Idempotency-Key", "retry-key-uuid-1")
+	w3 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w3, req3)
+
+	if w3.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on payload mismatch, got %d", w3.Code)
+	}
+
+	// 4. Retry when delivery quote is unaccepted: returns 409 Conflict
+	mockDelivery.quotes[orderID][0].Status = delivery.QuoteStatusPending
+	req4 := httptest.NewRequest("POST", "/api/orders/"+orderID+"/retry-payment", strings.NewReader(`{}`))
+	req4.Header.Set("X-Guest-Token", validToken)
+	req4.Header.Set("Content-Type", "application/json")
+	req4.Header.Set("Idempotency-Key", "retry-key-uuid-2")
+	w4 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w4, req4)
+
+	if w4.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict when delivery quote unaccepted, got %d (body: %s)", w4.Code, w4.Body.String())
 	}
 }

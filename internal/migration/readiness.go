@@ -49,7 +49,7 @@ func RuntimeReady(ctx context.Context, pool *pgxpool.Pool) error {
 	if tx.QueryRow(ctx, `SELECT bliss_ops.schema_ready() AND bool_and(
  has_table_privilege(name,'SELECT') AND has_table_privilege(name,'INSERT') AND
  has_table_privilege(name,'UPDATE') AND has_table_privilege(name,'DELETE'))
- FROM unnest(ARRAY['public."Order"','public."MpesaTransaction"','public.order_item','public.stock_reservation','public.stock_reservation_item','public.order_fulfillment','public.delivery_quote','public.guest_order_access']) AS tables(name)`).Scan(&ready) != nil || !ready {
+ FROM unnest(ARRAY['public."Order"','public."MpesaTransaction"','public.order_item','public.stock_reservation','public.stock_reservation_item','public.order_fulfillment','public.delivery_quote','public.guest_order_access','public.idempotency_key','public.payment_attempt']) AS tables(name)`).Scan(&ready) != nil || !ready {
 		return errors.New("schema unavailable")
 	}
 	var ledgerReady bool

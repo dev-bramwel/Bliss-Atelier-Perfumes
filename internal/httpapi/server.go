@@ -54,6 +54,7 @@ type OrderService interface {
 	GetOrder(ctx context.Context, orderID string) (*orders.Order, error)
 	GetPaymentStatus(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
 	ValidateGuestAccess(ctx context.Context, orderID string, rawToken string) (bool, error)
+	IssueGuestToken(ctx context.Context, orderID string) (string, error)
 	ReleaseExpired(ctx context.Context, now time.Time) (int, error)
 	ListRecent(ctx context.Context, limit int) ([]orders.Order, error)
 	BeginIdempotent(ctx context.Context, key, callerScope, operation, requestHash string, ttl time.Duration) (*orders.IdempotencyRecord, bool, error)
@@ -165,44 +166,64 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 
 			idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+			if idempotencyKey == "" {
+				idempotencyKey = "auto_" + orders.CanonicalRequestHash([]byte(ip+":"+string(bodyBytes)))
+			}
 			callerScope := "guest"
 			if mgr := extractManager(r); mgr != "" {
 				callerScope = "manager:" + mgr
 			}
 
-			if idempotencyKey != "" {
-				reqHash := orders.CanonicalRequestHash(bodyBytes)
-				rec, isReplay, err := orderStore.BeginIdempotent(ctx, idempotencyKey, callerScope, "create_order", reqHash, orders.DefaultIdempotencyTTL)
-				if err != nil {
-					switch {
-					case errors.Is(err, orders.ErrIdempotencyInProgress):
-						respond(w, http.StatusConflict, map[string]string{
-							"error": "operation currently in progress; please retry shortly",
-						})
-					case errors.Is(err, orders.ErrIdempotencyConflict):
-						respond(w, http.StatusConflict, map[string]string{
-							"error": "idempotency key reused with different request payload",
-						})
-					default:
-						slog.Error("idempotency_begin_failed", "reason", err.Error())
-						respond(w, 500, map[string]string{"error": "internal error"})
+			reqHash := orders.CanonicalRequestHash(bodyBytes)
+			rec, isReplay, err := orderStore.BeginIdempotent(ctx, idempotencyKey, callerScope, "create_order", reqHash, orders.DefaultIdempotencyTTL)
+			if err != nil {
+				switch {
+				case errors.Is(err, orders.ErrIdempotencyInProgress):
+					respond(w, http.StatusConflict, map[string]string{
+						"error": "operation currently in progress; please retry shortly",
+					})
+				case errors.Is(err, orders.ErrIdempotencyConflict):
+					respond(w, http.StatusConflict, map[string]string{
+						"error": "idempotency key reused with different request payload",
+					})
+				default:
+					slog.Error("idempotency_begin_failed", "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+				}
+				return
+			}
+			if isReplay {
+				// Replay cached response without leaking plaintext tokens from database.
+				// Issue a fresh guest token dynamically for the customer session if resource ID is present.
+				if rec.ResourceID != "" {
+					freshGuestToken, tokenErr := orderStore.IssueGuestToken(ctx, rec.ResourceID)
+					if tokenErr == nil && freshGuestToken != "" {
+						var replayData map[string]any
+						if err := json.Unmarshal([]byte(rec.ResponseBody), &replayData); err == nil {
+							replayData["guest_token"] = freshGuestToken
+							if ordMap, ok := replayData["order"].(map[string]any); ok {
+								ordMap["guestToken"] = freshGuestToken
+							}
+							if modifiedBytes, err := json.Marshal(replayData); err == nil {
+								w.Header().Set("Content-Type", "application/json")
+								w.Header().Set("X-Idempotent-Replay", "true")
+								w.WriteHeader(rec.StatusCode)
+								_, _ = w.Write(modifiedBytes)
+								return
+							}
+						}
 					}
-					return
 				}
-				if isReplay {
-					w.Header().Set("Content-Type", "application/json")
-					w.Header().Set("X-Idempotent-Replay", "true")
-					w.WriteHeader(rec.StatusCode)
-					_, _ = w.Write([]byte(rec.ResponseBody))
-					return
-				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-Idempotent-Replay", "true")
+				w.WriteHeader(rec.StatusCode)
+				_, _ = w.Write([]byte(rec.ResponseBody))
+				return
 			}
 
 			order, err := orderStore.CreateOrder(ctx, req)
 			if err != nil {
-				if idempotencyKey != "" {
-					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "create_order")
-				}
+				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "create_order")
 				switch {
 				case errors.Is(err, orders.ErrCatalogUnavailable):
 					respond(w, 503, map[string]string{"error": "catalog unavailable"})
@@ -241,8 +262,26 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 
-			if idempotencyKey != "" {
-				_ = orderStore.CompleteIdempotent(ctx, idempotencyKey, callerScope, "create_order", http.StatusCreated, map[string]string{"Content-Type": "application/json"}, string(respBytes), order.ID)
+			// Redact raw guest token in persistent idempotency storage so plaintext tokens are never written to disk or DB.
+			cachedOrder := *order
+			cachedOrder.GuestToken = ""
+			cachedRespData := map[string]any{
+				"order":       cachedOrder,
+				"guest_token": "",
+				"stkPush":     nil,
+			}
+			cachedRespBytes, err := json.Marshal(cachedRespData)
+			if err != nil {
+				slog.Error("marshal_cached_order_response_failed", "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+
+			if err := orderStore.CompleteIdempotent(ctx, idempotencyKey, callerScope, "create_order", http.StatusCreated, map[string]string{"Content-Type": "application/json"}, string(cachedRespBytes), order.ID); err != nil {
+				slog.Error("complete_idempotent_failed", "key", idempotencyKey, "reason", err.Error())
+				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "create_order")
+				respond(w, 500, map[string]string{"error": "internal error; please retry order submission"})
+				return
 			}
 
 			w.Header().Set("Content-Type", "application/json")
@@ -440,44 +479,43 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 
 			idempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+			if idempotencyKey == "" {
+				idempotencyKey = "auto_" + orders.CanonicalRequestHash([]byte(ip+":"+id+":"+string(bodyBytes)))
+			}
 			callerScope := "order:" + id
 			if mgr := extractManager(r); mgr != "" {
 				callerScope = "manager:" + mgr + ":order:" + id
 			}
 
-			if idempotencyKey != "" {
-				reqHash := orders.CanonicalRequestHash(bodyBytes)
-				rec, isReplay, err := orderStore.BeginIdempotent(ctx, idempotencyKey, callerScope, "retry_payment", reqHash, orders.DefaultIdempotencyTTL)
-				if err != nil {
-					switch {
-					case errors.Is(err, orders.ErrIdempotencyInProgress):
-						respond(w, http.StatusConflict, map[string]string{
-							"error": "operation currently in progress; please retry shortly",
-						})
-					case errors.Is(err, orders.ErrIdempotencyConflict):
-						respond(w, http.StatusConflict, map[string]string{
-							"error": "idempotency key reused with different request payload",
-						})
-					default:
-						slog.Error("idempotency_retry_begin_failed", "reason", err.Error())
-						respond(w, 500, map[string]string{"error": "internal error"})
-					}
-					return
+			reqHash := orders.CanonicalRequestHash(bodyBytes)
+			rec, isReplay, err := orderStore.BeginIdempotent(ctx, idempotencyKey, callerScope, "retry_payment", reqHash, orders.DefaultIdempotencyTTL)
+			if err != nil {
+				switch {
+				case errors.Is(err, orders.ErrIdempotencyInProgress):
+					respond(w, http.StatusConflict, map[string]string{
+						"error": "operation currently in progress; please retry shortly",
+					})
+				case errors.Is(err, orders.ErrIdempotencyConflict):
+					respond(w, http.StatusConflict, map[string]string{
+						"error": "idempotency key reused with different request payload",
+					})
+				default:
+					slog.Error("idempotency_retry_begin_failed", "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
 				}
-				if isReplay {
-					w.Header().Set("Content-Type", "application/json")
-					w.Header().Set("X-Idempotent-Replay", "true")
-					w.WriteHeader(rec.StatusCode)
-					_, _ = w.Write([]byte(rec.ResponseBody))
-					return
-				}
+				return
+			}
+			if isReplay {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-Idempotent-Replay", "true")
+				w.WriteHeader(rec.StatusCode)
+				_, _ = w.Write([]byte(rec.ResponseBody))
+				return
 			}
 
 			order, err := orderStore.GetOrder(ctx, id)
 			if err != nil {
-				if idempotencyKey != "" {
-					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
-				}
+				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
 				if errors.Is(err, orders.ErrOrderNotFound) {
 					respond(w, 404, map[string]string{"error": "order not found"})
 					return
@@ -487,24 +525,48 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 
+			payableAmount := order.TotalKes
+			opt := strings.ToLower(strings.TrimSpace(order.DeliveryOption))
+			isPickup := opt == "pickup" || opt == "showroom_pickup"
+			if deliveryStore != nil {
+				quote, qErr := deliveryStore.GetActiveQuote(ctx, id)
+				if !isPickup && qErr != nil {
+					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
+					if errors.Is(qErr, delivery.ErrQuoteNotFound) {
+						respond(w, http.StatusConflict, map[string]string{
+							"error": "delivery quote must be accepted before payment",
+						})
+						return
+					}
+					slog.Error("get_active_quote_for_retry_failed", "order_id", id, "reason", qErr.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+					return
+				}
+				bd, bdErr := delivery.CalculatePayable(order.TotalKes, quote, isPickup)
+				if bdErr != nil {
+					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
+					respond(w, http.StatusConflict, map[string]string{
+						"error": bdErr.Error(),
+					})
+					return
+				}
+				payableAmount = bd.PayableMerchantKES
+			}
+
 			phone := order.CustomerPhone
 			if retryReq.Phone != "" {
 				normalizedPhone, pErr := orders.ValidatePhone(retryReq.Phone)
 				if pErr != nil {
-					if idempotencyKey != "" {
-						_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
-					}
+					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
 					respond(w, 400, map[string]string{"error": pErr.Error()})
 					return
 				}
 				phone = normalizedPhone
 			}
 
-			attempt, err := orderStore.CreatePaymentAttempt(ctx, id, phone, order.TotalKes, "mpesa_stk")
+			attempt, err := orderStore.CreatePaymentAttempt(ctx, id, phone, payableAmount, "mpesa_stk")
 			if err != nil {
-				if idempotencyKey != "" {
-					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
-				}
+				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
 				switch {
 				case errors.Is(err, orders.ErrUnresolvedPaymentAttempt):
 					respond(w, http.StatusConflict, map[string]string{
@@ -534,13 +596,17 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 			respBytes, err := json.Marshal(respData)
 			if err != nil {
+				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
 				slog.Error("marshal_retry_payment_response_failed", "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
 
-			if idempotencyKey != "" {
-				_ = orderStore.CompleteIdempotent(ctx, idempotencyKey, callerScope, "retry_payment", http.StatusCreated, map[string]string{"Content-Type": "application/json"}, string(respBytes), attempt.ID)
+			if err := orderStore.CompleteIdempotent(ctx, idempotencyKey, callerScope, "retry_payment", http.StatusCreated, map[string]string{"Content-Type": "application/json"}, string(respBytes), attempt.ID); err != nil {
+				slog.Error("complete_idempotent_retry_failed", "key", idempotencyKey, "reason", err.Error())
+				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
+				respond(w, 500, map[string]string{"error": "internal error; please retry payment submission"})
+				return
 			}
 
 			w.Header().Set("Content-Type", "application/json")
