@@ -30,7 +30,7 @@ func ValidateCustomer(c *CustomerInput) error {
 	if c.Delivery == "" {
 		c.Delivery = "delivery"
 	}
-	if c.Delivery != "delivery" && c.Delivery != "pickup" {
+	if c.Delivery != "delivery" && c.Delivery != "pickup" && c.Delivery != "mombasa_delivery" && c.Delivery != "showroom_pickup" {
 		return ErrInvalidDeliveryOption
 	}
 

@@ -15,6 +15,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/httpapi"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
@@ -54,6 +55,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 	var ping httpapi.Ping
 	var catalogStore httpapi.Catalog
 	var orderStore httpapi.OrderService
+	var deliveryStore *delivery.Store
 	if cfg.DatabaseURL != "" {
 		pool, e := database.Open(ctx, cfg.DatabaseURL, cfg.MaxConnections, cfg.IOTimeout)
 		if e != nil {
@@ -70,6 +72,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		}
 		catalogStore = &catalog.Store{Pool: pool}
 		orderStore = &orders.Store{Pool: pool}
+		deliveryStore = delivery.NewStore(pool)
 		ping = pool.Ping
 		if cfg.RequireSchema {
 			ping = func(ctx context.Context) error {
@@ -84,7 +87,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return errors.New("HTTP listener unavailable")
 		}
 		defer listener.Close()
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		if orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")
@@ -102,6 +105,13 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		} else if released > 0 {
 			logger.Info("reservations_released", "count", released)
 		}
+		if deliveryStore != nil {
+			if expiredQuotes, err := deliveryStore.ExpireQuotes(ctx, time.Now().UTC()); err != nil {
+				logger.Error("quote_sweep_failed", "error", err.Error())
+			} else if expiredQuotes > 0 {
+				logger.Info("quotes_expired", "count", expiredQuotes)
+			}
+		}
 
 		for {
 			select {
@@ -111,12 +121,20 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			case <-ticker.C:
 				sweepCtx, cancel := context.WithTimeout(ctx, cfg.IOTimeout)
 				released, err := orderStore.ReleaseExpired(sweepCtx, time.Now().UTC())
-				cancel()
 				if err != nil && !errors.Is(err, context.Canceled) {
 					logger.Error("reservation_sweep_failed", "error", err.Error())
 				} else if released > 0 {
 					logger.Info("reservations_released", "count", released)
 				}
+				if deliveryStore != nil {
+					expiredQuotes, err := deliveryStore.ExpireQuotes(sweepCtx, time.Now().UTC())
+					if err != nil && !errors.Is(err, context.Canceled) {
+						logger.Error("quote_sweep_failed", "error", err.Error())
+					} else if expiredQuotes > 0 {
+						logger.Info("quotes_expired", "count", expiredQuotes)
+					}
+				}
+				cancel()
 			}
 		}
 	default:

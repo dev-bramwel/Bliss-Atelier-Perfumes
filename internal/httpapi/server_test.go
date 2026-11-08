@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 )
 
@@ -328,5 +329,250 @@ func TestOrderRoutes(t *testing.T) {
 	}
 	if !throttled {
 		t.Fatalf("expected excessive order creations to be throttled with 429 Too Many Requests")
+	}
+}
+
+type mockDeliveryService struct {
+	quotes map[string][]*delivery.DeliveryQuote
+}
+
+func (m *mockDeliveryService) CreateQuote(ctx context.Context, orderID string, p delivery.CreateQuoteParams) (*delivery.DeliveryQuote, error) {
+	if p.AmountKES < 0 || p.FeeRecipient == "" || p.Arrangement == "" || p.CreatedBy == "" || p.ExpiresAt.IsZero() {
+		return nil, delivery.ErrInvalidQuote
+	}
+	quotes := m.quotes[orderID]
+	version := len(quotes) + 1
+	q := &delivery.DeliveryQuote{
+		ID:            "dq-uuid-1",
+		OrderID:       orderID,
+		Version:       version,
+		AmountKES:     p.AmountKES,
+		FeeRecipient:  p.FeeRecipient,
+		Arrangement:   p.Arrangement,
+		Status:        delivery.QuoteStatusPending,
+		ExpiresAt:     p.ExpiresAt,
+		CreatedAt:     time.Now(),
+		CreatedBy:     p.CreatedBy,
+		CustomerNotes: p.CustomerNotes,
+	}
+	m.quotes[orderID] = append(quotes, q)
+	return q, nil
+}
+
+func (m *mockDeliveryService) GetActiveQuote(ctx context.Context, orderID string) (*delivery.DeliveryQuote, error) {
+	quotes := m.quotes[orderID]
+	if len(quotes) == 0 {
+		return nil, delivery.ErrQuoteNotFound
+	}
+	return quotes[len(quotes)-1], nil
+}
+
+func (m *mockDeliveryService) AcceptQuote(ctx context.Context, orderID string, version int) (*delivery.DeliveryQuote, error) {
+	quotes := m.quotes[orderID]
+	if len(quotes) == 0 || version > len(quotes) || version <= 0 {
+		return nil, delivery.ErrQuoteNotFound
+	}
+	if version < len(quotes) {
+		return nil, delivery.ErrQuoteConflict
+	}
+	q := quotes[version-1]
+	if q.Status == delivery.QuoteStatusAccepted {
+		return q, nil
+	}
+	if q.Status != delivery.QuoteStatusPending {
+		return nil, delivery.ErrQuoteNotPending
+	}
+	if time.Now().After(q.ExpiresAt) {
+		q.Status = delivery.QuoteStatusExpired
+		return nil, delivery.ErrQuoteExpired
+	}
+	now := time.Now()
+	q.Status = delivery.QuoteStatusAccepted
+	q.AcceptedAt = &now
+	return q, nil
+}
+
+func (m *mockDeliveryService) RejectQuote(ctx context.Context, orderID string, version int, reason string) (*delivery.DeliveryQuote, error) {
+	quotes := m.quotes[orderID]
+	if len(quotes) == 0 || version > len(quotes) || version <= 0 {
+		return nil, delivery.ErrQuoteNotFound
+	}
+	if version < len(quotes) {
+		return nil, delivery.ErrQuoteConflict
+	}
+	q := quotes[version-1]
+	if q.Status == delivery.QuoteStatusRejected {
+		return q, nil
+	}
+	if q.Status != delivery.QuoteStatusPending {
+		return nil, delivery.ErrQuoteNotPending
+	}
+	now := time.Now()
+	q.Status = delivery.QuoteStatusRejected
+	q.RejectedAt = &now
+	q.CustomerNotes += " | " + reason
+	return q, nil
+}
+
+func (m *mockDeliveryService) ExpireQuotes(ctx context.Context, asOf time.Time) (int64, error) {
+	var count int64
+	for _, qs := range m.quotes {
+		for _, q := range qs {
+			if q.Status == delivery.QuoteStatusPending && asOf.After(q.ExpiresAt) {
+				q.Status = delivery.QuoteStatusExpired
+				count++
+			}
+		}
+	}
+	return count, nil
+}
+
+func TestDeliveryQuoteEndpoints(t *testing.T) {
+	orderID := "ord-deliv-test-1"
+	mockOrder := &mockOrderService{
+		getFn: func(ctx context.Context, id string) (*orders.Order, error) {
+			if id == orderID {
+				return &orders.Order{
+					ID:             orderID,
+					TotalKes:       5000,
+					DeliveryOption: "delivery",
+					PaymentStatus:  orders.PaymentPending,
+				}, nil
+			}
+			return nil, orders.ErrOrderNotFound
+		},
+	}
+	mockDeliv := &mockDeliveryService{
+		quotes: make(map[string][]*delivery.DeliveryQuote),
+	}
+
+	api := New("127.0.0.1:0", time.Second, nil, mockOrder, mockDeliv)
+
+	// 1. GET /api/orders/{id}/delivery-quote returns 404 when no quote exists
+	req := httptest.NewRequest("GET", "/api/orders/"+orderID+"/delivery-quote", nil)
+	w := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 404 {
+		t.Fatalf("expected 404 when no quote exists, got %d", w.Code)
+	}
+
+	// 2a. POST /api/orders/{id}/delivery-quote without manager auth fails with 401
+	createPayload := `{"amount_kes":350,"fee_recipient":"courier","arrangement":"Direct Nyali dispatch","expires_at":"` + time.Now().Add(time.Hour).Format(time.RFC3339) + `","created_by":"spoofed-user","customer_notes":"Ring bell"}`
+	unauthReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload)))
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, unauthReq)
+	if w.Code != 401 {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated quote creation, got %d", w.Code)
+	}
+
+	// 2b. POST /api/orders/{id}/delivery-quote with X-Manager-Id creates quote (courier collection)
+	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload)))
+	req.Header.Set("X-Manager-Id", "mgr-1")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 201 {
+		t.Fatalf("expected 201 Created for delivery quote, got %d (body: %s)", w.Code, w.Body.String())
+	}
+	if len(mockDeliv.quotes[orderID]) == 0 || mockDeliv.quotes[orderID][0].CreatedBy != "mgr-1" {
+		t.Fatalf("expected created_by to be derived from authenticated manager identity mgr-1, got %v", mockDeliv.quotes[orderID][0].CreatedBy)
+	}
+
+	var createResp struct {
+		Quote delivery.PublicQuote `json:"quote"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &createResp); err != nil {
+		t.Fatalf("failed to decode create quote response: %v", err)
+	}
+	if createResp.Quote.Version != 1 || createResp.Quote.AmountKES != 350 || createResp.Quote.FeeRecipient != delivery.FeeRecipientCourier {
+		t.Fatalf("unexpected quote in create response: %+v", createResp.Quote)
+	}
+
+	// 3. GET /api/orders/{id}/delivery-quote returns quote and breakdown
+	req = httptest.NewRequest("GET", "/api/orders/"+orderID+"/delivery-quote", nil)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200 OK for GET quote, got %d", w.Code)
+	}
+
+	// 4. Accept quote
+	acceptPayload := `{"version":1}`
+	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/accept", bytes.NewReader([]byte(acceptPayload)))
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200 OK for accept quote, got %d (body: %s)", w.Code, w.Body.String())
+	}
+	var acceptResp struct {
+		Quote delivery.PublicQuote `json:"quote"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &acceptResp); err != nil {
+		t.Fatalf("failed to decode accept response: %v", err)
+	}
+	if acceptResp.Quote.Status != delivery.QuoteStatusAccepted {
+		t.Fatalf("expected accepted status, got %s", acceptResp.Quote.Status)
+	}
+
+	// 5. GET /api/orders/{id} includes sanitized delivery_quote and payable_breakdown
+	req = httptest.NewRequest("GET", "/api/orders/"+orderID, nil)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200 OK for GET order, got %d", w.Code)
+	}
+	var getOrderResp struct {
+		Order PublicOrder `json:"order"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &getOrderResp); err != nil {
+		t.Fatalf("failed to decode get order response: %v", err)
+	}
+	if getOrderResp.Order.DeliveryQuote == nil || getOrderResp.Order.DeliveryQuote.Status != delivery.QuoteStatusAccepted {
+		t.Fatalf("expected order to have accepted delivery quote: %+v", getOrderResp.Order.DeliveryQuote)
+	}
+	if getOrderResp.Order.PayableBreakdown == nil {
+		t.Fatalf("expected payable breakdown to be present")
+	}
+	// Direct courier transport fee is excluded from merchant collection!
+	if getOrderResp.Order.PayableBreakdown.PayableMerchantKES != 5000 {
+		t.Fatalf("expected payable merchant KES 5000 (items only), got %d", getOrderResp.Order.PayableBreakdown.PayableMerchantKES)
+	}
+	if getOrderResp.Order.PayableBreakdown.CustomerDirectKES != 350 {
+		t.Fatalf("expected customer direct KES 350 (paid to rider), got %d", getOrderResp.Order.PayableBreakdown.CustomerDirectKES)
+	}
+
+	// 6. Create quote v2 (re-quote) resets to pending
+	createPayload2 := `{"amount_kes":400,"fee_recipient":"merchant","arrangement":"Express with tracking","expires_at":"` + time.Now().Add(2*time.Hour).Format(time.RFC3339) + `","customer_notes":"Call ahead"}`
+	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload2)))
+	req.Header.Set("Authorization", "Bearer mgr-2")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 201 {
+		t.Fatalf("expected 201 Created for quote v2, got %d", w.Code)
+	}
+
+	// Attempting to accept superseded quote v1 must fail with 409 Conflict
+	supersededReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/accept", bytes.NewReader([]byte(`{"version":1}`)))
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, supersededReq)
+	if w.Code != 409 {
+		t.Fatalf("expected 409 Conflict when accepting superseded quote v1, got %d", w.Code)
+	}
+
+	// Reject quote v2
+	rejectPayload := `{"version":2,"reason":"Price too high"}`
+	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/reject", bytes.NewReader([]byte(rejectPayload)))
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200 OK for reject quote, got %d (body: %s)", w.Code, w.Body.String())
+	}
+	var rejectResp struct {
+		Quote delivery.PublicQuote `json:"quote"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &rejectResp); err != nil {
+		t.Fatalf("failed to decode reject response: %v", err)
+	}
+	if rejectResp.Quote.Status != delivery.QuoteStatusRejected {
+		t.Fatalf("expected rejected status, got %s", rejectResp.Quote.Status)
 	}
 }

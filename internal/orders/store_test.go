@@ -95,7 +95,7 @@ func validReq(productID string, qty int) CreateOrderRequest {
 			Name:     "Alice Wanjiku",
 			Phone:    "254712345678",
 			Location: "Nairobi CBD",
-			Delivery: "delivery",
+			Delivery: "pickup",
 			Payment:  "pay_now",
 		},
 		Items: []ItemInput{
@@ -640,5 +640,96 @@ func TestActiveReservationReflectedInCatalogAvailability(t *testing.T) {
 	}
 	if !p9Available {
 		t.Fatalf("expected product %s to become available again after reservation cancellation", productID)
+	}
+}
+
+func TestConfirmPaymentDeliveryQuoteGate(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	ctx := context.Background()
+
+	productID := "p10"
+	setupCatalogFixture(t, pool, productID, 10, true, nil)
+
+	// 1. Create order with delivery (requires accepted quote)
+	delivReq := CreateOrderRequest{
+		Customer: CustomerInput{
+			Name:     "Mombasa Client",
+			Phone:    "254700112233",
+			Location: "Nyali Links, Mombasa",
+			Delivery: "delivery",
+			Payment:  "pay_now",
+		},
+		Items: []ItemInput{
+			{ID: productID, Qty: 1},
+		},
+	}
+	order, err := store.CreateOrder(ctx, delivReq)
+	if err != nil {
+		t.Fatalf("CreateOrder failed: %v", err)
+	}
+
+	// 2. Confirm payment before any quote exists: must fail
+	err = store.ConfirmPayment(ctx, order.ID, "MPESAGATE1")
+	if !errors.Is(err, ErrDeliveryQuoteUnaccepted) {
+		t.Fatalf("expected ErrDeliveryQuoteUnaccepted, got %v", err)
+	}
+
+	// 3. Create a pending quote
+	_, err = pool.Exec(ctx, `
+		INSERT INTO public.delivery_quote (order_id, version, amount_kes, fee_recipient, arrangement, status, expires_at, created_by)
+		VALUES ($1, 1, 400, 'merchant', 'Express Nyali Dispatch', 'pending', now() + interval '1 hour', 'manager-gate')
+	`, order.ID)
+	if err != nil {
+		t.Fatalf("failed to insert pending quote: %v", err)
+	}
+
+	// Confirm payment with pending quote: must fail
+	err = store.ConfirmPayment(ctx, order.ID, "MPESAGATE1")
+	if !errors.Is(err, ErrDeliveryQuoteUnaccepted) {
+		t.Fatalf("expected ErrDeliveryQuoteUnaccepted for pending quote, got %v", err)
+	}
+
+	// 4. Create an expired accepted quote
+	_, err = pool.Exec(ctx, `
+		UPDATE public.delivery_quote
+		SET status = 'accepted', expires_at = now() - interval '5 minutes', accepted_at = now() - interval '10 minutes'
+		WHERE order_id = $1 AND version = 1
+	`, order.ID)
+	if err != nil {
+		t.Fatalf("failed to update quote to expired: %v", err)
+	}
+
+	err = store.ConfirmPayment(ctx, order.ID, "MPESAGATE1")
+	if !errors.Is(err, ErrQuoteExpired) {
+		t.Fatalf("expected ErrQuoteExpired for expired quote, got %v", err)
+	}
+
+	// 5. Update quote to valid accepted quote (fee_recipient = 'merchant', amount = 400, items = 2500 -> payable total = 2900)
+	_, err = pool.Exec(ctx, `
+		UPDATE public.delivery_quote
+		SET status = 'accepted', expires_at = now() + interval '2 hours', accepted_at = now()
+		WHERE order_id = $1 AND version = 1
+	`, order.ID)
+	if err != nil {
+		t.Fatalf("failed to update quote to accepted: %v", err)
+	}
+
+	// Underpayment: paying only item subtotal (order.TotalKes) when merchant delivery fee (400) is due must fail
+	err = store.ConfirmPayment(ctx, order.ID, "MPESAGATE1", order.TotalKes)
+	if !errors.Is(err, ErrPayableMismatch) {
+		t.Fatalf("expected ErrPayableMismatch on underpayment, got %v", err)
+	}
+
+	// Confirm payment with exact reconciled payable amount (order.TotalKes + 400): must succeed
+	err = store.ConfirmPayment(ctx, order.ID, "MPESAGATE1", order.TotalKes+400)
+	if err != nil {
+		t.Fatalf("expected successful ConfirmPayment with exact reconciled amount, got %v", err)
+	}
+
+	// Verify order is PAID
+	ord, err := store.GetOrder(ctx, order.ID)
+	if err != nil || ord.PaymentStatus != PaymentPaid {
+		t.Fatalf("expected order PAID, got %+v (err: %v)", ord, err)
 	}
 }
