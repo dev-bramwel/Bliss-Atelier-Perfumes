@@ -32,10 +32,10 @@ func RuntimeReady(ctx context.Context, pool *pgxpool.Pool) error {
 		return errors.New("schema unavailable")
 	}
 	expected := map[string]json.RawMessage{}
-	if json.Unmarshal([]byte(read("schema-v4.json")), &expected) != nil {
+	if json.Unmarshal([]byte(read("schema-v5.json")), &expected) != nil {
 		return errors.New("schema unavailable")
 	}
-	for _, name := range []string{"Order", "MpesaTransaction", "bliss_schema_migrations", "catalog_settings", "catalog_product", "stock_control", "stock_batch", "stock_entry", "stock_approval", "order_item", "stock_reservation", "stock_reservation_item", "order_fulfillment", "delivery_quote"} {
+	for _, name := range []string{"Order", "MpesaTransaction", "bliss_schema_migrations", "catalog_settings", "catalog_product", "stock_control", "stock_batch", "stock_entry", "stock_approval", "order_item", "stock_reservation", "stock_reservation_item", "order_fulfillment", "delivery_quote", "guest_order_access"} {
 		if !sameJSON(actual[name], expected[name]) {
 			return errors.New("schema unavailable")
 		}
@@ -49,7 +49,7 @@ func RuntimeReady(ctx context.Context, pool *pgxpool.Pool) error {
 	if tx.QueryRow(ctx, `SELECT bliss_ops.schema_ready() AND bool_and(
  has_table_privilege(name,'SELECT') AND has_table_privilege(name,'INSERT') AND
  has_table_privilege(name,'UPDATE') AND has_table_privilege(name,'DELETE'))
- FROM unnest(ARRAY['public."Order"','public."MpesaTransaction"','public.order_item','public.stock_reservation','public.stock_reservation_item','public.order_fulfillment','public.delivery_quote']) AS tables(name)`).Scan(&ready) != nil || !ready {
+ FROM unnest(ARRAY['public."Order"','public."MpesaTransaction"','public.order_item','public.stock_reservation','public.stock_reservation_item','public.order_fulfillment','public.delivery_quote','public.guest_order_access']) AS tables(name)`).Scan(&ready) != nil || !ready {
 		return errors.New("schema unavailable")
 	}
 	var ledgerReady bool

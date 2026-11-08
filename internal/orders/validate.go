@@ -7,10 +7,26 @@ import (
 
 var phoneRegex = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
 
+func containsDisallowedChars(s string, disallowNewlines bool) bool {
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b < 32 {
+			if !disallowNewlines && (b == '\n' || b == '\r' || b == '\t') {
+				continue
+			}
+			return true
+		}
+		if b == 127 || b == '<' || b == '>' {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateCustomer validates customer input against required fields and approved business policies.
 func ValidateCustomer(c *CustomerInput) error {
 	c.Name = strings.TrimSpace(c.Name)
-	if c.Name == "" || len(c.Name) > 100 {
+	if c.Name == "" || len(c.Name) > 100 || containsDisallowedChars(c.Name, true) {
 		return ErrInvalidCustomer
 	}
 
@@ -22,7 +38,7 @@ func ValidateCustomer(c *CustomerInput) error {
 	c.Phone = cleanedPhone
 
 	c.Location = strings.TrimSpace(c.Location)
-	if c.Location == "" || len(c.Location) > 200 {
+	if c.Location == "" || len(c.Location) > 200 || containsDisallowedChars(c.Location, true) {
 		return ErrInvalidCustomer
 	}
 
@@ -46,6 +62,9 @@ func ValidateCustomer(c *CustomerInput) error {
 	}
 
 	c.Notes = strings.TrimSpace(c.Notes)
+	if containsDisallowedChars(c.Notes, false) {
+		return ErrInvalidCustomer
+	}
 	runes := []rune(c.Notes)
 	if len(runes) > 500 {
 		c.Notes = string(runes[:500])
@@ -62,10 +81,11 @@ func ValidateItems(items []ItemInput) error {
 		return ErrTooManyItems
 	}
 
+	totalQty := 0
 	seen := make(map[string]struct{}, len(items))
 	for _, it := range items {
 		id := strings.TrimSpace(it.ID)
-		if id == "" {
+		if id == "" || len(id) > 50 || containsDisallowedChars(id, true) {
 			return ErrMissingProductID
 		}
 		if _, exists := seen[id]; exists {
@@ -76,6 +96,10 @@ func ValidateItems(items []ItemInput) error {
 		if it.Qty < 1 || it.Qty > 100 {
 			return ErrInvalidQuantity
 		}
+		totalQty += it.Qty
+	}
+	if totalQty > 500 {
+		return ErrInvalidQuantity
 	}
 	return nil
 }

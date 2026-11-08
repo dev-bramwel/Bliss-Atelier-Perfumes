@@ -51,6 +51,7 @@ type OrderService interface {
 	CreateOrder(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
 	GetOrder(ctx context.Context, orderID string) (*orders.Order, error)
 	GetPaymentStatus(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
+	ValidateGuestAccess(ctx context.Context, orderID string, rawToken string) (bool, error)
 	ReleaseExpired(ctx context.Context, now time.Time) (int, error)
 	ListRecent(ctx context.Context, limit int) ([]orders.Order, error)
 }
@@ -91,6 +92,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	var catalogStore Catalog
 	var orderStore OrderService
 	var deliveryStore DeliveryService
+	var secConfig SecurityConfig
 
 	for _, d := range deps {
 		switch v := d.(type) {
@@ -100,6 +102,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			orderStore = v
 		case DeliveryService:
 			deliveryStore = v
+		case SecurityConfig:
+			secConfig = v
 		}
 	}
 
@@ -147,7 +151,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			defer cancel()
 
 			var req orders.CreateOrderRequest
+			var maxBytesErr *http.MaxBytesError
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				if errors.As(err, &maxBytesErr) {
+					respond(w, http.StatusRequestEntityTooLarge, map[string]string{
+						"error": "request body too large; maximum 64KB allowed",
+					})
+					return
+				}
 				respond(w, 400, map[string]string{"error": "invalid json payload"})
 				return
 			}
@@ -181,8 +192,9 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 
 			respond(w, 201, map[string]any{
-				"order":   order,
-				"stkPush": nil,
+				"order":       order,
+				"guest_token": order.GuestToken,
+				"stkPush":     nil,
 			})
 		}
 
@@ -198,6 +210,21 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
+
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			if err != nil {
+				slog.Error("authorize_payment_status_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			if !ok {
+				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+					respond(w, 401, map[string]string{"error": "guest authorization required"})
+				} else {
+					respond(w, 403, map[string]string{"error": "access denied for this order"})
+				}
+				return
+			}
 
 			statusResp, err := orderStore.GetPaymentStatus(ctx, id)
 			if err != nil {
@@ -224,6 +251,21 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
+
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			if err != nil {
+				slog.Error("authorize_get_order_failed", "order_id", id, "reason", err.Error())
+				respond(w, 500, map[string]string{"error": "internal error"})
+				return
+			}
+			if !ok {
+				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+					respond(w, 401, map[string]string{"error": "guest authorization required"})
+				} else {
+					respond(w, 403, map[string]string{"error": "access denied for this order"})
+				}
+				return
+			}
 
 			order, err := orderStore.GetOrder(ctx, id)
 			if err != nil {
@@ -312,7 +354,12 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 			var p delivery.CreateQuoteParams
+			var maxBytesErr *http.MaxBytesError
 			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+				if errors.As(err, &maxBytesErr) {
+					respond(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large; maximum 64KB allowed"})
+					return
+				}
 				respond(w, 400, map[string]string{"error": "invalid json payload"})
 				return
 			}
@@ -352,6 +399,23 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
+			if orderStore != nil {
+				ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+				if err != nil {
+					slog.Error("authorize_get_quote_failed", "order_id", id, "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+					return
+				}
+				if !ok {
+					if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+						respond(w, 401, map[string]string{"error": "guest authorization required"})
+					} else {
+						respond(w, 403, map[string]string{"error": "access denied for this order"})
+					}
+					return
+				}
+			}
+
 			quote, err := deliveryStore.GetActiveQuote(ctx, id)
 			if err != nil {
 				if errors.Is(err, delivery.ErrQuoteNotFound) {
@@ -386,15 +450,39 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 400, map[string]string{"error": "order ID is required"})
 				return
 			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			if orderStore != nil {
+				guestToken := ExtractGuestToken(r)
+				if guestToken == "" {
+					respond(w, 401, map[string]string{"error": "guest authorization required"})
+					return
+				}
+				ok, err := orderStore.ValidateGuestAccess(ctx, id, guestToken)
+				if err != nil {
+					slog.Error("authorize_accept_quote_failed", "order_id", id, "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+					return
+				}
+				if !ok {
+					respond(w, 403, map[string]string{"error": "access denied for this order"})
+					return
+				}
+			}
+
 			var req struct {
 				Version int `json:"version"`
 			}
+			var maxBytesErr *http.MaxBytesError
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				if errors.As(err, &maxBytesErr) {
+					respond(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large; maximum 64KB allowed"})
+					return
+				}
 				respond(w, 400, map[string]string{"error": "invalid json payload"})
 				return
 			}
-			ctx, cancel := context.WithTimeout(r.Context(), timeout)
-			defer cancel()
 
 			quote, err := deliveryStore.AcceptQuote(ctx, id, req.Version)
 			if err != nil {
@@ -431,16 +519,40 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 400, map[string]string{"error": "order ID is required"})
 				return
 			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			if orderStore != nil {
+				guestToken := ExtractGuestToken(r)
+				if guestToken == "" {
+					respond(w, 401, map[string]string{"error": "guest authorization required"})
+					return
+				}
+				ok, err := orderStore.ValidateGuestAccess(ctx, id, guestToken)
+				if err != nil {
+					slog.Error("authorize_reject_quote_failed", "order_id", id, "reason", err.Error())
+					respond(w, 500, map[string]string{"error": "internal error"})
+					return
+				}
+				if !ok {
+					respond(w, 403, map[string]string{"error": "access denied for this order"})
+					return
+				}
+			}
+
 			var req struct {
 				Version int    `json:"version"`
 				Reason  string `json:"reason"`
 			}
+			var maxBytesErr *http.MaxBytesError
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				if errors.As(err, &maxBytesErr) {
+					respond(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large; maximum 64KB allowed"})
+					return
+				}
 				respond(w, 400, map[string]string{"error": "invalid json payload"})
 				return
 			}
-			ctx, cancel := context.WithTimeout(r.Context(), timeout)
-			defer cancel()
 
 			quote, err := deliveryStore.RejectQuote(ctx, id, req.Version, req.Reason)
 			if err != nil {
@@ -495,13 +607,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		respond(w, 200, map[string]string{"status": "ready"})
 	})
 
+	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+		mux.ServeHTTP(w, r)
+	})
+
 	a.server = &http.Server{
-		Addr: address,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-			w.Header().Set("X-Content-Type-Options", "nosniff")
-			mux.ServeHTTP(w, r)
-		}),
+		Addr:              address,
+		Handler:           CORSHandler(secConfig.AllowedOrigins, innerHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      timeout + 5*time.Second,

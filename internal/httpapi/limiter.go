@@ -1,9 +1,7 @@
 package httpapi
 
 import (
-	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 )
@@ -56,16 +54,8 @@ func (l *ipLimiter) Allow(ip string, now time.Time) bool {
 	return true
 }
 
+var defaultProxyChecker = NewTrustedProxyChecker("")
+
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if ip := strings.TrimSpace(parts[0]); ip != "" {
-			return ip
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err == nil && host != "" {
-		return host
-	}
-	return r.RemoteAddr
+	return SafeClientIP(r, defaultProxyChecker)
 }

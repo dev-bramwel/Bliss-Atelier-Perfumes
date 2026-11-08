@@ -140,7 +140,11 @@ checkoutForm?.addEventListener("submit", async (e) => {
       }
 
       // Save order locally as a backup copy
-      const localOrder = { ...data.order, _savedAt: new Date().toISOString() };
+      const localOrder = {
+        ...data.order,
+        guest_token: data.guest_token,
+        _savedAt: new Date().toISOString(),
+      };
       orders.unshift(localOrder);
       saveOrders(orders);
 
@@ -150,7 +154,7 @@ checkoutForm?.addEventListener("submit", async (e) => {
       if (customer.payment === "pay_now") {
         if (data.stkPush) {
           showStkOverlay();
-          await pollPaymentStatus(data.order.id);
+          await pollPaymentStatus(data.order.id, data.guest_token);
         } else {
           showPaymentInitiationFailure(data.warning);
         }
@@ -197,7 +201,7 @@ function setStkStatus(title, sub) {
  * Polls GET /api/orders/:id/payment-status every 4 seconds for up to 2 minutes.
  * Resolves once M-Pesa responds or times out.
  */
-async function pollPaymentStatus(orderId) {
+async function pollPaymentStatus(orderId, guestToken) {
   const MAX_TRIES = 30; // 30 × 4s = 2 minutes
   const INTERVAL = 4000;
   let tries = 0;
@@ -212,8 +216,13 @@ async function pollPaymentStatus(orderId) {
       tries++;
 
       try {
+        const headers = {};
+        if (guestToken) {
+          headers["X-Guest-Token"] = guestToken;
+        }
         const res = await fetch(
           `${API_BASE}/api/orders/${orderId}/payment-status`,
+          { headers },
         );
         const data = await res.json();
 

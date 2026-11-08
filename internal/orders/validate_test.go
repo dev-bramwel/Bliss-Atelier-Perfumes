@@ -88,6 +88,60 @@ func TestValidateCustomer(t *testing.T) {
 			},
 			wantErr: ErrInvalidPaymentMethod,
 		},
+		{
+			name: "control characters in name",
+			input: CustomerInput{
+				Name:     "Jane\x00Doe",
+				Phone:    "254712345678",
+				Location: "Nyali",
+			},
+			wantErr: ErrInvalidCustomer,
+		},
+		{
+			name: "control characters in location",
+			input: CustomerInput{
+				Name:     "Jane Doe",
+				Phone:    "254712345678",
+				Location: "Nyali\x1b[31m",
+			},
+			wantErr: ErrInvalidCustomer,
+		},
+		{
+			name: "xss tag in name",
+			input: CustomerInput{
+				Name:     "<script>alert(1)</script>",
+				Phone:    "254712345678",
+				Location: "Nyali",
+			},
+			wantErr: ErrInvalidCustomer,
+		},
+		{
+			name: "sql injection in phone",
+			input: CustomerInput{
+				Name:     "Jane Doe",
+				Phone:    "' OR '1'='1",
+				Location: "Nyali",
+			},
+			wantErr: ErrInvalidCustomer,
+		},
+		{
+			name: "valid 07 phone number",
+			input: CustomerInput{
+				Name:     "Jane Doe",
+				Phone:    "0712345678",
+				Location: "Nyali",
+			},
+			wantErr: nil,
+		},
+		{
+			name: "valid 01 phone number",
+			input: CustomerInput{
+				Name:     "Jane Doe",
+				Phone:    "0112345678",
+				Location: "Nyali",
+			},
+			wantErr: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -157,6 +211,18 @@ func TestValidateItems(t *testing.T) {
 			name: "excessive quantity",
 			items: []ItemInput{
 				{ID: "p1", Qty: 101},
+			},
+			wantErr: ErrInvalidQuantity,
+		},
+		{
+			name: "total quantity exceeding cap",
+			items: []ItemInput{
+				{ID: "p1", Qty: 100},
+				{ID: "p2", Qty: 100},
+				{ID: "p3", Qty: 100},
+				{ID: "p4", Qty: 100},
+				{ID: "p5", Qty: 100},
+				{ID: "p6", Qty: 10},
 			},
 			wantErr: ErrInvalidQuantity,
 		},

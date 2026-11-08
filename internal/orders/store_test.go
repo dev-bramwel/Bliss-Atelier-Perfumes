@@ -171,6 +171,29 @@ func TestCreateOrderAndPriceSnapshot(t *testing.T) {
 	if len(retrieved.Items) != 1 || retrieved.Items[0].UnitPriceKes != 2500 || retrieved.Items[0].SubtotalKes != 5000 {
 		t.Fatalf("historical item prices were mutated: %+v", retrieved.Items)
 	}
+
+	// Verify guest access token was generated and persisted
+	if order.GuestToken == "" || !ValidateTokenFormat(order.GuestToken) {
+		t.Fatalf("expected valid GuestToken on created order, got %q", order.GuestToken)
+	}
+	var count int
+	err = pool.QueryRow(ctx, "SELECT count(*) FROM public.guest_order_access WHERE order_id = $1 AND token_hash = $2", order.ID, HashToken(order.GuestToken)).Scan(&count)
+	if err != nil || count != 1 {
+		t.Fatalf("expected guest_order_access entry, count=%d err=%v", count, err)
+	}
+
+	// ValidateGuestAccess with correct token
+	ok, err := store.ValidateGuestAccess(ctx, order.ID, order.GuestToken)
+	if err != nil || !ok {
+		t.Fatalf("expected ValidateGuestAccess with valid token to return true, got ok=%v err=%v", ok, err)
+	}
+
+	// ValidateGuestAccess with wrong token
+	wrongToken, _, _ := GenerateGuestToken()
+	ok, err = store.ValidateGuestAccess(ctx, order.ID, wrongToken)
+	if err != nil || ok {
+		t.Fatalf("expected ValidateGuestAccess with wrong token to return false, got ok=%v err=%v", ok, err)
+	}
 }
 
 func TestConcurrentLastItemCannotOversell(t *testing.T) {

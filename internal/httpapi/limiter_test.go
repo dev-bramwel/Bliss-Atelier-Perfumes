@@ -44,9 +44,15 @@ func TestClientIP(t *testing.T) {
 		t.Fatalf("expected 192.0.2.10, got %s", ip)
 	}
 
-	// X-Forwarded-For overrides RemoteAddr
+	// Untrusted remote: X-Forwarded-For must be ignored to prevent spoofing
 	req.Header.Set("X-Forwarded-For", "203.0.113.195, 70.41.3.18")
-	if ip := clientIP(req); ip != "203.0.113.195" {
-		t.Fatalf("expected 203.0.113.195, got %s", ip)
+	if ip := clientIP(req); ip != "192.0.2.10" {
+		t.Fatalf("expected 192.0.2.10 when remote is untrusted, got %s", ip)
+	}
+
+	// Trusted loopback remote: X-Forwarded-For is parsed safely
+	req.RemoteAddr = "127.0.0.1:54321"
+	if ip := clientIP(req); ip != "70.41.3.18" {
+		t.Fatalf("expected rightmost untrusted hop 70.41.3.18 from XFF, got %s", ip)
 	}
 }

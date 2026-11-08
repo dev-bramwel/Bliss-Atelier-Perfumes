@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -129,11 +131,12 @@ func TestShutdownDeadlineClosesConnections(t *testing.T) {
 }
 
 type mockOrderService struct {
-	createFn  func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
-	getFn     func(ctx context.Context, orderID string) (*orders.Order, error)
-	statusFn  func(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
-	releaseFn func(ctx context.Context, now time.Time) (int, error)
-	recentFn  func(ctx context.Context, limit int) ([]orders.Order, error)
+	createFn         func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
+	getFn            func(ctx context.Context, orderID string) (*orders.Order, error)
+	statusFn         func(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
+	releaseFn        func(ctx context.Context, now time.Time) (int, error)
+	recentFn         func(ctx context.Context, limit int) ([]orders.Order, error)
+	validateAccessFn func(ctx context.Context, orderID string, rawToken string) (bool, error)
 }
 
 func (m *mockOrderService) CreateOrder(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
@@ -157,6 +160,13 @@ func (m *mockOrderService) GetPaymentStatus(ctx context.Context, orderID string)
 	return nil, orders.ErrOrderNotFound
 }
 
+func (m *mockOrderService) ValidateGuestAccess(ctx context.Context, orderID string, rawToken string) (bool, error) {
+	if m.validateAccessFn != nil {
+		return m.validateAccessFn(ctx, orderID, rawToken)
+	}
+	return true, nil
+}
+
 func (m *mockOrderService) ReleaseExpired(ctx context.Context, now time.Time) (int, error) {
 	if m.releaseFn != nil {
 		return m.releaseFn(ctx, now)
@@ -172,6 +182,7 @@ func (m *mockOrderService) ListRecent(ctx context.Context, limit int) ([]orders.
 }
 
 func TestOrderRoutes(t *testing.T) {
+	validGuestToken, _, _ := orders.GenerateGuestToken()
 	mock := &mockOrderService{
 		createFn: func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
 			if len(req.Items) > 0 && req.Items[0].ID == "out-of-stock" {
@@ -183,6 +194,7 @@ func TestOrderRoutes(t *testing.T) {
 				PaymentStatus:     orders.PaymentPending,
 				FulfillmentStatus: orders.FulfillmentUnfulfilled,
 				TotalKes:          5000,
+				GuestToken:        validGuestToken,
 			}, nil
 		},
 		getFn: func(ctx context.Context, orderID string) (*orders.Order, error) {
@@ -206,6 +218,12 @@ func TestOrderRoutes(t *testing.T) {
 				}, nil
 			}
 			return nil, orders.ErrOrderNotFound
+		},
+		validateAccessFn: func(ctx context.Context, orderID string, rawToken string) (bool, error) {
+			if orderID == "ord-test-123" && rawToken == validGuestToken {
+				return true, nil
+			}
+			return false, nil
 		},
 		recentFn: func(ctx context.Context, limit int) ([]orders.Order, error) {
 			return []orders.Order{
@@ -236,6 +254,11 @@ func TestOrderRoutes(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatalf("POST /api/orders: expected 201, got %d: %s", w.Code, w.Body.String())
 	}
+	var createResp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &createResp)
+	if createResp["guest_token"] != validGuestToken {
+		t.Fatalf("expected guest_token in create order response, got %v", createResp["guest_token"])
+	}
 
 	// 2. POST /orders insufficient stock
 	oosBody, _ := json.Marshal(map[string]any{
@@ -258,24 +281,61 @@ func TestOrderRoutes(t *testing.T) {
 		t.Fatalf("POST /orders insufficient stock: expected 409, got %d", w.Code)
 	}
 
-	// 3. GET /api/orders/ord-test-123/payment-status
+	// 3a. GET /api/orders/ord-test-123/payment-status unauthenticated fails with 401
 	req = httptest.NewRequest("GET", "/api/orders/ord-test-123/payment-status", nil)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Fatalf("GET unauthenticated payment-status: expected 401, got %d", w.Code)
+	}
+
+	// 3b. GET /api/orders/ord-test-123/payment-status with wrong guest token fails with 403
+	req = httptest.NewRequest("GET", "/api/orders/ord-test-123/payment-status", nil)
+	req.Header.Set("X-Guest-Token", "gt_0000000000000000000000000000000000000000000000000000000000000000")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 403 {
+		t.Fatalf("GET wrong guest token payment-status: expected 403, got %d", w.Code)
+	}
+
+	// 3c. GET /api/orders/ord-test-123/payment-status with valid guest token succeeds (200)
+	req = httptest.NewRequest("GET", "/api/orders/ord-test-123/payment-status", nil)
+	req.Header.Set("X-Guest-Token", validGuestToken)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("GET /api/orders/ord-test-123/payment-status: expected 200, got %d", w.Code)
 	}
 
-	// 4. GET /orders/unknown/payment-status
+	// 3d. GET /api/orders/ord-test-123/payment-status with manager auth succeeds (200)
+	req = httptest.NewRequest("GET", "/api/orders/ord-test-123/payment-status", nil)
+	req.Header.Set("X-Manager-Id", "mgr-1")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("GET /api/orders/ord-test-123/payment-status with manager auth: expected 200, got %d", w.Code)
+	}
+
+	// 4. GET /orders/unknown/payment-status with manager auth returns 404
 	req = httptest.NewRequest("GET", "/orders/unknown/payment-status", nil)
+	req.Header.Set("X-Manager-Id", "mgr-1")
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 404 {
 		t.Fatalf("GET /orders/unknown/payment-status: expected 404, got %d", w.Code)
 	}
 
-	// 5. GET /api/orders/ord-test-123 (sanitized non-PII order inspection)
+	// 5a. GET /api/orders/ord-test-123 unauthenticated returns 401
 	req = httptest.NewRequest("GET", "/api/orders/ord-test-123", nil)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Fatalf("GET unauthenticated order: expected 401, got %d", w.Code)
+	}
+
+	// 5b. GET /api/orders/ord-test-123 with valid guest token returns 200 (sanitized non-PII)
+	req = httptest.NewRequest("GET", "/api/orders/ord-test-123", nil)
+	req.Header.Set("X-Guest-Token", validGuestToken)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -295,8 +355,9 @@ func TestOrderRoutes(t *testing.T) {
 		t.Fatalf("GET /api/orders/{id} leaked customer PII: %v", getResp.Order)
 	}
 
-	// 6. GET /orders/unknown
+	// 6. GET /orders/unknown with manager auth returns 404
 	req = httptest.NewRequest("GET", "/orders/unknown", nil)
+	req.Header.Set("X-Manager-Id", "mgr-1")
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 404 {
@@ -429,6 +490,9 @@ func (m *mockDeliveryService) ExpireQuotes(ctx context.Context, asOf time.Time) 
 
 func TestDeliveryQuoteEndpoints(t *testing.T) {
 	orderID := "ord-deliv-test-1"
+	validGuestToken, _, _ := orders.GenerateGuestToken()
+	wrongGuestToken, _, _ := orders.GenerateGuestToken()
+
 	mockOrder := &mockOrderService{
 		getFn: func(ctx context.Context, id string) (*orders.Order, error) {
 			if id == orderID {
@@ -441,6 +505,12 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 			}
 			return nil, orders.ErrOrderNotFound
 		},
+		validateAccessFn: func(ctx context.Context, id, token string) (bool, error) {
+			if id == orderID && token == validGuestToken {
+				return true, nil
+			}
+			return false, nil
+		},
 	}
 	mockDeliv := &mockDeliveryService{
 		quotes: make(map[string][]*delivery.DeliveryQuote),
@@ -448,9 +518,18 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 
 	api := New("127.0.0.1:0", time.Second, nil, mockOrder, mockDeliv)
 
-	// 1. GET /api/orders/{id}/delivery-quote returns 404 when no quote exists
-	req := httptest.NewRequest("GET", "/api/orders/"+orderID+"/delivery-quote", nil)
+	// 1a. GET /api/orders/{id}/delivery-quote unauthenticated fails with 401
+	unauthGetReq := httptest.NewRequest("GET", "/api/orders/"+orderID+"/delivery-quote", nil)
 	w := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, unauthGetReq)
+	if w.Code != 401 {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated GET quote, got %d", w.Code)
+	}
+
+	// 1b. GET /api/orders/{id}/delivery-quote with guest token returns 404 when no quote exists
+	req := httptest.NewRequest("GET", "/api/orders/"+orderID+"/delivery-quote", nil)
+	req.Header.Set("X-Guest-Token", validGuestToken)
+	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 404 {
 		t.Fatalf("expected 404 when no quote exists, got %d", w.Code)
@@ -489,15 +568,26 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 
 	// 3. GET /api/orders/{id}/delivery-quote returns quote and breakdown
 	req = httptest.NewRequest("GET", "/api/orders/"+orderID+"/delivery-quote", nil)
+	req.Header.Set("X-Guest-Token", validGuestToken)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 200 {
 		t.Fatalf("expected 200 OK for GET quote, got %d", w.Code)
 	}
 
-	// 4. Accept quote
+	// 4a. Accept quote with wrong guest token fails with 403
 	acceptPayload := `{"version":1}`
+	wrongGuestReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/accept", bytes.NewReader([]byte(acceptPayload)))
+	wrongGuestReq.Header.Set("X-Guest-Token", wrongGuestToken)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, wrongGuestReq)
+	if w.Code != 403 {
+		t.Fatalf("expected 403 Forbidden for cross-guest accept quote, got %d", w.Code)
+	}
+
+	// 4b. Accept quote with valid guest token succeeds
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/accept", bytes.NewReader([]byte(acceptPayload)))
+	req.Header.Set("X-Guest-Token", validGuestToken)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -515,6 +605,7 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 
 	// 5. GET /api/orders/{id} includes sanitized delivery_quote and payable_breakdown
 	req = httptest.NewRequest("GET", "/api/orders/"+orderID, nil)
+	req.Header.Set("X-Guest-Token", validGuestToken)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -552,15 +643,26 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 
 	// Attempting to accept superseded quote v1 must fail with 409 Conflict
 	supersededReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/accept", bytes.NewReader([]byte(`{"version":1}`)))
+	supersededReq.Header.Set("X-Guest-Token", validGuestToken)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, supersededReq)
 	if w.Code != 409 {
 		t.Fatalf("expected 409 Conflict when accepting superseded quote v1, got %d", w.Code)
 	}
 
-	// Reject quote v2
+	// Reject quote v2 with wrong guest token fails with 403
 	rejectPayload := `{"version":2,"reason":"Price too high"}`
+	wrongRejectReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/reject", bytes.NewReader([]byte(rejectPayload)))
+	wrongRejectReq.Header.Set("X-Guest-Token", wrongGuestToken)
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, wrongRejectReq)
+	if w.Code != 403 {
+		t.Fatalf("expected 403 Forbidden for wrong guest reject quote, got %d", w.Code)
+	}
+
+	// Reject quote v2 with valid guest token succeeds
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/reject", bytes.NewReader([]byte(rejectPayload)))
+	req.Header.Set("X-Guest-Token", validGuestToken)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -574,5 +676,94 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	}
 	if rejectResp.Quote.Status != delivery.QuoteStatusRejected {
 		t.Fatalf("expected rejected status, got %s", rejectResp.Quote.Status)
+	}
+}
+
+func TestSecurityHeadersAndCORS(t *testing.T) {
+	secConfig := SecurityConfig{
+		AllowedOrigins: []string{"https://blissatelier.co.ke", "https://checkout.blissatelier.co.ke"},
+	}
+	api := New("127.0.0.1:0", time.Second, nil, secConfig)
+
+	// 1. Standard security headers on GET /catalog
+	req := httptest.NewRequest("GET", "/catalog", nil)
+	w := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options: nosniff, got %q", w.Header().Get("X-Content-Type-Options"))
+	}
+	if w.Header().Get("X-Frame-Options") != "DENY" {
+		t.Errorf("expected X-Frame-Options: DENY, got %q", w.Header().Get("X-Frame-Options"))
+	}
+	if w.Header().Get("Referrer-Policy") != "strict-origin-when-cross-origin" {
+		t.Errorf("expected Referrer-Policy: strict-origin-when-cross-origin, got %q", w.Header().Get("Referrer-Policy"))
+	}
+	if w.Header().Get("Content-Security-Policy") != "default-src 'none'; frame-ancestors 'none'" {
+		t.Errorf("expected strict CSP, got %q", w.Header().Get("Content-Security-Policy"))
+	}
+
+	// 2. CORS Preflight OPTIONS
+	preflightReq := httptest.NewRequest("OPTIONS", "/api/orders", nil)
+	preflightReq.Header.Set("Origin", "https://blissatelier.co.ke")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, preflightReq)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content for preflight, got %d", w.Code)
+	}
+	if w.Header().Get("Access-Control-Allow-Origin") != "https://blissatelier.co.ke" {
+		t.Errorf("expected CORS allow origin header, got %q", w.Header().Get("Access-Control-Allow-Origin"))
+	}
+	if !strings.Contains(w.Header().Get("Access-Control-Allow-Headers"), "X-Guest-Token") {
+		t.Errorf("expected X-Guest-Token in allowed headers, got %q", w.Header().Get("Access-Control-Allow-Headers"))
+	}
+
+	// 3. CORS disallowed origin
+	badOriginReq := httptest.NewRequest("OPTIONS", "/api/orders", nil)
+	badOriginReq.Header.Set("Origin", "https://malicious-site.example")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, badOriginReq)
+	if w.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Errorf("disallowed origin should not receive Access-Control-Allow-Origin")
+	}
+}
+
+func TestRequestBodySizeEnforcementAndMalformedJSON(t *testing.T) {
+	mock := &mockOrderService{
+		createFn: func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
+			return &orders.Order{ID: "ord-test"}, nil
+		},
+	}
+	api := New("127.0.0.1:0", time.Second, nil, mock)
+
+	// 1. Request body > 64KB returns 413 Payload Too Large
+	largePayload := fmt.Sprintf(`{"customer":{"name":"Alice","phone":"254712345678","location":"Nairobi","delivery":"delivery","notes":"%s"},"items":[{"id":"p1","qty":1}]}`, strings.Repeat("x", 70*1024))
+	req := httptest.NewRequest("POST", "/api/orders", strings.NewReader(largePayload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413 for oversized body, got %d", w.Code)
+	}
+	var errResp map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &errResp)
+	if !strings.Contains(errResp["error"], "too large") {
+		t.Errorf("expected safe too large error message, got %v", errResp)
+	}
+
+	// 2. Malformed JSON returns 400 Bad Request
+	req = httptest.NewRequest("POST", "/api/orders", bytes.NewReader([]byte(`{"customer": { invalid json`)))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed json, got %d", w.Code)
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &errResp)
+	if errResp["error"] != "invalid json payload" {
+		t.Errorf("expected 'invalid json payload', got %v", errResp)
 	}
 }
