@@ -26,11 +26,12 @@ Verification environment: Disposable local PostgreSQL 16 container, Docker Core 
      - Raw token is returned only once in `handleCreateOrder` response (`POST /api/orders` returns `guest_token: gt_...`). Plaintext token is never stored in the database.
      - SHA-256 hash is computed and stored in `public.guest_order_access`.
    - Access Scoping & Verification (`internal/httpapi/security.go`):
-     - `GET /orders/{id}` & `GET /api/orders/{id}`: Requires valid matching `X-Guest-Token` (or `Authorization: Bearer gt_...`) or manager identity. Unauthenticated requests return `401 Unauthorized`; mismatched or expired guest tokens return `403 Forbidden`.
-     - `GET /orders/{id}/payment-status` & `GET /api/orders/{id}/payment-status`: Requires valid guest token or manager identity.
-     - `GET /orders/{id}/delivery-quote` & `GET /api/orders/{id}/delivery-quote`: Requires valid guest token or manager identity.
-     - `POST /orders/{id}/delivery-quote/accept`: Scoped strictly to the order's guest token. Another guest cannot accept the quote (returns `403 Forbidden`).
-     - `POST /orders/{id}/delivery-quote/reject`: Scoped strictly to the order's guest token. Another guest cannot reject the quote (returns `403 Forbidden`).
+     - `GET /orders/{id}` & `GET /api/orders/{id}`: Requires valid matching `X-Guest-Token` (or `Authorization: Bearer gt_...`) or authenticated manager credentials (`Authorization: Bearer <manager_secret>`, `Authorization: Manager <manager_secret>`, `X-Manager-Secret`, and optional `X-Manager-Id`). Unauthenticated requests or requests with unverified `X-Manager-Id` headers return `401 Unauthorized`; mismatched or expired guest tokens return `403 Forbidden`.
+     - `GET /orders/{id}/payment-status` & `GET /api/orders/{id}/payment-status`: Requires valid guest token or authenticated manager credentials.
+     - `GET /orders/{id}/delivery-quote` & `GET /api/orders/{id}/delivery-quote`: Requires valid guest token or authenticated manager credentials.
+     - `POST /orders/{id}/delivery-quote`: Requires authenticated manager credentials (`Authorization: Bearer <manager_secret>` or `X-Manager-Secret`). Forged `X-Manager-Id` headers without valid credentials return `401 Unauthorized`.
+     - `POST /orders/{id}/delivery-quote/accept`: Scoped strictly to the order's guest token or authenticated manager credentials. Another guest cannot accept the quote (returns `403 Forbidden`).
+     - `POST /orders/{id}/delivery-quote/reject`: Scoped strictly to the order's guest token or authenticated manager credentials. Another guest cannot reject the quote (returns `403 Forbidden`).
    - Frontend Checkout Integration (`web/static/checkout.js`):
      - Automatically stores `guest_token: data.guest_token` in local order object in `localStorage`.
      - Supplies `X-Guest-Token: guestToken` header during automated payment status polling (`pollPaymentStatus`).

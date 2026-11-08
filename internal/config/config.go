@@ -22,6 +22,7 @@ type Config struct {
 	RequireSchema   bool
 	AllowedOrigins  []string
 	TrustedProxies  string
+	ManagerSecret   string
 }
 
 // Load uses separate GO_ settings so the legacy backend remains independent.
@@ -90,6 +91,25 @@ func Load(get func(string) string) (Config, error) {
 		}
 	}
 	c.TrustedProxies = strings.TrimSpace(get("GO_TRUSTED_PROXIES"))
+	c.ManagerSecret = strings.TrimSpace(get("GO_MANAGER_SECRET"))
+	if path := get("GO_MANAGER_SECRET_FILE"); path != "" {
+		if c.ManagerSecret != "" {
+			return Config{}, errors.New("set only one of GO_MANAGER_SECRET and GO_MANAGER_SECRET_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_MANAGER_SECRET_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_MANAGER_SECRET_FILE could not be read")
+		}
+		c.ManagerSecret = strings.TrimSpace(string(data))
+		if c.ManagerSecret == "" {
+			return Config{}, errors.New("GO_MANAGER_SECRET_FILE is empty")
+		}
+	}
 	if c.DatabaseURL != "" {
 		u, e := url.Parse(c.DatabaseURL)
 		if e != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Hostname() == "" || strings.ContainsAny(u.Hostname(), "% /\\") || (net.ParseIP(u.Hostname()) == nil && !regexp.MustCompile(`^[a-zA-Z0-9.-]+$`).MatchString(u.Hostname())) || u.Path == "" || u.Path == "/" {

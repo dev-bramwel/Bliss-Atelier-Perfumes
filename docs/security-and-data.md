@@ -27,7 +27,7 @@ Browser inputs, provider callbacks and broker messages are untrusted until valid
      - M-Pesa transaction receipt number (`mpesaReceiptNumber`).
      - Customer phone number matched to order.
      - Approximate order timestamp and items ordered.
-   - Once verified, support managers inspect the order using authenticated manager credentials (`X-Manager-Id`) and assist the customer directly with order fulfillment status or quote acceptance. Manager interfaces never disclose raw or hashed tokens.
+   - Once verified, support managers inspect the order using authenticated manager credentials (`Authorization: Bearer <manager_secret>`, `Authorization: Manager <manager_secret>`, `X-Manager-Secret`, and optional `X-Manager-Id`) and assist the customer directly with order fulfillment status or quote acceptance. Manager interfaces never disclose raw or hashed tokens. Unauthenticated requests supplying an unverified `X-Manager-Id` header without valid manager credentials are strictly rejected with HTTP 401 Unauthorized.
 
 Choose admin authentication/session mechanism in an ADR before implementing it. For cookies: Secure, HttpOnly, appropriate SameSite, CSRF protection for mutations, logout/revocation and inactivity limits. Hash passwords with a reviewed modern password hashing library and parameters; no custom cryptography. Rate-limit login, order creation, payment prompts and lookup without allowing arbitrary client headers to bypass identity/IP controls. Only trust forwarded headers from known proxy hops.
 

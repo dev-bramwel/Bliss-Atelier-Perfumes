@@ -85,18 +85,38 @@ func TestAuthorizeOrderAccess(t *testing.T) {
 		},
 	}
 
-	// 1. Manager is always authorized
+	testMgrSecret := "test-mgr-secret-key-123"
+
+	// 1a. Unauthenticated manager request (only X-Manager-Id without secret) fails
+	unauthMgrReq := httptest.NewRequest("GET", "/orders/"+orderID, nil)
+	unauthMgrReq.Header.Set("X-Manager-Id", "manager-1")
+	ok, err := AuthorizeOrderAccess(ctx, unauthMgrReq, orderID, mockStore, testMgrSecret)
+	if err != nil || ok {
+		t.Fatalf("expected unauthenticated manager request to be rejected")
+	}
+
+	// 1b. Manager with invalid secret fails
+	badSecReq := httptest.NewRequest("GET", "/orders/"+orderID, nil)
+	badSecReq.Header.Set("X-Manager-Id", "manager-1")
+	badSecReq.Header.Set("Authorization", "Bearer wrong-secret")
+	ok, err = AuthorizeOrderAccess(ctx, badSecReq, orderID, mockStore, testMgrSecret)
+	if err != nil || ok {
+		t.Fatalf("expected manager request with invalid secret to be rejected")
+	}
+
+	// 1c. Manager with valid secret succeeds
 	mgrReq := httptest.NewRequest("GET", "/orders/"+orderID, nil)
 	mgrReq.Header.Set("X-Manager-Id", "manager-1")
-	ok, err := AuthorizeOrderAccess(ctx, mgrReq, orderID, mockStore)
+	mgrReq.Header.Set("Authorization", "Bearer "+testMgrSecret)
+	ok, err = AuthorizeOrderAccess(ctx, mgrReq, orderID, mockStore, testMgrSecret)
 	if err != nil || !ok {
-		t.Fatalf("expected manager access to be authorized")
+		t.Fatalf("expected authenticated manager access to be authorized")
 	}
 
 	// 2. Valid guest token is authorized
 	guestReq := httptest.NewRequest("GET", "/orders/"+orderID, nil)
 	guestReq.Header.Set("X-Guest-Token", validToken)
-	ok, err = AuthorizeOrderAccess(ctx, guestReq, orderID, mockStore)
+	ok, err = AuthorizeOrderAccess(ctx, guestReq, orderID, mockStore, testMgrSecret)
 	if err != nil || !ok {
 		t.Fatalf("expected valid guest token to be authorized")
 	}
@@ -104,14 +124,14 @@ func TestAuthorizeOrderAccess(t *testing.T) {
 	// 3. Invalid guest token is rejected
 	badGuestReq := httptest.NewRequest("GET", "/orders/"+orderID, nil)
 	badGuestReq.Header.Set("X-Guest-Token", "gt_0000000000000000000000000000000000000000000000000000000000000000")
-	ok, err = AuthorizeOrderAccess(ctx, badGuestReq, orderID, mockStore)
+	ok, err = AuthorizeOrderAccess(ctx, badGuestReq, orderID, mockStore, testMgrSecret)
 	if err != nil || ok {
 		t.Fatalf("expected invalid guest token to be rejected")
 	}
 
 	// 4. Missing token is rejected
 	emptyReq := httptest.NewRequest("GET", "/orders/"+orderID, nil)
-	ok, err = AuthorizeOrderAccess(ctx, emptyReq, orderID, mockStore)
+	ok, err = AuthorizeOrderAccess(ctx, emptyReq, orderID, mockStore, testMgrSecret)
 	if err != nil || ok {
 		t.Fatalf("expected missing token to be rejected")
 	}
@@ -119,7 +139,7 @@ func TestAuthorizeOrderAccess(t *testing.T) {
 	// 5. Guest bearer token for Order A CANNOT bypass manager check to access Order B
 	bearerGuestReq := httptest.NewRequest("GET", "/orders/other-order", nil)
 	bearerGuestReq.Header.Set("Authorization", "Bearer "+validToken)
-	ok, err = AuthorizeOrderAccess(ctx, bearerGuestReq, "other-order", mockStore)
+	ok, err = AuthorizeOrderAccess(ctx, bearerGuestReq, "other-order", mockStore, testMgrSecret)
 	if err != nil || ok {
 		t.Fatalf("critical vulnerability: guest bearer token bypassed order scoping and acted as manager!")
 	}
