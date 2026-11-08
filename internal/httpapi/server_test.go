@@ -232,7 +232,8 @@ func TestOrderRoutes(t *testing.T) {
 		},
 	}
 
-	api := New("127.0.0.1:0", time.Second, nil, mock)
+	testMgrSecret := "test-mgr-secret-key-456"
+	api := New("127.0.0.1:0", time.Second, nil, mock, SecurityConfig{ManagerSecret: testMgrSecret})
 
 	// 1. POST /api/orders success
 	validBody, _ := json.Marshal(map[string]any{
@@ -307,9 +308,19 @@ func TestOrderRoutes(t *testing.T) {
 		t.Fatalf("GET /api/orders/ord-test-123/payment-status: expected 200, got %d", w.Code)
 	}
 
-	// 3d. GET /api/orders/ord-test-123/payment-status with manager auth succeeds (200)
+	// 3c. GET /api/orders/ord-test-123/payment-status with forged manager header (no secret) fails (401)
+	forgedReq := httptest.NewRequest("GET", "/api/orders/ord-test-123/payment-status", nil)
+	forgedReq.Header.Set("X-Manager-Id", "mgr-1")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, forgedReq)
+	if w.Code != 401 {
+		t.Fatalf("GET payment-status with unauthenticated manager header: expected 401, got %d", w.Code)
+	}
+
+	// 3d. GET /api/orders/ord-test-123/payment-status with authenticated manager succeeds (200)
 	req = httptest.NewRequest("GET", "/api/orders/ord-test-123/payment-status", nil)
 	req.Header.Set("X-Manager-Id", "mgr-1")
+	req.Header.Set("Authorization", "Bearer "+testMgrSecret)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -319,6 +330,7 @@ func TestOrderRoutes(t *testing.T) {
 	// 4. GET /orders/unknown/payment-status with manager auth returns 404
 	req = httptest.NewRequest("GET", "/orders/unknown/payment-status", nil)
 	req.Header.Set("X-Manager-Id", "mgr-1")
+	req.Header.Set("Authorization", "Bearer "+testMgrSecret)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 404 {
@@ -358,6 +370,7 @@ func TestOrderRoutes(t *testing.T) {
 	// 6. GET /orders/unknown with manager auth returns 404
 	req = httptest.NewRequest("GET", "/orders/unknown", nil)
 	req.Header.Set("X-Manager-Id", "mgr-1")
+	req.Header.Set("Authorization", "Bearer "+testMgrSecret)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 404 {
@@ -516,7 +529,8 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 		quotes: make(map[string][]*delivery.DeliveryQuote),
 	}
 
-	api := New("127.0.0.1:0", time.Second, nil, mockOrder, mockDeliv)
+	testMgrSecret := "test-manager-secret-789"
+	api := New("127.0.0.1:0", time.Second, nil, mockOrder, mockDeliv, SecurityConfig{ManagerSecret: testMgrSecret})
 
 	// 1a. GET /api/orders/{id}/delivery-quote unauthenticated fails with 401
 	unauthGetReq := httptest.NewRequest("GET", "/api/orders/"+orderID+"/delivery-quote", nil)
@@ -544,9 +558,19 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 		t.Fatalf("expected 401 Unauthorized for unauthenticated quote creation, got %d", w.Code)
 	}
 
-	// 2b. POST /api/orders/{id}/delivery-quote with X-Manager-Id creates quote (courier collection)
+	// 2b. POST /api/orders/{id}/delivery-quote with forged X-Manager-Id header alone fails with 401
+	forgedMgrReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload)))
+	forgedMgrReq.Header.Set("X-Manager-Id", "mgr-1")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, forgedMgrReq)
+	if w.Code != 401 {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated X-Manager-Id, got %d", w.Code)
+	}
+
+	// 2c. POST /api/orders/{id}/delivery-quote with authenticated manager creates quote (courier collection)
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload)))
 	req.Header.Set("X-Manager-Id", "mgr-1")
+	req.Header.Set("Authorization", "Bearer "+testMgrSecret)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 201 {
@@ -634,7 +658,8 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	// 6. Create quote v2 (re-quote) resets to pending
 	createPayload2 := `{"amount_kes":400,"fee_recipient":"merchant","arrangement":"Express with tracking","expires_at":"` + time.Now().Add(2*time.Hour).Format(time.RFC3339) + `","customer_notes":"Call ahead"}`
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload2)))
-	req.Header.Set("Authorization", "Bearer mgr-2")
+	req.Header.Set("X-Manager-Id", "mgr-2")
+	req.Header.Set("Authorization", "Bearer "+testMgrSecret)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 201 {
@@ -678,10 +703,11 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 		t.Fatalf("expected rejected status, got %s", rejectResp.Quote.Status)
 	}
 
-	// 7. Manager can also accept and reject quotes on behalf of customer
+	// 7. Manager can also accept and reject quotes on behalf of customer with valid credentials
 	createPayload3 := `{"amount_kes":450,"fee_recipient":"merchant","arrangement":"Standard dispatch","expires_at":"` + time.Now().Add(2*time.Hour).Format(time.RFC3339) + `"}`
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload3)))
 	req.Header.Set("X-Manager-Id", "mgr-3")
+	req.Header.Set("Authorization", "Bearer "+testMgrSecret)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 201 {
@@ -691,6 +717,7 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	// Manager accepts quote v3
 	acceptMgrReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/accept", bytes.NewReader([]byte(`{"version":3}`)))
 	acceptMgrReq.Header.Set("X-Manager-Id", "mgr-3")
+	acceptMgrReq.Header.Set("Authorization", "Bearer "+testMgrSecret)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, acceptMgrReq)
 	if w.Code != 200 {
@@ -754,7 +781,8 @@ func TestRequestBodySizeEnforcementAndMalformedJSON(t *testing.T) {
 			return &orders.Order{ID: "ord-test"}, nil
 		},
 	}
-	api := New("127.0.0.1:0", time.Second, nil, mock)
+	testMgrSecret := "test-mgr-secret-key-456"
+	api := New("127.0.0.1:0", time.Second, nil, mock, SecurityConfig{ManagerSecret: testMgrSecret})
 
 	// 1. Request body > 64KB returns 413 Payload Too Large
 	largePayload := fmt.Sprintf(`{"customer":{"name":"Alice","phone":"254712345678","location":"Nairobi","delivery":"delivery","notes":"%s"},"items":[{"id":"p1","qty":1}]}`, strings.Repeat("x", 70*1024))

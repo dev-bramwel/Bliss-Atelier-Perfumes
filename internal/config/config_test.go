@@ -53,7 +53,49 @@ func TestInvalidSettings(t *testing.T) {
 
 func TestDefaults(t *testing.T) {
 	c, err := Load(func(string) string { return "" })
-	if err != nil || c.Address != "127.0.0.1:5001" || c.MaxConnections != 4 {
+	if err != nil || c.Address != "127.0.0.1:5001" || c.MaxConnections != 4 || c.ManagerSecret != "" {
 		t.Fatalf("unexpected defaults: %+v %v", c, err)
+	}
+}
+
+func TestManagerSecretConfiguration(t *testing.T) {
+	// 1. Direct env variable
+	c, err := Load(func(k string) string {
+		if k == "GO_MANAGER_SECRET" {
+			return "my-test-manager-secret"
+		}
+		return ""
+	})
+	if err != nil || c.ManagerSecret != "my-test-manager-secret" {
+		t.Fatalf("expected manager secret from env, got %s (err: %v)", c.ManagerSecret, err)
+	}
+
+	// 2. Secret file
+	path := filepath.Join(t.TempDir(), "mgr-secret")
+	if err := os.WriteFile(path, []byte("file-mgr-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = Load(func(k string) string {
+		if k == "GO_MANAGER_SECRET_FILE" {
+			return path
+		}
+		return ""
+	})
+	if err != nil || c.ManagerSecret != "file-mgr-secret" {
+		t.Fatalf("expected manager secret from file, got %s (err: %v)", c.ManagerSecret, err)
+	}
+
+	// 3. Conflict rejection
+	_, err = Load(func(k string) string {
+		if k == "GO_MANAGER_SECRET" {
+			return "sec1"
+		}
+		if k == "GO_MANAGER_SECRET_FILE" {
+			return path
+		}
+		return ""
+	})
+	if err == nil {
+		t.Fatal("expected conflict error when both secret and file provided")
 	}
 }

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"net"
 	"net/http"
 	"strings"
@@ -109,9 +110,50 @@ func ExtractGuestToken(r *http.Request) string {
 	return ""
 }
 
+// ExtractManagerIdentity verifies whether the request carries valid manager credentials
+// matching the configured managerSecret. If verified, it returns the manager's identity
+// (from X-Manager-Id if provided, or defaulting to "manager").
+// If the credential is missing, invalid, or managerSecret is empty, it returns "".
+func ExtractManagerIdentity(r *http.Request, managerSecret string) string {
+	if managerSecret == "" {
+		return ""
+	}
+
+	var candidate string
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(auth, "Manager ") {
+		candidate = strings.TrimSpace(strings.TrimPrefix(auth, "Manager "))
+	} else if strings.HasPrefix(auth, "Bearer ") {
+		token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+		// Guest tokens start with "gt_" and must never be treated as manager credentials
+		if !strings.HasPrefix(token, "gt_") {
+			candidate = token
+		}
+	}
+	if candidate == "" {
+		candidate = strings.TrimSpace(r.Header.Get("X-Manager-Secret"))
+	}
+	if candidate == "" {
+		candidate = strings.TrimSpace(r.Header.Get("X-Manager-Key"))
+	}
+
+	if candidate == "" {
+		return ""
+	}
+
+	if subtle.ConstantTimeCompare([]byte(candidate), []byte(managerSecret)) != 1 {
+		return ""
+	}
+
+	if id := strings.TrimSpace(r.Header.Get("X-Manager-Id")); id != "" {
+		return id
+	}
+	return "manager"
+}
+
 // AuthorizeOrderAccess checks whether a request is authorized to access orderID,
-// either via manager credentials or a valid scoped guest token.
-func AuthorizeOrderAccess(ctx context.Context, r *http.Request, orderID string, orderStore OrderService) (bool, error) {
+// either via authenticated manager credentials or a valid scoped guest token.
+func AuthorizeOrderAccess(ctx context.Context, r *http.Request, orderID string, orderStore OrderService, managerSecret ...string) (bool, error) {
 	guestToken := ExtractGuestToken(r)
 	if guestToken != "" {
 		if !orders.ValidateTokenFormat(guestToken) || orderStore == nil {
@@ -119,16 +161,21 @@ func AuthorizeOrderAccess(ctx context.Context, r *http.Request, orderID string, 
 		}
 		return orderStore.ValidateGuestAccess(ctx, orderID, guestToken)
 	}
-	if extractManagerIdentity(r) != "" {
+	sec := ""
+	if len(managerSecret) > 0 {
+		sec = managerSecret[0]
+	}
+	if ExtractManagerIdentity(r, sec) != "" {
 		return true, nil
 	}
 	return false, nil
 }
 
-// SecurityConfig contains CORS and trusted proxy settings.
+// SecurityConfig contains CORS, trusted proxy, and manager authentication settings.
 type SecurityConfig struct {
 	AllowedOrigins []string
 	TrustedProxies string
+	ManagerSecret  string
 }
 
 // CORSHandler applies standard security headers, CORS headers, and handles OPTIONS preflights.
@@ -161,7 +208,7 @@ func CORSHandler(allowedOrigins []string, next http.Handler) http.Handler {
 
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Guest-Token, X-Manager-Id, Idempotency-Key")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Guest-Token, X-Manager-Id, X-Manager-Secret, X-Manager-Key, Idempotency-Key")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 			w.WriteHeader(http.StatusNoContent)
 			return

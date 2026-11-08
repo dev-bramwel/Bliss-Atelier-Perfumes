@@ -90,6 +90,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		secConfig := httpapi.SecurityConfig{
 			AllowedOrigins: cfg.AllowedOrigins,
 			TrustedProxies: cfg.TrustedProxies,
+			ManagerSecret:  cfg.ManagerSecret,
 		}
 		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":

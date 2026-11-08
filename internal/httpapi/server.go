@@ -69,26 +69,6 @@ type API struct {
 	draining atomic.Bool
 }
 
-func extractManagerIdentity(r *http.Request) string {
-	if id := strings.TrimSpace(r.Header.Get("X-Manager-Id")); id != "" {
-		return id
-	}
-	if auth := strings.TrimSpace(r.Header.Get("Authorization")); auth != "" {
-		if strings.HasPrefix(auth, "Manager ") {
-			if token := strings.TrimSpace(strings.TrimPrefix(auth, "Manager ")); token != "" {
-				return token
-			}
-		} else if strings.HasPrefix(auth, "Bearer ") {
-			token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-			// Guest tokens start with "gt_" and must never be treated as manager identities
-			if token != "" && !strings.HasPrefix(token, "gt_") {
-				return token
-			}
-		}
-	}
-	return ""
-}
-
 func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	a := &API{}
 	var catalogStore Catalog
@@ -110,6 +90,9 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	}
 
 	proxyChecker := NewTrustedProxyChecker(secConfig.TrustedProxies)
+	extractManager := func(r *http.Request) string {
+		return ExtractManagerIdentity(r, secConfig.ManagerSecret)
+	}
 
 	mux := http.NewServeMux()
 	respond := func(w http.ResponseWriter, code int, body any) {
@@ -215,14 +198,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
 			if err != nil {
 				slog.Error("authorize_payment_status_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
 			if !ok {
-				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+				if ExtractGuestToken(r) == "" && extractManager(r) == "" {
 					respond(w, 401, map[string]string{"error": "guest authorization required"})
 				} else {
 					respond(w, 403, map[string]string{"error": "access denied for this order"})
@@ -256,14 +239,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
 			if err != nil {
 				slog.Error("authorize_get_order_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
 			if !ok {
-				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+				if ExtractGuestToken(r) == "" && extractManager(r) == "" {
 					respond(w, 401, map[string]string{"error": "guest authorization required"})
 				} else {
 					respond(w, 403, map[string]string{"error": "access denied for this order"})
@@ -347,7 +330,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 503, map[string]string{"error": "service draining"})
 				return
 			}
-			managerID := extractManagerIdentity(r)
+			managerID := extractManager(r)
 			if managerID == "" {
 				respond(w, 401, map[string]string{"error": "manager authorization required"})
 				return
@@ -403,14 +386,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
 			if err != nil {
 				slog.Error("authorize_get_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
 			if !ok {
-				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+				if ExtractGuestToken(r) == "" && extractManager(r) == "" {
 					respond(w, 401, map[string]string{"error": "guest authorization required"})
 				} else {
 					respond(w, 403, map[string]string{"error": "access denied for this order"})
@@ -455,14 +438,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
 			if err != nil {
 				slog.Error("authorize_accept_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
 			if !ok {
-				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+				if ExtractGuestToken(r) == "" && extractManager(r) == "" {
 					respond(w, 401, map[string]string{"error": "guest authorization required"})
 				} else {
 					respond(w, 403, map[string]string{"error": "access denied for this order"})
@@ -521,14 +504,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
+			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
 			if err != nil {
 				slog.Error("authorize_reject_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
 			if !ok {
-				if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+				if ExtractGuestToken(r) == "" && extractManager(r) == "" {
 					respond(w, 401, map[string]string{"error": "guest authorization required"})
 				} else {
 					respond(w, 403, map[string]string{"error": "access denied for this order"})

@@ -27,7 +27,7 @@ func RedactingReplaceAttr(groups []string, a slog.Attr) slog.Attr {
 	keyLower := strings.ToLower(a.Key)
 
 	switch keyLower {
-	case "token", "guest_token", "raw_token", "authorization", "x-guest-token", "x-manager-id", "secret", "password", "credentials", "auth":
+	case "token", "guest_token", "raw_token", "authorization", "x-guest-token", "x-manager-id", "x-manager-secret", "x-manager-key", "manager_secret", "secret", "password", "credentials", "auth":
 		return slog.String(a.Key, "[REDACTED]")
 	case "phone", "customer_phone", "recipient_phone", "mobile":
 		return slog.String(a.Key, "+254***REDACTED***")
