@@ -17,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
 )
 
 type Store struct {
@@ -318,6 +320,29 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert initial payment attempt: %w", err)
+	}
+
+	// Transactional outbox event enqueue
+	orderItemsPayload := make([]events.OrderItemPayload, len(orderItems))
+	for i, it := range orderItems {
+		orderItemsPayload[i] = events.OrderItemPayload{ProductID: it.ProductID, Quantity: it.Quantity}
+	}
+	evt, err := events.NewEvent(events.TypeOrderCreated, orderID, 1, "", events.OrderCreatedPayload{
+		OrderID:          orderID,
+		CustomerName:     req.Customer.Name,
+		CustomerPhone:    req.Customer.Phone,
+		DeliveryLocation: req.Customer.Location,
+		TotalKes:         totalKes,
+		Items:            orderItemsPayload,
+		CreatedAt:        now,
+	})
+	if err != nil {
+		rollback(tx)
+		return nil, fmt.Errorf("failed to construct order created event: %w", err)
+	}
+	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq"); err != nil {
+		rollback(tx)
+		return nil, fmt.Errorf("failed to enqueue order created outbox event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -718,6 +743,22 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 					return fmt.Errorf("failed to insert stock entry: %w", err)
 				}
 			}
+		}
+
+		// Transactional outbox event enqueue
+		evt, err := events.NewEvent(events.TypeOrderPaid, orderID, 2, "", events.OrderPaidPayload{
+			OrderID:       orderID,
+			ReceiptNumber: receiptNumber,
+			AmountKes:     totalKes,
+			PaidAt:        now,
+		})
+		if err != nil {
+			rollback(tx)
+			return fmt.Errorf("failed to construct order paid event: %w", err)
+		}
+		if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq"); err != nil {
+			rollback(tx)
+			return fmt.Errorf("failed to enqueue order paid outbox event: %w", err)
 		}
 
 		if err := tx.Commit(ctx); err != nil {
