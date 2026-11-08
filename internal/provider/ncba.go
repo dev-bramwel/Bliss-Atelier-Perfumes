@@ -402,6 +402,10 @@ func (a *NCBAAdapter) QueryReceipt(ctx context.Context, req ReceiptQueryRequest)
 				a.c2bMu.Unlock()
 				return nil, err
 			}
+			if c2bTokenResp.Token == "" {
+				a.c2bMu.Unlock()
+				return nil, ErrProviderRejected
+			}
 			a.c2bAccessToken = c2bTokenResp.Token
 			a.c2bTokenExpiry = time.Now().Add(1 * time.Hour)
 		}

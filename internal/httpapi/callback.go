@@ -266,7 +266,16 @@ func newPaymentCallbackHandlers(
 		// 6. Receipt Uniqueness (Deduplication)
 		if payload.TransID != "" {
 			existingOrderID, err := orderStore.FindReceiptOrder(ctx, payload.TransID)
-			if err == nil && existingOrderID != "" && existingOrderID != order.ID {
+			if err != nil {
+				slog.Error("ncba_ipn_find_receipt_failed", "trans_id", payload.TransID, "reason", err.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"ResultCode": "1",
+					"ResultDesc": "Internal error checking receipt uniqueness",
+				})
+				return
+			}
+			if existingOrderID != "" && existingOrderID != order.ID {
 				slog.Error("ncba_ipn_duplicate_receipt_replayed",
 					"order_id", order.ID,
 					"trans_id", payload.TransID,
@@ -463,7 +472,12 @@ func newPaymentCallbackHandlers(
 
 		// Receipt Deduplication
 		existingOrderID, err := orderStore.FindReceiptOrder(ctx, receipt)
-		if err == nil && existingOrderID != "" && existingOrderID != order.ID {
+		if err != nil {
+			slog.Error("mpesa_callback_find_receipt_failed", "order_id", order.ID, "receipt", receipt, "reason", err.Error())
+			respond(w, http.StatusInternalServerError, map[string]string{"error": "Failed to verify receipt uniqueness."})
+			return
+		}
+		if existingOrderID != "" && existingOrderID != order.ID {
 			slog.Error("mpesa_callback_duplicate_receipt",
 				"order_id", order.ID,
 				"receipt", receipt,

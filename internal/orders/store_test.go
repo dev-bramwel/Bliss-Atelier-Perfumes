@@ -863,6 +863,12 @@ func TestPaymentAttemptLifecycleAndExplicitRetry(t *testing.T) {
 		t.Fatalf("expected 1 payment attempt, got %d (err: %v)", len(attempts), err)
 	}
 
+	// 2b. Attempt to create a second attempt while attempt 1 is 'created': must fail with ErrUnresolvedPaymentAttempt
+	_, err = store.CreatePaymentAttempt(ctx, order.ID, "254711223344", order.TotalKes, "mpesa_stk")
+	if !errors.Is(err, ErrUnresolvedPaymentAttempt) {
+		t.Fatalf("expected ErrUnresolvedPaymentAttempt while attempt is created, got %v", err)
+	}
+
 	// 3. Mark attempt 1 as 'initiating'
 	err = store.UpdatePaymentAttempt(ctx, attempts[0].ID, AttemptInitiating, "TX12345", "REF67890", "")
 	if err != nil {
@@ -873,6 +879,16 @@ func TestPaymentAttemptLifecycleAndExplicitRetry(t *testing.T) {
 	_, err = store.CreatePaymentAttempt(ctx, order.ID, "254711223344", order.TotalKes, "mpesa_stk")
 	if !errors.Is(err, ErrUnresolvedPaymentAttempt) {
 		t.Fatalf("expected ErrUnresolvedPaymentAttempt while active attempt in-flight, got %v", err)
+	}
+
+	// 4b. Mark attempt 1 as 'unknown' (e.g. provider timeout): must also fail with ErrUnresolvedPaymentAttempt
+	err = store.UpdatePaymentAttempt(ctx, attempts[0].ID, AttemptUnknown, "TX12345", "REF67890", "Provider timeout")
+	if err != nil {
+		t.Fatalf("failed to update attempt to unknown: %v", err)
+	}
+	_, err = store.CreatePaymentAttempt(ctx, order.ID, "254711223344", order.TotalKes, "mpesa_stk")
+	if !errors.Is(err, ErrUnresolvedPaymentAttempt) {
+		t.Fatalf("expected ErrUnresolvedPaymentAttempt while attempt is unknown, got %v", err)
 	}
 
 	// 5. Mark attempt 1 as 'failed'

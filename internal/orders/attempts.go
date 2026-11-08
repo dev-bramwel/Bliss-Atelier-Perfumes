@@ -88,8 +88,8 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 		rows.Close()
 
 		// Unresolved attempt safety check:
-		// Never blindly reinitiate an active or ambiguous charge within the provider resolution window (2 minutes)
-		if (prevStatus == AttemptInitiating || prevStatus == AttemptAccepted) && time.Since(prevCreatedAt) < 2*time.Minute {
+		// Never blindly reinitiate an active, in-flight, or ambiguous charge within the provider resolution window (2 minutes)
+		if (prevStatus == AttemptCreated || prevStatus == AttemptInitiating || prevStatus == AttemptAccepted || prevStatus == AttemptUnknown) && time.Since(prevCreatedAt) < 2*time.Minute {
 			return nil, ErrUnresolvedPaymentAttempt
 		}
 
