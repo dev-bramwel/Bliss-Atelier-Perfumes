@@ -115,4 +115,12 @@ func TestAuthorizeOrderAccess(t *testing.T) {
 	if err != nil || ok {
 		t.Fatalf("expected missing token to be rejected")
 	}
+
+	// 5. Guest bearer token for Order A CANNOT bypass manager check to access Order B
+	bearerGuestReq := httptest.NewRequest("GET", "/orders/other-order", nil)
+	bearerGuestReq.Header.Set("Authorization", "Bearer "+validToken)
+	ok, err = AuthorizeOrderAccess(ctx, bearerGuestReq, "other-order", mockStore)
+	if err != nil || ok {
+		t.Fatalf("critical vulnerability: guest bearer token bypassed order scoping and acted as manager!")
+	}
 }

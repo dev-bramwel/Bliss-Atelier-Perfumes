@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -881,7 +882,9 @@ func (s *Store) ValidateGuestAccess(ctx context.Context, orderID string, rawToke
 		return false, fmt.Errorf("failed to validate guest access: %w", err)
 	}
 	if isValid {
-		_, _ = s.Pool.Exec(ctx, `UPDATE public.guest_order_access SET last_used_at = now() WHERE order_id = $1 AND token_hash = $2`, orderID, tokenHash)
+		if _, execErr := s.Pool.Exec(ctx, `UPDATE public.guest_order_access SET last_used_at = now() WHERE order_id = $1 AND token_hash = $2`, orderID, tokenHash); execErr != nil {
+			slog.Warn("update_guest_access_last_used_failed", "order_id", orderID, "reason", execErr.Error())
+		}
 	}
 	return isValid, nil
 }

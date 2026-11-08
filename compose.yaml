@@ -70,6 +70,7 @@ services:
       GO_REQUIRE_SCHEMA: "true"
       GO_IO_TIMEOUT: 15s
       GO_DB_MAX_CONNECTIONS: "16"
+      GO_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32"
     secrets: [runtime_url]
     depends_on:
       migrate: { condition: service_completed_successfully }

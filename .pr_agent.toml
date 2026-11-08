@@ -1,29 +1,57 @@
 [pr_reviewer]
 enable_intro_text = false
 enable_help_text = false
+require_security_review = true
+require_ticket_analysis_review = true
+enable_security_checks = true
 
 extra_instructions = """
-You are reviewing code for Bliss Atelier Perfumes, an enterprise e-commerce platform built in Go and PostgreSQL (pgx).
+You are performing a rigorous, senior-staff-level architectural and security code review.
+Evaluate the changes across these 6 Universal Verification Pillars:
 
-CRITICAL ARCHITECTURAL & CONCURRENCY CHECKS:
-1. Concurrency & Transactions: Verify PostgreSQL transactions use 'FOR UPDATE' row locks for any inventory or order state mutations to avoid race conditions.
-2. Connection & Rollback Safety: Ensure every transaction guarantees rollback cleanup on error or early return (e.g. using 'defer rollback(tx)' or equivalent bounded rollback helper, or 'defer tx.Rollback(ctx)'). Ensure queries inside transactions strictly execute on 'tx', never the parent connection pool.
-3. Goroutine Lifecycles: Do not allow unbounded background goroutines in HTTP handlers. All async tasks must honor context cancellation.
-4. Error Handling: Ensure Go errors are properly checked and wrapped ('fmt.Errorf(\"...: %w\", err)'). Never allow ignored errors ('_ = ...') except in standard cleanup helpers (like deferred rollback).
+1. PRIVILEGE & AUTH BOUNDARIES (BOLA / BFLA):
+   - Trace identity extraction and authorization helpers across caller and callee files.
+   - Flag any 'truthy' or unverified credential parsing (e.g. treating an arbitrary Bearer string as a valid admin/manager identity).
+   - Ensure lower-privilege credentials (guests, standard users, tenant A) cannot satisfy admin or cross-tenant checks.
+   - Verify that resource lookup, mutation, and deletion endpoints enforce ownership scoping on every call.
 
-DOMAIN & BUSINESS LOGIC INVARIANTS:
-1. Payment Invariant: Fulfillment or dispatch MUST NOT occur without verified, settled payment. Cash-on-delivery (COD) is strictly forbidden.
-2. Stock Ledger Integrity: Stock mutations must balance against an immutable, audited batch ('stock_batch' recording actor, evidence, digest, and kind), with associated itemized ledger entries ('stock_entry'). No public unauthenticated stock writes.
+2. CONFIGURATION PROPAGATION & GLOBAL DEFAULTS:
+   - Verify that new runtime configuration settings actually flow into consuming subsystems (rate limiters, connection pools, middleware).
+   - Flag disconnected package-level variables or static singleton instances that operate on unconfigured defaults.
 
-NOISE REDUCTION RULES:
-- Ignore trivial style, naming preferences, or whitespace (handled by gofmt).
-- Only comment on issues with high impact on correctness, concurrency, security, or data integrity.
-- If no critical issues are found, state that the changes satisfy all domain and concurrency invariants.
+3. NETWORK TOPOLOGY & KEY COLLAPSING:
+   - Verify rate-limiting and caching keys when deployed behind reverse proxies, CDNs, or container networks.
+   - Ensure client IP resolution only trusts forwarded headers from verified proxy hops; untrusted headers must be ignored.
+   - Ensure proxy traffic does not collapse all distinct client sessions into a single shared rate-limit bucket.
+
+4. SEMANTIC ASYMMETRY & LIFECYCLES:
+   - Verify authorization symmetry: if administrative roles have read-inspection access to assist users, verify whether action/mutation endpoints permit or intentionally restrict admin overrides.
+   - Ensure state machines prevent out-of-order transitions and protect terminal states.
+
+5. FAILURE PATHS & ERROR HYGIENE:
+   - Flag any swallowed errors ('_ = ...', empty catch, unhandled promises) on database writes, I/O, or audit trails.
+   - Ensure errors are either propagated or logged with contextual attributes.
+   - Ensure transactions guarantee rollback cleanup on error or early return (e.g. 'defer tx.Rollback(ctx)').
+
+6. REQUEST BOUNDS & INFORMATION LEAKAGE:
+   - Verify request body streams and collection counts have strict upper bounds before memory allocation.
+   - Ensure client-facing error payloads never disclose internal database errors, schema details, or stack traces.
+
+NOISE FILTER:
+- Do not comment on code formatting, variable names, or minor stylistic preferences.
+- Only report issues with direct impact on security, correctness, reliability, or systems architecture.
 """
 
 [pr_code_suggestions]
 suggestions_score_threshold = 7
+max_suggestions = 4
+focus_only_on_problems = true
 
 extra_instructions = """
-Only propose code diffs that prevent race conditions, resolve transactional bugs, enforce business invariants, or fix explicit security vulnerabilities. Do not suggest cosmetic rewrites.
+Provide high-leverage code suggestions targeting:
+1. Authorization bypasses or privilege escalation risks.
+2. Disconnected configuration or shared rate-limiting buckets.
+3. Unhandled error suppression on state mutations.
+4. Concurrency or transactional race conditions.
+Provide drop-in diff replacements with a concise explanation of the failure mode. Do not suggest cosmetic rewrites.
 """

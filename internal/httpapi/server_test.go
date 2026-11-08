@@ -677,6 +677,25 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	if rejectResp.Quote.Status != delivery.QuoteStatusRejected {
 		t.Fatalf("expected rejected status, got %s", rejectResp.Quote.Status)
 	}
+
+	// 7. Manager can also accept and reject quotes on behalf of customer
+	createPayload3 := `{"amount_kes":450,"fee_recipient":"merchant","arrangement":"Standard dispatch","expires_at":"` + time.Now().Add(2*time.Hour).Format(time.RFC3339) + `"}`
+	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload3)))
+	req.Header.Set("X-Manager-Id", "mgr-3")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, req)
+	if w.Code != 201 {
+		t.Fatalf("expected 201 Created for quote v3, got %d", w.Code)
+	}
+
+	// Manager accepts quote v3
+	acceptMgrReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/accept", bytes.NewReader([]byte(`{"version":3}`)))
+	acceptMgrReq.Header.Set("X-Manager-Id", "mgr-3")
+	w = httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(w, acceptMgrReq)
+	if w.Code != 200 {
+		t.Fatalf("expected manager quote acceptance to succeed (200), got %d (body: %s)", w.Code, w.Body.String())
+	}
 }
 
 func TestSecurityHeadersAndCORS(t *testing.T) {

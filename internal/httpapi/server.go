@@ -74,12 +74,14 @@ func extractManagerIdentity(r *http.Request) string {
 		return id
 	}
 	if auth := strings.TrimSpace(r.Header.Get("Authorization")); auth != "" {
-		if strings.HasPrefix(auth, "Bearer ") {
-			if token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")); token != "" {
+		if strings.HasPrefix(auth, "Manager ") {
+			if token := strings.TrimSpace(strings.TrimPrefix(auth, "Manager ")); token != "" {
 				return token
 			}
-		} else if strings.HasPrefix(auth, "Manager ") {
-			if token := strings.TrimSpace(strings.TrimPrefix(auth, "Manager ")); token != "" {
+		} else if strings.HasPrefix(auth, "Bearer ") {
+			token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+			// Guest tokens start with "gt_" and must never be treated as manager identities
+			if token != "" && !strings.HasPrefix(token, "gt_") {
 				return token
 			}
 		}
@@ -106,6 +108,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			secConfig = v
 		}
 	}
+
+	proxyChecker := NewTrustedProxyChecker(secConfig.TrustedProxies)
 
 	mux := http.NewServeMux()
 	respond := func(w http.ResponseWriter, code int, body any) {
@@ -139,7 +143,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 503, map[string]string{"error": "service draining"})
 				return
 			}
-			ip := clientIP(r)
+			ip := SafeClientIP(r, proxyChecker)
 			if !orderLimiter.Allow(ip, time.Now()) {
 				w.Header().Set("Retry-After", "60")
 				respond(w, http.StatusTooManyRequests, map[string]string{
@@ -454,19 +458,18 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			defer cancel()
 
 			if orderStore != nil {
-				guestToken := ExtractGuestToken(r)
-				if guestToken == "" {
-					respond(w, 401, map[string]string{"error": "guest authorization required"})
-					return
-				}
-				ok, err := orderStore.ValidateGuestAccess(ctx, id, guestToken)
+				ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
 				if err != nil {
 					slog.Error("authorize_accept_quote_failed", "order_id", id, "reason", err.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 					return
 				}
 				if !ok {
-					respond(w, 403, map[string]string{"error": "access denied for this order"})
+					if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+						respond(w, 401, map[string]string{"error": "guest authorization required"})
+					} else {
+						respond(w, 403, map[string]string{"error": "access denied for this order"})
+					}
 					return
 				}
 			}
@@ -523,19 +526,18 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			defer cancel()
 
 			if orderStore != nil {
-				guestToken := ExtractGuestToken(r)
-				if guestToken == "" {
-					respond(w, 401, map[string]string{"error": "guest authorization required"})
-					return
-				}
-				ok, err := orderStore.ValidateGuestAccess(ctx, id, guestToken)
+				ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore)
 				if err != nil {
 					slog.Error("authorize_reject_quote_failed", "order_id", id, "reason", err.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 					return
 				}
 				if !ok {
-					respond(w, 403, map[string]string{"error": "access denied for this order"})
+					if ExtractGuestToken(r) == "" && extractManagerIdentity(r) == "" {
+						respond(w, 401, map[string]string{"error": "guest authorization required"})
+					} else {
+						respond(w, 403, map[string]string{"error": "access denied for this order"})
+					}
 					return
 				}
 			}

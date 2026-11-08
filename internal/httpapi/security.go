@@ -112,17 +112,17 @@ func ExtractGuestToken(r *http.Request) string {
 // AuthorizeOrderAccess checks whether a request is authorized to access orderID,
 // either via manager credentials or a valid scoped guest token.
 func AuthorizeOrderAccess(ctx context.Context, r *http.Request, orderID string, orderStore OrderService) (bool, error) {
+	guestToken := ExtractGuestToken(r)
+	if guestToken != "" {
+		if !orders.ValidateTokenFormat(guestToken) || orderStore == nil {
+			return false, nil
+		}
+		return orderStore.ValidateGuestAccess(ctx, orderID, guestToken)
+	}
 	if extractManagerIdentity(r) != "" {
 		return true, nil
 	}
-	if orderStore == nil {
-		return false, nil
-	}
-	guestToken := ExtractGuestToken(r)
-	if guestToken == "" || !orders.ValidateTokenFormat(guestToken) {
-		return false, nil
-	}
-	return orderStore.ValidateGuestAccess(ctx, orderID, guestToken)
+	return false, nil
 }
 
 // SecurityConfig contains CORS and trusted proxy settings.
