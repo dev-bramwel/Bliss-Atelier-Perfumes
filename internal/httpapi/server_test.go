@@ -144,6 +144,11 @@ type mockOrderService struct {
 	createAttemptFn  func(ctx context.Context, orderID, phone string, amountKes int, provider string) (*orders.PaymentAttempt, error)
 	getLatestAttFn   func(ctx context.Context, orderID string) (*orders.PaymentAttempt, error)
 	getAttemptsFn    func(ctx context.Context, orderID string) ([]orders.PaymentAttempt, error)
+	confirmPayFn     func(ctx context.Context, orderID string, receiptNumber string, paidAmountKes ...int) error
+	updateAttemptFn  func(ctx context.Context, attemptID, status, providerTxID, providerRefID, errorMsg string) error
+	findByProvTxFn   func(ctx context.Context, providerTxID string) (*orders.PaymentAttempt, error)
+	findInFlightFn   func(ctx context.Context, phone string, amountKes int, within time.Duration) (*orders.PaymentAttempt, error)
+	findReceiptOrdFn func(ctx context.Context, receiptNumber string) (string, error)
 }
 
 func (m *mockOrderService) CreateOrder(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
@@ -251,6 +256,41 @@ func (m *mockOrderService) GetPaymentAttempts(ctx context.Context, orderID strin
 		return m.getAttemptsFn(ctx, orderID)
 	}
 	return []orders.PaymentAttempt{}, nil
+}
+
+func (m *mockOrderService) ConfirmPayment(ctx context.Context, orderID string, receiptNumber string, paidAmountKes ...int) error {
+	if m.confirmPayFn != nil {
+		return m.confirmPayFn(ctx, orderID, receiptNumber, paidAmountKes...)
+	}
+	return nil
+}
+
+func (m *mockOrderService) UpdatePaymentAttempt(ctx context.Context, attemptID, status, providerTxID, providerRefID, errorMsg string) error {
+	if m.updateAttemptFn != nil {
+		return m.updateAttemptFn(ctx, attemptID, status, providerTxID, providerRefID, errorMsg)
+	}
+	return nil
+}
+
+func (m *mockOrderService) FindPaymentAttemptByProviderTx(ctx context.Context, providerTxID string) (*orders.PaymentAttempt, error) {
+	if m.findByProvTxFn != nil {
+		return m.findByProvTxFn(ctx, providerTxID)
+	}
+	return nil, orders.ErrAttemptNotFound
+}
+
+func (m *mockOrderService) FindInFlightPaymentAttempt(ctx context.Context, phone string, amountKes int, within time.Duration) (*orders.PaymentAttempt, error) {
+	if m.findInFlightFn != nil {
+		return m.findInFlightFn(ctx, phone, amountKes, within)
+	}
+	return nil, orders.ErrAttemptNotFound
+}
+
+func (m *mockOrderService) FindReceiptOrder(ctx context.Context, receiptNumber string) (string, error) {
+	if m.findReceiptOrdFn != nil {
+		return m.findReceiptOrdFn(ctx, receiptNumber)
+	}
+	return "", nil
 }
 
 func TestOrderRoutes(t *testing.T) {

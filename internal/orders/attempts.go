@@ -88,8 +88,8 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 		rows.Close()
 
 		// Unresolved attempt safety check:
-		// Never blindly reinitiate an active or ambiguous charge within the provider resolution window (2 minutes)
-		if (prevStatus == AttemptInitiating || prevStatus == AttemptAccepted) && time.Since(prevCreatedAt) < 2*time.Minute {
+		// Never blindly reinitiate an active, in-flight, or ambiguous charge within the provider resolution window (2 minutes)
+		if (prevStatus == AttemptCreated || prevStatus == AttemptInitiating || prevStatus == AttemptAccepted || prevStatus == AttemptUnknown) && time.Since(prevCreatedAt) < 2*time.Minute {
 			return nil, ErrUnresolvedPaymentAttempt
 		}
 
@@ -258,4 +258,126 @@ func (s *Store) UpdatePaymentAttempt(ctx context.Context, attemptID, status, pro
 		return ErrAttemptNotFound
 	}
 	return nil
+}
+
+// FindPaymentAttemptByProviderTx finds a payment attempt by its provider transaction ID (e.g. NCBA TransactionID or Daraja CheckoutRequestID).
+func (s *Store) FindPaymentAttemptByProviderTx(ctx context.Context, providerTxID string) (*PaymentAttempt, error) {
+	if providerTxID == "" {
+		return nil, ErrAttemptNotFound
+	}
+
+	var attempt PaymentAttempt
+	var pTxID, pRefID, errMsg *string
+
+	err := s.Pool.QueryRow(ctx, `
+		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, created_at, updated_at
+		FROM public.payment_attempt
+		WHERE provider_transaction_id = $1 OR provider_reference_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, providerTxID).Scan(
+		&attempt.ID,
+		&attempt.OrderID,
+		&attempt.AttemptNumber,
+		&attempt.AmountKes,
+		&attempt.Phone,
+		&attempt.Status,
+		&attempt.Provider,
+		&pTxID,
+		&pRefID,
+		&errMsg,
+		&attempt.CreatedAt,
+		&attempt.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAttemptNotFound
+		}
+		return nil, fmt.Errorf("failed to query payment attempt by provider tx id: %w", err)
+	}
+
+	if pTxID != nil {
+		attempt.ProviderTransactionID = *pTxID
+	}
+	if pRefID != nil {
+		attempt.ProviderReferenceID = *pRefID
+	}
+	if errMsg != nil {
+		attempt.ErrorMessage = *errMsg
+	}
+
+	return &attempt, nil
+}
+
+// FindInFlightPaymentAttempt finds the most recent active or uncompleted attempt matching phone and amount.
+func (s *Store) FindInFlightPaymentAttempt(ctx context.Context, phone string, amountKes int, within time.Duration) (*PaymentAttempt, error) {
+	if phone == "" || amountKes <= 0 {
+		return nil, ErrAttemptNotFound
+	}
+	cutoff := time.Now().Add(-within)
+
+	var attempt PaymentAttempt
+	var pTxID, pRefID, errMsg *string
+
+	err := s.Pool.QueryRow(ctx, `
+		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, created_at, updated_at
+		FROM public.payment_attempt
+		WHERE phone = $1 AND amount_kes = $2 AND status IN ('created', 'initiating', 'accepted', 'unknown') AND created_at >= $3
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, phone, amountKes, cutoff).Scan(
+		&attempt.ID,
+		&attempt.OrderID,
+		&attempt.AttemptNumber,
+		&attempt.AmountKes,
+		&attempt.Phone,
+		&attempt.Status,
+		&attempt.Provider,
+		&pTxID,
+		&pRefID,
+		&errMsg,
+		&attempt.CreatedAt,
+		&attempt.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAttemptNotFound
+		}
+		return nil, fmt.Errorf("failed to query in-flight payment attempt: %w", err)
+	}
+
+	if pTxID != nil {
+		attempt.ProviderTransactionID = *pTxID
+	}
+	if pRefID != nil {
+		attempt.ProviderReferenceID = *pRefID
+	}
+	if errMsg != nil {
+		attempt.ErrorMessage = *errMsg
+	}
+
+	return &attempt, nil
+}
+
+// FindReceiptOrder checks if an M-Pesa receipt number has already been recorded for any order.
+func (s *Store) FindReceiptOrder(ctx context.Context, receiptNumber string) (string, error) {
+	if receiptNumber == "" {
+		return "", nil
+	}
+
+	var orderID string
+	err := s.Pool.QueryRow(ctx, `
+		SELECT "orderId"
+		FROM public."MpesaTransaction"
+		WHERE "mpesaReceiptNumber" = $1 AND status = 'SUCCESS'
+		LIMIT 1
+	`, receiptNumber).Scan(&orderID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to query receipt in mpesa transactions: %w", err)
+	}
+
+	return orderID, nil
 }

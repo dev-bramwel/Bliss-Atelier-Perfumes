@@ -23,6 +23,17 @@ type Config struct {
 	AllowedOrigins  []string
 	TrustedProxies  string
 	ManagerSecret   string
+
+	// NCBA Bank & M-Pesa provider configuration
+	NCBABaseURL         string
+	NCBAUsername        string
+	NCBAPassword        string
+	NCBAPayBillNo       string
+	NCBAAccountNo       string
+	NCBAIPNUsername     string
+	NCBAIPNPassword     string
+	NCBAIPNSecretKey    string
+	MpesaCallbackSecret string
 }
 
 // Load uses separate GO_ settings so the legacy backend remains independent.
@@ -110,6 +121,57 @@ func Load(get func(string) string) (Config, error) {
 			return Config{}, errors.New("GO_MANAGER_SECRET_FILE is empty")
 		}
 	}
+
+	c.NCBABaseURL = strings.TrimSpace(get("GO_NCBA_BASE_URL"))
+	if c.NCBABaseURL == "" {
+		c.NCBABaseURL = "https://c2bapis.ncbagroup.com"
+	}
+	c.NCBAUsername = strings.TrimSpace(get("GO_NCBA_USERNAME"))
+	c.NCBAPassword = strings.TrimSpace(get("GO_NCBA_PASSWORD"))
+	c.NCBAPayBillNo = strings.TrimSpace(get("GO_NCBA_PAYBILL"))
+	if c.NCBAPayBillNo == "" {
+		c.NCBAPayBillNo = "880100"
+	}
+	c.NCBAAccountNo = strings.TrimSpace(get("GO_NCBA_ACCOUNT_NO"))
+	c.NCBAIPNUsername = strings.TrimSpace(get("GO_NCBA_IPN_USERNAME"))
+	c.NCBAIPNPassword = strings.TrimSpace(get("GO_NCBA_IPN_PASSWORD"))
+	c.NCBAIPNSecretKey = strings.TrimSpace(get("GO_NCBA_IPN_SECRET"))
+	if path := get("GO_NCBA_IPN_SECRET_FILE"); path != "" {
+		if c.NCBAIPNSecretKey != "" {
+			return Config{}, errors.New("set only one of GO_NCBA_IPN_SECRET and GO_NCBA_IPN_SECRET_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_NCBA_IPN_SECRET_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_NCBA_IPN_SECRET_FILE could not be read")
+		}
+		c.NCBAIPNSecretKey = strings.TrimSpace(string(data))
+	}
+
+	c.MpesaCallbackSecret = strings.TrimSpace(get("GO_MPESA_CALLBACK_SECRET"))
+	if c.MpesaCallbackSecret == "" {
+		c.MpesaCallbackSecret = strings.TrimSpace(get("MPESA_CALLBACK_SECRET"))
+	}
+	if path := get("GO_MPESA_CALLBACK_SECRET_FILE"); path != "" {
+		if c.MpesaCallbackSecret != "" {
+			return Config{}, errors.New("set only one of GO_MPESA_CALLBACK_SECRET and GO_MPESA_CALLBACK_SECRET_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_MPESA_CALLBACK_SECRET_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_MPESA_CALLBACK_SECRET_FILE could not be read")
+		}
+		c.MpesaCallbackSecret = strings.TrimSpace(string(data))
+	}
+
 	if c.DatabaseURL != "" {
 		u, e := url.Parse(c.DatabaseURL)
 		if e != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.Hostname() == "" || strings.ContainsAny(u.Hostname(), "% /\\") || (net.ParseIP(u.Hostname()) == nil && !regexp.MustCompile(`^[a-zA-Z0-9.-]+$`).MatchString(u.Hostname())) || u.Path == "" || u.Path == "/" {
