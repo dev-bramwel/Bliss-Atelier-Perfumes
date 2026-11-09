@@ -53,6 +53,19 @@ func (c *inMemoryMockCache) Set(ctx context.Context, products []catalog.Product,
 	return nil
 }
 
+func (c *inMemoryMockCache) SetVersioned(ctx context.Context, products []catalog.Product, expectedVersion string, ttl ...time.Duration) error {
+	c.setCalls++
+	if c.outageErr != nil {
+		return c.outageErr
+	}
+	c.data = products
+	return nil
+}
+
+func (c *inMemoryMockCache) Version(ctx context.Context) string {
+	return "0"
+}
+
 func (c *inMemoryMockCache) Invalidate(ctx context.Context) error {
 	c.invalCalls++
 	c.data = nil

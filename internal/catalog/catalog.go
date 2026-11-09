@@ -247,9 +247,7 @@ func (s *Store) Apply(ctx context.Context, b Batch) (replayed bool, err error) {
 	if tx.Commit(ctx) != nil {
 		return false, errors.New("stock commit uncertain; retry identical batch ID and content")
 	}
-	if s.Invalidator != nil {
-		_ = s.Invalidator.Invalidate(ctx)
-	}
+	invalidateCatalogAsync(s.Invalidator)
 	return false, nil
 }
 
@@ -291,10 +289,17 @@ func (s *Store) Approve(ctx context.Context, actor, evidence string, until time.
 	if tx.Commit(ctx) != nil {
 		return errors.New("stock approval commit uncertain")
 	}
-	if s.Invalidator != nil {
-		_ = s.Invalidator.Invalidate(ctx)
-	}
+	invalidateCatalogAsync(s.Invalidator)
 	return nil
+}
+
+func invalidateCatalogAsync(inv Invalidator) {
+	if inv == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = inv.Invalidate(ctx)
 }
 
 // FormatPriceKes formats an integer price in KES with standard thousand grouping.

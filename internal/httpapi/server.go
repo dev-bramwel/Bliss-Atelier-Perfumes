@@ -91,6 +91,8 @@ type DeliveryService interface {
 type CatalogCacheProvider interface {
 	Get(ctx context.Context) ([]catalog.Product, error)
 	Set(ctx context.Context, products []catalog.Product, ttl ...time.Duration) error
+	SetVersioned(ctx context.Context, products []catalog.Product, expectedVersion string, ttl ...time.Duration) error
+	Version(ctx context.Context) string
 	Invalidate(ctx context.Context) error
 }
 
@@ -162,6 +164,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			respond(w, 503, map[string]string{"error": "catalog unavailable"})
 			return
 		}
+		var cacheVer string
 		if catalogCache != nil {
 			cachedProducts, err := catalogCache.Get(ctx)
 			if err == nil && cachedProducts != nil {
@@ -169,6 +172,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 200, map[string]any{"products": cachedProducts})
 				return
 			}
+			cacheVer = catalogCache.Version(ctx)
 		}
 		products, err := catalogStore.Products(ctx)
 		if err != nil {
@@ -177,7 +181,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			return
 		}
 		if catalogCache != nil {
-			_ = catalogCache.Set(ctx, products)
+			_ = catalogCache.SetVersioned(ctx, products, cacheVer)
 		}
 		w.Header().Set("X-Cache", "MISS")
 		respond(w, 200, map[string]any{"products": products})

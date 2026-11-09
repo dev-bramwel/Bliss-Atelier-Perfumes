@@ -37,6 +37,15 @@ func rollback(tx pgx.Tx) {
 	_ = tx.Rollback(ctx)
 }
 
+func invalidateCatalogDetached(inv CatalogInvalidator) {
+	if inv == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_ = inv.Invalidate(ctx)
+}
+
 func generateID(prefix string) (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
@@ -355,9 +364,7 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
 	}
 
-	if s.Invalidator != nil {
-		_ = s.Invalidator.Invalidate(ctx)
-	}
+	invalidateCatalogDetached(s.Invalidator)
 
 	return &Order{
 		ID:                orderID,
@@ -466,8 +473,8 @@ func (s *Store) ReleaseExpired(ctx context.Context, now time.Time) (int, error) 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("failed to commit expired releases: %w", err)
 	}
-	if releasedCount > 0 && s.Invalidator != nil {
-		_ = s.Invalidator.Invalidate(ctx)
+	if releasedCount > 0 {
+		invalidateCatalogDetached(s.Invalidator)
 	}
 	return releasedCount, nil
 }
@@ -539,9 +546,7 @@ func (s *Store) CancelOrder(ctx context.Context, orderID string) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit cancel order: %w", err)
 	}
-	if s.Invalidator != nil {
-		_ = s.Invalidator.Invalidate(ctx)
-	}
+	invalidateCatalogDetached(s.Invalidator)
 	return nil
 }
 
@@ -780,9 +785,7 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("failed to commit confirm payment transaction: %w", err)
 		}
-		if s.Invalidator != nil {
-			_ = s.Invalidator.Invalidate(ctx)
-		}
+		invalidateCatalogDetached(s.Invalidator)
 		return nil
 	}
 
@@ -839,9 +842,7 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit late payment resolution: %w", err)
 	}
-	if s.Invalidator != nil {
-		_ = s.Invalidator.Invalidate(ctx)
-	}
+	invalidateCatalogDetached(s.Invalidator)
 	return ErrLatePaymentResolution
 }
 
