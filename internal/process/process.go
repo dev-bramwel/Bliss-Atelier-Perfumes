@@ -25,6 +25,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reconciliation"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/worker"
 )
@@ -141,7 +142,25 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			logger.Info("worker_stopped")
 			return nil
 		}
-		logger.Info("worker_started", "role", "reservation_expiry_sweep")
+		logger.Info("worker_started", "role", "background_reconciliation_and_expiry_sweep")
+
+		var paymentProv provider.PaymentProvider
+		if cfg.NCBAUsername != "" && cfg.NCBAPassword != "" {
+			ncbaConfig := provider.NCBAConfig{
+				BaseURL:      cfg.NCBABaseURL,
+				Username:     cfg.NCBAUsername,
+				Password:     cfg.NCBAPassword,
+				PayBillNo:    cfg.NCBAPayBillNo,
+				AccountNo:    cfg.NCBAAccountNo,
+				IPNUsername:  cfg.NCBAIPNUsername,
+				IPNPassword:  cfg.NCBAIPNPassword,
+				IPNSecretKey: cfg.NCBAIPNSecretKey,
+			}
+			ncbaClient, _ := provider.New(cfg.IOTimeout)
+			paymentProv, _ = provider.NewNCBA(ncbaConfig, ncbaClient)
+			defer paymentProv.Close()
+		}
+		reconciler := reconciliation.New(orderStore, paymentProv, reconciliation.DefaultConfig(), logger)
 
 		workerCtx, cancelWorker := context.WithCancel(ctx)
 		defer cancelWorker()
@@ -173,6 +192,17 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 				logger.Info("quotes_expired", "count", expiredQuotes)
 			}
 		}
+		if summary, err := reconciler.ReconcileStaleAttempts(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("reconciliation_sweep_failed", "error", err.Error())
+		} else if summary.Processed > 0 {
+			logger.Info("reconciliation_sweep_completed",
+				"processed", summary.Processed,
+				"succeeded", summary.Succeeded,
+				"failed", summary.Failed,
+				"pending", summary.Pending,
+				"exceptions_raised", summary.ExceptionsRaised,
+			)
+		}
 
 		for {
 			select {
@@ -196,6 +226,17 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 					} else if expiredQuotes > 0 {
 						logger.Info("quotes_expired", "count", expiredQuotes)
 					}
+				}
+				if summary, err := reconciler.ReconcileStaleAttempts(sweepCtx); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error("reconciliation_sweep_failed", "error", err.Error())
+				} else if summary.Processed > 0 {
+					logger.Info("reconciliation_sweep_completed",
+						"processed", summary.Processed,
+						"succeeded", summary.Succeeded,
+						"failed", summary.Failed,
+						"pending", summary.Pending,
+						"exceptions_raised", summary.ExceptionsRaised,
+					)
 				}
 				cancel()
 			}

@@ -223,6 +223,24 @@ func newPaymentCallbackHandlers(
 				"mobile", payload.GetMobile(),
 				"bill_ref", payload.BillRefNumber,
 			)
+			txID := payload.TransID
+			mob := payload.GetMobile()
+			_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
+				ExceptionType:         orders.ExceptionUnmappedTransaction,
+				Provider:              "ncba",
+				ProviderTransactionID: &txID,
+				ReceiptNumber:         &txID,
+				ReceivedAmountKes:     &paidAmount,
+				CustomerPhone:         &mob,
+				Status:                orders.ExceptionStatusOpen,
+				Metadata: map[string]any{
+					"billRefNumber": payload.BillRefNumber,
+					"transTime":     payload.TransTime,
+					"ftRef":         payload.FTRef,
+					"name":          payload.GetCustomerName(),
+					"narrative":     payload.Narrative,
+				},
+			})
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"ResultCode": "1",
@@ -255,6 +273,25 @@ func newPaymentCallbackHandlers(
 			)
 			_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, payload.TransID, payload.FTRef,
 				fmt.Sprintf("AMOUNT_MISMATCH: received %d KES, expected %d KES", paidAmount, attempt.AmountKes))
+			txID := payload.TransID
+			mob := payload.GetMobile()
+			expAmt := attempt.AmountKes
+			_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
+				OrderID:               &order.ID,
+				AttemptID:             &attempt.ID,
+				ExceptionType:         orders.ExceptionAmountMismatch,
+				Provider:              "ncba",
+				ProviderTransactionID: &txID,
+				ReceiptNumber:         &txID,
+				ReceivedAmountKes:     &paidAmount,
+				ExpectedAmountKes:     &expAmt,
+				CustomerPhone:         &mob,
+				Status:                orders.ExceptionStatusOpen,
+				Metadata: map[string]any{
+					"expectedKes": attempt.AmountKes,
+					"receivedKes": paidAmount,
+				},
+			})
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]string{
 				"ResultCode": "1",
@@ -283,6 +320,22 @@ func newPaymentCallbackHandlers(
 				)
 				_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, payload.TransID, payload.FTRef,
 					"DUPLICATE_RECEIPT: receipt already used on order "+existingOrderID)
+				txID := payload.TransID
+				mob := payload.GetMobile()
+				_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
+					OrderID:               &order.ID,
+					AttemptID:             &attempt.ID,
+					ExceptionType:         orders.ExceptionDuplicateReceipt,
+					Provider:              "ncba",
+					ProviderTransactionID: &txID,
+					ReceiptNumber:         &txID,
+					ReceivedAmountKes:     &paidAmount,
+					CustomerPhone:         &mob,
+					Status:                orders.ExceptionStatusOpen,
+					Metadata: map[string]any{
+						"existingOrderId": existingOrderID,
+					},
+				})
 				w.WriteHeader(http.StatusOK)
 				_ = json.NewEncoder(w).Encode(map[string]string{
 					"ResultCode": "1",
@@ -445,7 +498,7 @@ func newPaymentCallbackHandlers(
 		}
 
 		// Handle Success (ResultCode == 0)
-		amount, receipt, _, _ := cb.ExtractMetadata()
+		amount, receipt, phone, _ := cb.ExtractMetadata()
 		if receipt == "" || amount <= 0 {
 			slog.Error("mpesa_callback_missing_metadata", "order_id", order.ID)
 			respond(w, http.StatusBadRequest, map[string]string{"error": "Missing callback payment metadata."})
@@ -461,6 +514,19 @@ func newPaymentCallbackHandlers(
 			)
 			_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, stk.CheckoutRequestID, stk.MerchantRequestID,
 				fmt.Sprintf("AMOUNT_MISMATCH: received %d KES, expected %d KES", amount, attempt.AmountKes))
+			txID := stk.CheckoutRequestID
+			expAmt := attempt.AmountKes
+			_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
+				OrderID:               &order.ID,
+				AttemptID:             &attempt.ID,
+				ExceptionType:         orders.ExceptionAmountMismatch,
+				Provider:              "daraja",
+				ProviderTransactionID: &txID,
+				ReceivedAmountKes:     &amount,
+				ExpectedAmountKes:     &expAmt,
+				CustomerPhone:         &phone,
+				Status:                orders.ExceptionStatusOpen,
+			})
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -486,6 +552,21 @@ func newPaymentCallbackHandlers(
 			if attempt != nil {
 				_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, stk.CheckoutRequestID, stk.MerchantRequestID,
 					"DUPLICATE_RECEIPT: receipt already used on order "+existingOrderID)
+				txID := stk.CheckoutRequestID
+				_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
+					OrderID:               &order.ID,
+					AttemptID:             &attempt.ID,
+					ExceptionType:         orders.ExceptionDuplicateReceipt,
+					Provider:              "daraja",
+					ProviderTransactionID: &txID,
+					ReceiptNumber:         &receipt,
+					ReceivedAmountKes:     &amount,
+					CustomerPhone:         &phone,
+					Status:                orders.ExceptionStatusOpen,
+					Metadata: map[string]any{
+						"existingOrderId": existingOrderID,
+					},
+				})
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
