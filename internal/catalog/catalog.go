@@ -33,7 +33,15 @@ type Product struct {
 	Available    bool     `json:"available"`
 }
 
-type Store struct{ Pool *pgxpool.Pool }
+type Store struct {
+	Pool        *pgxpool.Pool
+	Invalidator Invalidator
+}
+
+// Invalidator defines the capability to purge cached catalog data on state changes.
+type Invalidator interface {
+	Invalidate(ctx context.Context) error
+}
 
 func (s *Store) Products(ctx context.Context) ([]Product, error) {
 	var hasResTable bool
@@ -239,6 +247,9 @@ func (s *Store) Apply(ctx context.Context, b Batch) (replayed bool, err error) {
 	if tx.Commit(ctx) != nil {
 		return false, errors.New("stock commit uncertain; retry identical batch ID and content")
 	}
+	if s.Invalidator != nil {
+		_ = s.Invalidator.Invalidate(ctx)
+	}
 	return false, nil
 }
 
@@ -279,6 +290,9 @@ func (s *Store) Approve(ctx context.Context, actor, evidence string, until time.
 	}
 	if tx.Commit(ctx) != nil {
 		return errors.New("stock approval commit uncertain")
+	}
+	if s.Invalidator != nil {
+		_ = s.Invalidator.Invalidate(ctx)
 	}
 	return nil
 }

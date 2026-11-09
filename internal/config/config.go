@@ -37,6 +37,9 @@ type Config struct {
 
 	// RabbitMQ messaging configuration
 	RabbitMQURL string
+
+	// Redis caching & rate limiting configuration
+	RedisURL string
 }
 
 // Load uses separate GO_ settings so the legacy backend remains independent.
@@ -190,6 +193,32 @@ func Load(get func(string) string) (Config, error) {
 			return Config{}, errors.New("GO_RABBITMQ_URL_FILE could not be read")
 		}
 		c.RabbitMQURL = strings.TrimSpace(string(data))
+	}
+
+	c.RedisURL = strings.TrimSpace(get("GO_REDIS_URL"))
+	if path := get("GO_REDIS_URL_FILE"); path != "" {
+		if c.RedisURL != "" {
+			return Config{}, errors.New("set only one of GO_REDIS_URL and GO_REDIS_URL_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_REDIS_URL_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_REDIS_URL_FILE could not be read")
+		}
+		c.RedisURL = strings.TrimSpace(string(data))
+		if c.RedisURL == "" {
+			return Config{}, errors.New("GO_REDIS_URL_FILE is empty")
+		}
+	}
+	if c.RedisURL != "" {
+		u, e := url.Parse(c.RedisURL)
+		if e != nil || (u.Scheme != "redis" && u.Scheme != "rediss") || u.Host == "" {
+			return Config{}, errors.New("GO_REDIS_URL must be a valid redis:// or rediss:// URL")
+		}
 	}
 
 	if c.DatabaseURL != "" {

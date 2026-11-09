@@ -21,8 +21,14 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
 )
 
+// CatalogInvalidator purges cached catalog projections on stock/state mutations.
+type CatalogInvalidator interface {
+	Invalidate(ctx context.Context) error
+}
+
 type Store struct {
-	Pool *pgxpool.Pool
+	Pool        *pgxpool.Pool
+	Invalidator CatalogInvalidator
 }
 
 func rollback(tx pgx.Tx) {
@@ -349,6 +355,10 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
 	}
 
+	if s.Invalidator != nil {
+		_ = s.Invalidator.Invalidate(ctx)
+	}
+
 	return &Order{
 		ID:                orderID,
 		CreatedAt:         now,
@@ -456,6 +466,9 @@ func (s *Store) ReleaseExpired(ctx context.Context, now time.Time) (int, error) 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("failed to commit expired releases: %w", err)
 	}
+	if releasedCount > 0 && s.Invalidator != nil {
+		_ = s.Invalidator.Invalidate(ctx)
+	}
 	return releasedCount, nil
 }
 
@@ -525,6 +538,9 @@ func (s *Store) CancelOrder(ctx context.Context, orderID string) error {
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit cancel order: %w", err)
+	}
+	if s.Invalidator != nil {
+		_ = s.Invalidator.Invalidate(ctx)
 	}
 	return nil
 }
@@ -764,6 +780,9 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("failed to commit confirm payment transaction: %w", err)
 		}
+		if s.Invalidator != nil {
+			_ = s.Invalidator.Invalidate(ctx)
+		}
 		return nil
 	}
 
@@ -819,6 +838,9 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit late payment resolution: %w", err)
+	}
+	if s.Invalidator != nil {
+		_ = s.Invalidator.Invalidate(ctx)
 	}
 	return ErrLatePaymentResolution
 }

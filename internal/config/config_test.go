@@ -99,3 +99,73 @@ func TestManagerSecretConfiguration(t *testing.T) {
 		t.Fatal("expected conflict error when both secret and file provided")
 	}
 }
+
+func TestRedisConfiguration(t *testing.T) {
+	// 1. Valid env
+	c, err := Load(func(k string) string {
+		if k == "GO_REDIS_URL" {
+			return "redis://127.0.0.1:6379/0"
+		}
+		return ""
+	})
+	if err != nil || c.RedisURL != "redis://127.0.0.1:6379/0" {
+		t.Fatalf("expected redis URL from env, got %s (err: %v)", c.RedisURL, err)
+	}
+
+	// 2. Valid file
+	path := filepath.Join(t.TempDir(), "redis-url")
+	if err := os.WriteFile(path, []byte("redis://:secret@redis.internal:6380/2\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = Load(func(k string) string {
+		if k == "GO_REDIS_URL_FILE" {
+			return path
+		}
+		return ""
+	})
+	if err != nil || c.RedisURL != "redis://:secret@redis.internal:6380/2" {
+		t.Fatalf("expected redis URL from file, got %s (err: %v)", c.RedisURL, err)
+	}
+
+	// 3. Conflict rejection
+	_, err = Load(func(k string) string {
+		if k == "GO_REDIS_URL" {
+			return "redis://localhost:6379/0"
+		}
+		if k == "GO_REDIS_URL_FILE" {
+			return path
+		}
+		return ""
+	})
+	if err == nil {
+		t.Fatal("expected conflict error when both GO_REDIS_URL and GO_REDIS_URL_FILE provided")
+	}
+
+	// 4. Invalid scheme / empty host
+	for _, bad := range []string{"http://localhost:6379", "redis://", "postgres://localhost:5432/db", "not-a-url"} {
+		_, err := Load(func(k string) string {
+			if k == "GO_REDIS_URL" {
+				return bad
+			}
+			return ""
+		})
+		if err == nil {
+			t.Fatalf("expected error for invalid redis url: %s", bad)
+		}
+	}
+
+	// 5. Empty file rejection
+	emptyPath := filepath.Join(t.TempDir(), "empty-redis")
+	if err := os.WriteFile(emptyPath, []byte("   \n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Load(func(k string) string {
+		if k == "GO_REDIS_URL_FILE" {
+			return emptyPath
+		}
+		return ""
+	})
+	if err == nil {
+		t.Fatal("expected error for empty redis url file")
+	}
+}

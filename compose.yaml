@@ -72,10 +72,12 @@ services:
       GO_DB_MAX_CONNECTIONS: "16"
       GO_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32"
       GO_MANAGER_SECRET: "bliss_manager_dev_secret"
+      GO_REDIS_URL: "redis://redis:6379/0"
     secrets: [runtime_url]
     depends_on:
       migrate: { condition: service_completed_successfully }
       fake-provider: { condition: service_healthy }
+      redis: { condition: service_healthy }
     healthcheck:
       test: [CMD, /app/probe, "http://127.0.0.1:5001/health/ready"]
       interval: 3s
@@ -89,6 +91,23 @@ services:
       test: [CMD, /app/probe, "http://127.0.0.1:8090/health/live"]
       interval: 3s
       timeout: 4s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    user: "999:999"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    networks: [private]
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
       retries: 15
 
   frontend:

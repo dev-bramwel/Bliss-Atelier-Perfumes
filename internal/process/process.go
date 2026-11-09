@@ -25,6 +25,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/worker"
 )
 
@@ -64,6 +65,21 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 	var catalogStore httpapi.Catalog
 	var orderStore httpapi.OrderService
 	var deliveryStore *delivery.Store
+	var redisClient *rediscache.Client
+	var catalogCache *rediscache.CatalogCache
+
+	if cfg.RedisURL != "" {
+		var rErr error
+		redisClient, rErr = rediscache.NewClient(cfg.RedisURL)
+		if rErr != nil {
+			logger.Warn("redis_client_init_failed", "error", rErr.Error())
+		} else {
+			defer redisClient.Close()
+			catalogCache = rediscache.NewCatalogCache(redisClient, "", 5*time.Minute)
+			logger.Info("redis_connected", "url_configured", true)
+		}
+	}
+
 	if cfg.DatabaseURL != "" {
 		var e error
 		pool, e = database.Open(ctx, cfg.DatabaseURL, cfg.MaxConnections, cfg.IOTimeout)
@@ -79,8 +95,8 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			logger.Info("migration_status", "command", args[0], "state", result.State, "orders", result.Orders, "payments", result.Payments)
 			return nil
 		}
-		catalogStore = &catalog.Store{Pool: pool}
-		orderStore = &orders.Store{Pool: pool}
+		catalogStore = &catalog.Store{Pool: pool, Invalidator: catalogCache}
+		orderStore = &orders.Store{Pool: pool, Invalidator: catalogCache}
 		deliveryStore = delivery.NewStore(pool)
 		ping = pool.Ping
 		if cfg.RequireSchema {
@@ -117,7 +133,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			ncbaClient, _ := provider.New(cfg.IOTimeout)
 			paymentProv, _ = provider.NewNCBA(ncbaConfig, ncbaClient)
 		}
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		if pool == nil || orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")
