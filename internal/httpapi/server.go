@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reconciliation"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache"
 )
 
@@ -77,6 +79,15 @@ type OrderService interface {
 	FindPaymentAttemptByProviderTx(ctx context.Context, providerTxID string) (*orders.PaymentAttempt, error)
 	FindInFlightPaymentAttempt(ctx context.Context, phone string, amountKes int, within time.Duration) (*orders.PaymentAttempt, error)
 	FindReceiptOrder(ctx context.Context, receiptNumber string) (string, error)
+	RecordPaymentException(ctx context.Context, exc orders.PaymentException) (*orders.PaymentException, error)
+	GetPaymentExceptions(ctx context.Context, filter orders.ExceptionFilter) ([]orders.PaymentException, error)
+	GetPaymentExceptionByID(ctx context.Context, id string) (*orders.PaymentException, error)
+	ResolvePaymentException(ctx context.Context, id string, req orders.ResolveExceptionRequest) error
+	RecordManualSettlement(ctx context.Context, req orders.ManualSettlementRequest) (*orders.Order, *orders.PaymentAuditRecord, error)
+	RecordPaymentCorrection(ctx context.Context, req orders.PaymentCorrectionRequest) (*orders.PaymentAuditRecord, error)
+	ListPaymentAuditRecords(ctx context.Context, orderID string) ([]orders.PaymentAuditRecord, error)
+	ListUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration, limit int) ([]orders.PaymentAttempt, error)
+	UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error
 }
 
 type DeliveryService interface {
@@ -868,6 +879,210 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		mux.HandleFunc("POST /payments/ncba/ipn", ncbaHandler)
 		mux.HandleFunc("POST /api/mpesa/callback", mpesaHandler)
 		mux.HandleFunc("POST /mpesa/callback", mpesaHandler)
+
+		// Payment Exceptions & Reconciliation Administration (Protected by ManagerSecret)
+		handleListExceptions := func(w http.ResponseWriter, r *http.Request) {
+			if extractManager(r) == "" {
+				respond(w, 401, map[string]string{"error": "manager authorization required"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			q := r.URL.Query()
+			status := q.Get("status")
+			limit, _ := strconv.Atoi(q.Get("limit"))
+			offset, _ := strconv.Atoi(q.Get("offset"))
+			exceptions, err := orderStore.GetPaymentExceptions(ctx, orders.ExceptionFilter{
+				Status: status,
+				Limit:  limit,
+				Offset: offset,
+			})
+			if err != nil {
+				respond(w, 500, map[string]string{"error": "failed to list payment exceptions"})
+				return
+			}
+			respond(w, 200, exceptions)
+		}
+
+		handleGetException := func(w http.ResponseWriter, r *http.Request) {
+			if extractManager(r) == "" {
+				respond(w, 401, map[string]string{"error": "manager authorization required"})
+				return
+			}
+			id := r.PathValue("id")
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			exc, err := orderStore.GetPaymentExceptionByID(ctx, id)
+			if err != nil {
+				if errors.Is(err, orders.ErrExceptionNotFound) {
+					respond(w, 404, map[string]string{"error": "payment exception not found"})
+					return
+				}
+				respond(w, 500, map[string]string{"error": "failed to get payment exception"})
+				return
+			}
+			respond(w, 200, exc)
+		}
+
+		handleResolveException := func(w http.ResponseWriter, r *http.Request) {
+			manager := extractManager(r)
+			if manager == "" {
+				respond(w, 401, map[string]string{"error": "manager authorization required"})
+				return
+			}
+			id := r.PathValue("id")
+			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+			var req orders.ResolveExceptionRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				respond(w, 400, map[string]string{"error": "invalid request payload"})
+				return
+			}
+			// Invariant: req.AuthorizedBy is strictly bound to the authenticated manager identity
+			req.AuthorizedBy = manager
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			if err := orderStore.ResolvePaymentException(ctx, id, req); err != nil {
+				if errors.Is(err, orders.ErrExceptionNotFound) {
+					respond(w, 404, map[string]string{"error": "payment exception not found"})
+					return
+				}
+				if errors.Is(err, orders.ErrExceptionAlreadyResolved) {
+					respond(w, 409, map[string]string{"error": "payment exception is already resolved"})
+					return
+				}
+				respond(w, 400, map[string]string{"error": err.Error()})
+				return
+			}
+			respond(w, 200, map[string]string{"status": "resolved", "id": id})
+		}
+
+		handleListUnresolved := func(w http.ResponseWriter, r *http.Request) {
+			if extractManager(r) == "" {
+				respond(w, 401, map[string]string{"error": "manager authorization required"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			attempts, err := orderStore.ListUnresolvedPaymentAttempts(ctx, 0, 50)
+			if err != nil {
+				respond(w, 500, map[string]string{"error": "failed to list unresolved attempts"})
+				return
+			}
+			respond(w, 200, attempts)
+		}
+
+		handleReconcile := func(w http.ResponseWriter, r *http.Request) {
+			if extractManager(r) == "" {
+				respond(w, 401, map[string]string{"error": "manager authorization required"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			rec := reconciliation.New(orderStore, paymentProv, reconciliation.DefaultConfig(), slog.Default())
+			summary, err := rec.ReconcileStaleAttempts(ctx)
+			if err != nil {
+				respond(w, 500, map[string]string{"error": "reconciliation run failed: " + err.Error()})
+				return
+			}
+			respond(w, 200, summary)
+		}
+
+		handleManualSettlement := func(w http.ResponseWriter, r *http.Request) {
+			manager := extractManager(r)
+			if manager == "" {
+				respond(w, 401, map[string]string{"error": "manager authorization required"})
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+			var req orders.ManualSettlementRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				respond(w, 400, map[string]string{"error": "invalid request payload"})
+				return
+			}
+			// Invariant: req.AuthorizedBy is strictly bound to the authenticated manager identity
+			req.AuthorizedBy = manager
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			order, audit, err := orderStore.RecordManualSettlement(ctx, req)
+			if err != nil {
+				if errors.Is(err, orders.ErrOrderNotFound) {
+					respond(w, 404, map[string]string{"error": "order not found"})
+					return
+				}
+				if errors.Is(err, orders.ErrOrderAlreadyPaid) {
+					respond(w, 409, map[string]string{"error": "order is already paid"})
+					return
+				}
+				if errors.Is(err, orders.ErrDuplicateReceipt) {
+					respond(w, 409, map[string]string{"error": err.Error()})
+					return
+				}
+				if errors.Is(err, orders.ErrOrderReservationExpired) {
+					respond(w, 409, map[string]string{"error": err.Error()})
+					return
+				}
+				if errors.Is(err, orders.ErrPayableMismatch) {
+					respond(w, 422, map[string]string{"error": err.Error()})
+					return
+				}
+				respond(w, 400, map[string]string{"error": err.Error()})
+				return
+			}
+			respond(w, 200, map[string]any{"order": order, "audit": audit})
+		}
+
+		handleCorrection := func(w http.ResponseWriter, r *http.Request) {
+			manager := extractManager(r)
+			if manager == "" {
+				respond(w, 401, map[string]string{"error": "manager authorization required"})
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+			var req orders.PaymentCorrectionRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				respond(w, 400, map[string]string{"error": "invalid request payload"})
+				return
+			}
+			// Invariant: req.AuthorizedBy is strictly bound to the authenticated manager identity
+			req.AuthorizedBy = manager
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			audit, err := orderStore.RecordPaymentCorrection(ctx, req)
+			if err != nil {
+				if errors.Is(err, orders.ErrOrderNotFound) {
+					respond(w, 404, map[string]string{"error": "order not found"})
+					return
+				}
+				respond(w, 400, map[string]string{"error": err.Error()})
+				return
+			}
+			respond(w, 200, audit)
+		}
+
+		handleListAudit := func(w http.ResponseWriter, r *http.Request) {
+			if extractManager(r) == "" {
+				respond(w, 401, map[string]string{"error": "manager authorization required"})
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			orderID := r.URL.Query().Get("orderId")
+			records, err := orderStore.ListPaymentAuditRecords(ctx, orderID)
+			if err != nil {
+				respond(w, 500, map[string]string{"error": "failed to query audit records"})
+				return
+			}
+			respond(w, 200, records)
+		}
+
+		mux.HandleFunc("GET /api/admin/payments/exceptions", handleListExceptions)
+		mux.HandleFunc("GET /api/admin/payments/exceptions/{id}", handleGetException)
+		mux.HandleFunc("POST /api/admin/payments/exceptions/{id}/resolve", handleResolveException)
+		mux.HandleFunc("GET /api/admin/payments/unresolved", handleListUnresolved)
+		mux.HandleFunc("POST /api/admin/payments/reconcile", handleReconcile)
+		mux.HandleFunc("POST /api/admin/payments/manual-settlement", handleManualSettlement)
+		mux.HandleFunc("POST /api/admin/payments/corrections", handleCorrection)
+		mux.HandleFunc("GET /api/admin/payments/audit-ledger", handleListAudit)
 	}
 
 	if deliveryStore != nil {

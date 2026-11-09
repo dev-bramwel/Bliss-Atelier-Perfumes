@@ -391,7 +391,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v7.json")), &expected); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v8.json")), &expected); err != nil {
 			t.Fatal(err)
 		}
 		if len(actual) != len(expected) {
@@ -452,7 +452,7 @@ func testRuntimeGrants(t *testing.T, admin *pgxpool.Pool) {
 	denied(`SELECT * FROM public."Order"`)
 	denied(`SELECT * FROM public."MpesaTransaction"`)
 	// Same explicit business-table grant as the operator runbook; no ledger grant.
-	execSQL(t, admin, `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."Order", public."MpesaTransaction", public.order_item, public.stock_reservation, public.stock_reservation_item, public.order_fulfillment, public.delivery_quote, public.guest_order_access, public.idempotency_key, public.payment_attempt, public.outbox_event, public.inbox_message TO `+identifier(runtime))
+	execSQL(t, admin, `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."Order", public."MpesaTransaction", public.order_item, public.stock_reservation, public.stock_reservation_item, public.order_fulfillment, public.delivery_quote, public.guest_order_access, public.idempotency_key, public.payment_attempt, public.outbox_event, public.inbox_message, public.payment_exception, public.payment_audit_ledger TO `+identifier(runtime))
 	execSQL(t, runtimePool, `INSERT INTO public."Order"(id,"updatedAt","customerName","customerPhone","deliveryLocation","totalKes",items)
  VALUES ('runtime-order',now(),'Synthetic','254700000000','Test',2000,'[]');
  INSERT INTO public."MpesaTransaction"(id,"updatedAt","orderId") VALUES ('runtime-payment',now(),'runtime-order');
@@ -629,4 +629,37 @@ func TestGenerateSchemaV7(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log("Successfully generated schema-v7.json")
+}
+
+func TestGenerateSchemaV8(t *testing.T) {
+	if os.Getenv("GENERATE_SCHEMA_V8") != "1" {
+		t.Skip("schema generation not requested")
+	}
+	pool := testPool(t)
+	reset(t, pool)
+	legacy(t, pool, false)
+	execSQL(t, pool, read("ledger.sql"))
+	for _, s := range steps()[1:] {
+		execSQL(t, pool, s.sql)
+	}
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "SET LOCAL search_path=pg_catalog,public"); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := inspect(context.Background(), tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.MarshalIndent(actual, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("schema-v8.json", b, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Successfully generated schema-v8.json")
 }

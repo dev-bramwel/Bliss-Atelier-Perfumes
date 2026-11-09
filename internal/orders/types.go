@@ -37,6 +37,11 @@ var (
 	ErrAttemptNotFound          = errors.New("payment attempt not found")
 	ErrOrderAlreadyPaid         = errors.New("order is already paid")
 	ErrOrderReservationExpired  = errors.New("stock reservation for this order has expired")
+	ErrDuplicateReceipt         = errors.New("receipt has already been utilized on another order")
+	ErrInvalidSettlement        = errors.New("invalid manual settlement parameters")
+	ErrInvalidCorrection        = errors.New("invalid payment correction parameters")
+	ErrExceptionNotFound        = errors.New("payment exception not found")
+	ErrExceptionAlreadyResolved = errors.New("payment exception is already resolved")
 )
 
 const (
@@ -61,6 +66,22 @@ const (
 	AttemptFailed     = "failed"
 	AttemptCancelled  = "cancelled"
 	AttemptUnknown    = "unknown"
+
+	ExceptionUnmappedTransaction    = "UNMAPPED_TRANSACTION"
+	ExceptionAmountMismatch         = "AMOUNT_MISMATCH"
+	ExceptionDuplicateReceipt       = "DUPLICATE_RECEIPT"
+	ExceptionStaleAttemptUnresolved = "STALE_ATTEMPT_UNRESOLVED"
+	ExceptionLatePayment            = "LATE_PAYMENT"
+	ExceptionManualResolutionReq    = "MANUAL_RESOLUTION_REQUIRED"
+
+	ExceptionStatusOpen      = "open"
+	ExceptionStatusResolved  = "resolved"
+	ExceptionStatusDismissed = "dismissed"
+
+	AuditActionManualSettlement     = "manual_settlement"
+	AuditActionDuplicateCorrection  = "duplicate_correction"
+	AuditActionAmountCorrection     = "amount_correction"
+	AuditActionRefundReconciliation = "refund_reconciliation"
 
 	IdempotencyInProgress = "in_progress"
 	IdempotencyCompleted  = "completed"
@@ -112,18 +133,21 @@ type StockReservation struct {
 }
 
 type PaymentAttempt struct {
-	ID                    string    `json:"id"`
-	OrderID               string    `json:"orderId"`
-	AttemptNumber         int       `json:"attemptNumber"`
-	AmountKes             int       `json:"amountKes"`
-	Phone                 string    `json:"phone"`
-	Status                string    `json:"status"`
-	Provider              string    `json:"provider"`
-	ProviderTransactionID string    `json:"providerTransactionId,omitempty"`
-	ProviderReferenceID   string    `json:"providerReferenceId,omitempty"`
-	ErrorMessage          string    `json:"errorMessage,omitempty"`
-	CreatedAt             time.Time `json:"createdAt"`
-	UpdatedAt             time.Time `json:"updatedAt"`
+	ID                    string     `json:"id"`
+	OrderID               string     `json:"orderId"`
+	AttemptNumber         int        `json:"attemptNumber"`
+	AmountKes             int        `json:"amountKes"`
+	Phone                 string     `json:"phone"`
+	Status                string     `json:"status"`
+	Provider              string     `json:"provider"`
+	ProviderTransactionID string     `json:"providerTransactionId,omitempty"`
+	ProviderReferenceID   string     `json:"providerReferenceId,omitempty"`
+	ErrorMessage          string     `json:"errorMessage,omitempty"`
+	QueryCount            int        `json:"queryCount"`
+	LastQueriedAt         *time.Time `json:"lastQueriedAt,omitempty"`
+	NextQueryAt           *time.Time `json:"nextQueryAt,omitempty"`
+	CreatedAt             time.Time  `json:"createdAt"`
+	UpdatedAt             time.Time  `json:"updatedAt"`
 }
 
 type IdempotencyRecord struct {
@@ -172,4 +196,75 @@ type PaymentStatusResponse struct {
 	IsExpired         bool            `json:"isExpired"`
 	LatestAttempt     *PaymentAttempt `json:"latestAttempt,omitempty"`
 	AttemptsCount     int             `json:"attemptsCount,omitempty"`
+}
+
+type PaymentException struct {
+	ID                    string         `json:"id"`
+	OrderID               *string        `json:"orderId,omitempty"`
+	AttemptID             *string        `json:"attemptId,omitempty"`
+	ExceptionType         string         `json:"exceptionType"`
+	Provider              string         `json:"provider"`
+	ProviderTransactionID *string        `json:"providerTransactionId,omitempty"`
+	ReceiptNumber         *string        `json:"receiptNumber,omitempty"`
+	ReceivedAmountKes     *int           `json:"receivedAmountKes,omitempty"`
+	ExpectedAmountKes     *int           `json:"expectedAmountKes,omitempty"`
+	CustomerPhone         *string        `json:"customerPhone,omitempty"`
+	Status                string         `json:"status"`
+	ResolutionAction      *string        `json:"resolutionAction,omitempty"`
+	ResolutionNotes       *string        `json:"resolutionNotes,omitempty"`
+	ResolvedBy            *string        `json:"resolvedBy,omitempty"`
+	Evidence              *string        `json:"evidence,omitempty"`
+	Metadata              map[string]any `json:"metadata,omitempty"`
+	CreatedAt             time.Time      `json:"createdAt"`
+	UpdatedAt             time.Time      `json:"updatedAt"`
+	ResolvedAt            *time.Time     `json:"resolvedAt,omitempty"`
+}
+
+type PaymentAuditRecord struct {
+	ID            string    `json:"id"`
+	OrderID       string    `json:"orderId"`
+	Action        string    `json:"action"`
+	AmountKes     int       `json:"amountKes"`
+	ReceiptNumber string    `json:"receiptNumber"`
+	Provider      string    `json:"provider"`
+	Evidence      string    `json:"evidence"`
+	Notes         string    `json:"notes"`
+	AuthorizedBy  string    `json:"authorizedBy"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+type ManualSettlementRequest struct {
+	OrderID       string `json:"orderId"`
+	ReceiptNumber string `json:"receiptNumber"`
+	AmountKes     int    `json:"amountKes"`
+	Provider      string `json:"provider,omitempty"`
+	Evidence      string `json:"evidence"`
+	AuthorizedBy  string `json:"authorizedBy"`
+	Notes         string `json:"notes"`
+}
+
+type PaymentCorrectionRequest struct {
+	OrderID       string  `json:"orderId"`
+	Action        string  `json:"action"`
+	ReceiptNumber string  `json:"receiptNumber"`
+	AmountKes     int     `json:"amountKes"`
+	Provider      string  `json:"provider,omitempty"`
+	Evidence      string  `json:"evidence"`
+	AuthorizedBy  string  `json:"authorizedBy"`
+	Notes         string  `json:"notes"`
+	ExceptionID   *string `json:"exceptionId,omitempty"`
+}
+
+type ExceptionFilter struct {
+	Status string
+	Limit  int
+	Offset int
+}
+
+type ResolveExceptionRequest struct {
+	Action       string `json:"action"`
+	Notes        string `json:"notes"`
+	AuthorizedBy string `json:"authorizedBy"`
+	Evidence     string `json:"evidence,omitempty"`
+	OrderID      string `json:"orderId,omitempty"`
 }

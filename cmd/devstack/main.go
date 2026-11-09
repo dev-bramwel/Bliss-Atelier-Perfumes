@@ -143,7 +143,7 @@ func migrate() error {
 	predicate := migration.LedgerPredicate()
 	sql := `GRANT USAGE ON SCHEMA public TO bliss_runtime;
  GRANT SELECT,INSERT,UPDATE,DELETE ON public."Order",public."MpesaTransaction" TO bliss_runtime;
- GRANT SELECT,INSERT,UPDATE,DELETE ON public.order_item,public.stock_reservation,public.stock_reservation_item,public.order_fulfillment,public.delivery_quote,public.guest_order_access,public.idempotency_key,public.payment_attempt,public.outbox_event,public.inbox_message TO bliss_runtime;
+ GRANT SELECT,INSERT,UPDATE,DELETE ON public.order_item,public.stock_reservation,public.stock_reservation_item,public.order_fulfillment,public.delivery_quote,public.guest_order_access,public.idempotency_key,public.payment_attempt,public.outbox_event,public.inbox_message,public.payment_exception,public.payment_audit_ledger TO bliss_runtime;
  GRANT SELECT,UPDATE(stock) ON public.catalog_product TO bliss_runtime;
  GRANT SELECT ON public.catalog_settings,public.stock_control TO bliss_runtime;
  GRANT INSERT ON public.stock_batch,public.stock_entry TO bliss_runtime;

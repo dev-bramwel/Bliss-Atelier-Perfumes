@@ -149,6 +149,15 @@ type mockOrderService struct {
 	findByProvTxFn   func(ctx context.Context, providerTxID string) (*orders.PaymentAttempt, error)
 	findInFlightFn   func(ctx context.Context, phone string, amountKes int, within time.Duration) (*orders.PaymentAttempt, error)
 	findReceiptOrdFn func(ctx context.Context, receiptNumber string) (string, error)
+	recordExcFn      func(ctx context.Context, exc orders.PaymentException) (*orders.PaymentException, error)
+	getExceptionsFn  func(ctx context.Context, filter orders.ExceptionFilter) ([]orders.PaymentException, error)
+	getExcByIDFn     func(ctx context.Context, id string) (*orders.PaymentException, error)
+	resolveExcFn     func(ctx context.Context, id string, req orders.ResolveExceptionRequest) error
+	manualSettleFn   func(ctx context.Context, req orders.ManualSettlementRequest) (*orders.Order, *orders.PaymentAuditRecord, error)
+	correctionFn     func(ctx context.Context, req orders.PaymentCorrectionRequest) (*orders.PaymentAuditRecord, error)
+	listAuditFn      func(ctx context.Context, orderID string) ([]orders.PaymentAuditRecord, error)
+	listUnresolvedFn func(ctx context.Context, staleThreshold time.Duration, limit int) ([]orders.PaymentAttempt, error)
+	updateScheduleFn func(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error
 }
 
 func (m *mockOrderService) CreateOrder(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
@@ -291,6 +300,69 @@ func (m *mockOrderService) FindReceiptOrder(ctx context.Context, receiptNumber s
 		return m.findReceiptOrdFn(ctx, receiptNumber)
 	}
 	return "", nil
+}
+
+func (m *mockOrderService) RecordPaymentException(ctx context.Context, exc orders.PaymentException) (*orders.PaymentException, error) {
+	if m.recordExcFn != nil {
+		return m.recordExcFn(ctx, exc)
+	}
+	return &exc, nil
+}
+
+func (m *mockOrderService) GetPaymentExceptions(ctx context.Context, filter orders.ExceptionFilter) ([]orders.PaymentException, error) {
+	if m.getExceptionsFn != nil {
+		return m.getExceptionsFn(ctx, filter)
+	}
+	return nil, nil
+}
+
+func (m *mockOrderService) GetPaymentExceptionByID(ctx context.Context, id string) (*orders.PaymentException, error) {
+	if m.getExcByIDFn != nil {
+		return m.getExcByIDFn(ctx, id)
+	}
+	return nil, orders.ErrExceptionNotFound
+}
+
+func (m *mockOrderService) ResolvePaymentException(ctx context.Context, id string, req orders.ResolveExceptionRequest) error {
+	if m.resolveExcFn != nil {
+		return m.resolveExcFn(ctx, id, req)
+	}
+	return nil
+}
+
+func (m *mockOrderService) RecordManualSettlement(ctx context.Context, req orders.ManualSettlementRequest) (*orders.Order, *orders.PaymentAuditRecord, error) {
+	if m.manualSettleFn != nil {
+		return m.manualSettleFn(ctx, req)
+	}
+	return &orders.Order{ID: req.OrderID, PaymentStatus: orders.PaymentPaid}, &orders.PaymentAuditRecord{ID: "audit-1", OrderID: req.OrderID}, nil
+}
+
+func (m *mockOrderService) RecordPaymentCorrection(ctx context.Context, req orders.PaymentCorrectionRequest) (*orders.PaymentAuditRecord, error) {
+	if m.correctionFn != nil {
+		return m.correctionFn(ctx, req)
+	}
+	return &orders.PaymentAuditRecord{ID: "audit-1", OrderID: req.OrderID, Action: req.Action}, nil
+}
+
+func (m *mockOrderService) ListPaymentAuditRecords(ctx context.Context, orderID string) ([]orders.PaymentAuditRecord, error) {
+	if m.listAuditFn != nil {
+		return m.listAuditFn(ctx, orderID)
+	}
+	return nil, nil
+}
+
+func (m *mockOrderService) ListUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration, limit int) ([]orders.PaymentAttempt, error) {
+	if m.listUnresolvedFn != nil {
+		return m.listUnresolvedFn(ctx, staleThreshold, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockOrderService) UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error {
+	if m.updateScheduleFn != nil {
+		return m.updateScheduleFn(ctx, attemptID, nextQueryAt, lastError)
+	}
+	return nil
 }
 
 func TestOrderRoutes(t *testing.T) {

@@ -91,8 +91,9 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 		rows.Close()
 
 		// Unresolved attempt safety check:
-		// Never blindly reinitiate an active, in-flight, or ambiguous charge within the provider resolution window (2 minutes)
-		if (prevStatus == AttemptCreated || prevStatus == AttemptInitiating || prevStatus == AttemptAccepted || prevStatus == AttemptUnknown) && time.Since(prevCreatedAt) < 2*time.Minute {
+		// Never blindly reinitiate an active, in-flight, or ambiguous charge within the provider resolution window (5 minutes)
+		// No uncertain outcome causes another prompt.
+		if (prevStatus == AttemptCreated || prevStatus == AttemptInitiating || prevStatus == AttemptAccepted || prevStatus == AttemptUnknown) && time.Since(prevCreatedAt) < 5*time.Minute {
 			return nil, ErrUnresolvedPaymentAttempt
 		}
 
@@ -108,7 +109,7 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 		INSERT INTO public.payment_attempt (
 			order_id, attempt_number, amount_kes, phone, status, provider, created_at, updated_at
 		) VALUES ($1, $2, $3, $4, $5, $6, now(), now())
-		RETURNING id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, created_at, updated_at
+		RETURNING id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, query_count, last_queried_at, next_query_at, created_at, updated_at
 	`, orderID, nextAttemptNum, amountKes, phone, AttemptCreated, provider).Scan(
 		&attempt.ID,
 		&attempt.OrderID,
@@ -120,6 +121,9 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 		&pTxID,
 		&pRefID,
 		&errMsg,
+		&attempt.QueryCount,
+		&attempt.LastQueriedAt,
+		&attempt.NextQueryAt,
 		&attempt.CreatedAt,
 		&attempt.UpdatedAt,
 	)
@@ -170,7 +174,7 @@ func (s *Store) GetLatestPaymentAttempt(ctx context.Context, orderID string) (*P
 	var pTxID, pRefID, errMsg *string
 
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, created_at, updated_at
+		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, query_count, last_queried_at, next_query_at, created_at, updated_at
 		FROM public.payment_attempt
 		WHERE order_id = $1
 		ORDER BY attempt_number DESC
@@ -186,6 +190,9 @@ func (s *Store) GetLatestPaymentAttempt(ctx context.Context, orderID string) (*P
 		&pTxID,
 		&pRefID,
 		&errMsg,
+		&attempt.QueryCount,
+		&attempt.LastQueriedAt,
+		&attempt.NextQueryAt,
 		&attempt.CreatedAt,
 		&attempt.UpdatedAt,
 	)
@@ -212,7 +219,7 @@ func (s *Store) GetLatestPaymentAttempt(ctx context.Context, orderID string) (*P
 // GetPaymentAttempts returns all payment attempts recorded for an order.
 func (s *Store) GetPaymentAttempts(ctx context.Context, orderID string) ([]PaymentAttempt, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, created_at, updated_at
+		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, query_count, last_queried_at, next_query_at, created_at, updated_at
 		FROM public.payment_attempt
 		WHERE order_id = $1
 		ORDER BY attempt_number ASC
@@ -237,6 +244,9 @@ func (s *Store) GetPaymentAttempts(ctx context.Context, orderID string) ([]Payme
 			&pTxID,
 			&pRefID,
 			&errMsg,
+			&a.QueryCount,
+			&a.LastQueriedAt,
+			&a.NextQueryAt,
 			&a.CreatedAt,
 			&a.UpdatedAt,
 		); err != nil {
@@ -293,7 +303,7 @@ func (s *Store) FindPaymentAttemptByProviderTx(ctx context.Context, providerTxID
 	var pTxID, pRefID, errMsg *string
 
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, created_at, updated_at
+		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, query_count, last_queried_at, next_query_at, created_at, updated_at
 		FROM public.payment_attempt
 		WHERE provider_transaction_id = $1 OR provider_reference_id = $1
 		ORDER BY created_at DESC
@@ -309,6 +319,9 @@ func (s *Store) FindPaymentAttemptByProviderTx(ctx context.Context, providerTxID
 		&pTxID,
 		&pRefID,
 		&errMsg,
+		&attempt.QueryCount,
+		&attempt.LastQueriedAt,
+		&attempt.NextQueryAt,
 		&attempt.CreatedAt,
 		&attempt.UpdatedAt,
 	)
@@ -343,7 +356,7 @@ func (s *Store) FindInFlightPaymentAttempt(ctx context.Context, phone string, am
 	var pTxID, pRefID, errMsg *string
 
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, created_at, updated_at
+		SELECT id, order_id, attempt_number, amount_kes, phone, status, provider, provider_transaction_id, provider_reference_id, error_message, query_count, last_queried_at, next_query_at, created_at, updated_at
 		FROM public.payment_attempt
 		WHERE phone = $1 AND amount_kes = $2 AND status IN ('created', 'initiating', 'accepted', 'unknown') AND created_at >= $3
 		ORDER BY created_at DESC
@@ -359,6 +372,9 @@ func (s *Store) FindInFlightPaymentAttempt(ctx context.Context, phone string, am
 		&pTxID,
 		&pRefID,
 		&errMsg,
+		&attempt.QueryCount,
+		&attempt.LastQueriedAt,
+		&attempt.NextQueryAt,
 		&attempt.CreatedAt,
 		&attempt.UpdatedAt,
 	)
