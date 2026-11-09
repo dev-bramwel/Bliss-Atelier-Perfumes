@@ -15,7 +15,7 @@ import (
 )
 
 type mockCatalogStore struct {
-	products []catalog.Product
+	products  []catalog.Product
 	callCount int
 	err       error
 }
