@@ -17,6 +17,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache"
 )
 
 func respond(w http.ResponseWriter, code int, body any) {
@@ -86,6 +87,15 @@ type DeliveryService interface {
 	ExpireQuotes(ctx context.Context, asOf time.Time) (int64, error)
 }
 
+// CatalogCacheProvider defines read-through cache and invalidation capabilities for catalog products.
+type CatalogCacheProvider interface {
+	Get(ctx context.Context) ([]catalog.Product, error)
+	Set(ctx context.Context, products []catalog.Product, ttl ...time.Duration) error
+	SetVersioned(ctx context.Context, products []catalog.Product, expectedVersion string, ttl ...time.Duration) error
+	Version(ctx context.Context) string
+	Invalidate(ctx context.Context) error
+}
+
 type API struct {
 	server   *http.Server
 	draining atomic.Bool
@@ -99,6 +109,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	var secConfig SecurityConfig
 	var paymentProv provider.PaymentProvider
 	var ncbaConfig provider.NCBAConfig
+	var redisClient *rediscache.Client
+	var catalogCache CatalogCacheProvider
 
 	for _, d := range deps {
 		switch v := d.(type) {
@@ -114,7 +126,27 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			paymentProv = v
 		case provider.NCBAConfig:
 			ncbaConfig = v
+		case *rediscache.Client:
+			redisClient = v
+		case CatalogCacheProvider:
+			catalogCache = v
 		}
+	}
+
+	if redisClient != nil && catalogCache == nil {
+		catalogCache = rediscache.NewCatalogCache(redisClient, "", 5*time.Minute)
+	}
+
+	orderLimiter := newMemoryLimiter(time.Minute, 10)
+	paymentRetryLimiter := newMemoryLimiter(time.Minute, 5)
+	orderLookupLimiter := newMemoryLimiter(time.Minute, 30)
+	managerLimiter := newMemoryLimiter(time.Minute, 20)
+
+	if redisClient != nil {
+		orderLimiter = rediscache.NewRateLimiter(redisClient, "order:create:", time.Minute, 10)
+		paymentRetryLimiter = rediscache.NewRateLimiter(redisClient, "order:retry:", time.Minute, 5)
+		orderLookupLimiter = rediscache.NewRateLimiter(redisClient, "order:lookup:", time.Minute, 30)
+		managerLimiter = rediscache.NewRateLimiter(redisClient, "manager:action:", time.Minute, 20)
 	}
 
 	proxyChecker := NewTrustedProxyChecker(secConfig.TrustedProxies)
@@ -124,7 +156,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /catalog", func(w http.ResponseWriter, r *http.Request) {
+	catalogHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		ctx, cancel := context.WithTimeout(r.Context(), timeout)
 		defer cancel()
@@ -132,24 +164,70 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			respond(w, 503, map[string]string{"error": "catalog unavailable"})
 			return
 		}
+		var cacheVer string
+		if catalogCache != nil {
+			cachedProducts, err := catalogCache.Get(ctx)
+			if err == nil && cachedProducts != nil {
+				w.Header().Set("X-Cache", "HIT")
+				respond(w, 200, map[string]any{"products": cachedProducts})
+				return
+			}
+			cacheVer = catalogCache.Version(ctx)
+		}
 		products, err := catalogStore.Products(ctx)
 		if err != nil {
 			slog.Warn("catalog_unavailable", "reason", err.Error())
 			respond(w, 503, map[string]string{"error": "catalog unavailable"})
 			return
 		}
+		if catalogCache != nil {
+			_ = catalogCache.SetVersioned(ctx, products, cacheVer)
+		}
+		w.Header().Set("X-Cache", "MISS")
 		respond(w, 200, map[string]any{"products": products})
-	})
+	}
+
+	mux.HandleFunc("GET /catalog", catalogHandler)
+	mux.HandleFunc("GET /api/catalog", catalogHandler)
+
+	handleInvalidateCatalog := func(w http.ResponseWriter, r *http.Request) {
+		if a.draining.Load() {
+			respond(w, 503, map[string]string{"error": "service draining"})
+			return
+		}
+		ip := SafeClientIP(r, proxyChecker)
+		if !managerLimiter.Allow(r.Context(), ip) {
+			w.Header().Set("Retry-After", "60")
+			respond(w, http.StatusTooManyRequests, map[string]string{
+				"error": "too many requests; please wait before retrying",
+			})
+			return
+		}
+		if extractManager(r) == "" {
+			respond(w, http.StatusUnauthorized, map[string]string{"error": "manager authorization required"})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), timeout)
+		defer cancel()
+		if catalogCache != nil {
+			if err := catalogCache.Invalidate(ctx); err != nil {
+				slog.Warn("catalog_cache_invalidation_failed", "error", err.Error())
+			}
+		}
+		respond(w, http.StatusOK, map[string]string{"status": "invalidated"})
+	}
+
+	mux.HandleFunc("POST /catalog/invalidate", handleInvalidateCatalog)
+	mux.HandleFunc("POST /api/catalog/invalidate", handleInvalidateCatalog)
 
 	if orderStore != nil {
-		orderLimiter := newIPLimiter(time.Minute, 10)
 		handleCreateOrder := func(w http.ResponseWriter, r *http.Request) {
 			if a.draining.Load() {
 				respond(w, 503, map[string]string{"error": "service draining"})
 				return
 			}
 			ip := SafeClientIP(r, proxyChecker)
-			if !orderLimiter.Allow(ip, time.Now()) {
+			if !orderLimiter.Allow(r.Context(), ip) {
 				w.Header().Set("Retry-After", "60")
 				respond(w, http.StatusTooManyRequests, map[string]string{
 					"error": "too many order creation requests; please wait before retrying",
@@ -353,6 +431,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 400, map[string]string{"error": "order ID is required"})
 				return
 			}
+			ip := SafeClientIP(r, proxyChecker)
+			if !orderLookupLimiter.Allow(r.Context(), ip) {
+				w.Header().Set("Retry-After", "60")
+				respond(w, http.StatusTooManyRequests, map[string]string{
+					"error": "too many requests; please wait before retrying",
+				})
+				return
+			}
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
@@ -392,6 +478,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			id := r.PathValue("id")
 			if id == "" {
 				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			ip := SafeClientIP(r, proxyChecker)
+			if !orderLookupLimiter.Allow(r.Context(), ip) {
+				w.Header().Set("Retry-After", "60")
+				respond(w, http.StatusTooManyRequests, map[string]string{
+					"error": "too many order lookup requests; please wait before retrying",
+				})
 				return
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
@@ -486,7 +580,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 			ip := SafeClientIP(r, proxyChecker)
-			if !orderLimiter.Allow(ip, time.Now()) {
+			if !paymentRetryLimiter.Allow(r.Context(), ip) {
 				w.Header().Set("Retry-After", "60")
 				respond(w, http.StatusTooManyRequests, map[string]string{
 					"error": "too many requests; please wait before retrying",
@@ -718,6 +812,14 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			id := r.PathValue("id")
 			if id == "" {
 				respond(w, 400, map[string]string{"error": "order ID is required"})
+				return
+			}
+			ip := SafeClientIP(r, proxyChecker)
+			if !orderLookupLimiter.Allow(r.Context(), ip) {
+				w.Header().Set("Retry-After", "60")
+				respond(w, http.StatusTooManyRequests, map[string]string{
+					"error": "too many requests; please wait before retrying",
+				})
 				return
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)

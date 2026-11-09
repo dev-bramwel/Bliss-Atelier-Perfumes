@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 $containerName = 'bliss-foundation-test-' + [guid]::NewGuid().ToString('N').Substring(0, 10)
+$redisContainer = 'bliss-redis-test-' + [guid]::NewGuid().ToString('N').Substring(0, 10)
 $previousTestURL = $env:GO_TEST_DATABASE_URL
+$previousTestRedisURL = $env:GO_TEST_REDIS_URL
 $previousRecoveryPhase = $env:GO_TEST_RECOVERY_PHASE
 try {
     docker run --detach --rm --name $containerName --publish 127.0.0.1::5432 --env POSTGRES_USER=bliss_test --env POSTGRES_PASSWORD=disposable_test_only --env POSTGRES_DB=bliss_foundation_test postgres@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24 | Out-Null
@@ -16,10 +18,24 @@ try {
     $testPort = ($binding -split ':')[-1]
     $env:GO_TEST_DATABASE_URL = "postgresql://bliss_test:disposable_test_only@127.0.0.1:$testPort/bliss_foundation_test?sslmode=disable"
     $env:GO_TEST_RECOVERY_PHASE = $null
+
+    docker run --detach --rm --name $redisContainer --publish 127.0.0.1::6379 redis:7-alpine redis-server --save "" --appendonly no | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not start disposable Redis' }
+    $redisReady = $false
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        docker exec $redisContainer redis-cli ping *> $null
+        if ($LASTEXITCODE -eq 0) { $redisReady = $true; break }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not $redisReady) { throw 'Disposable Redis readiness timed out' }
+    $redisBinding = docker port $redisContainer 6379/tcp
+    $redisPort = ($redisBinding -split ':')[-1]
+    $env:GO_TEST_REDIS_URL = "redis://127.0.0.1:$redisPort/0"
+
     Push-Location (Join-Path $PSScriptRoot '..')
     try {
-        go test -count=1 -p 1 ./internal/database ./internal/migration ./internal/catalog ./internal/orders ./internal/delivery ./internal/outbox ./internal/worker
-        if ($LASTEXITCODE -ne 0) { throw 'Database integration checks failed' }
+        go test -count=1 -p 1 ./internal/database ./internal/migration ./internal/catalog ./internal/orders ./internal/delivery ./internal/outbox ./internal/worker ./internal/rediscache ./internal/httpapi
+        if ($LASTEXITCODE -ne 0) { throw 'Database and cache integration checks failed' }
         $env:GO_TEST_RECOVERY_PHASE = 'seed'
         go test -count=1 -run '^TestRecoveryFixture$' ./internal/migration
         if ($LASTEXITCODE -ne 0) { throw 'Recovery fixture seed failed' }
@@ -48,6 +64,8 @@ SELECT md5(jsonb_build_array(
     } finally { Pop-Location }
 } finally {
     $env:GO_TEST_DATABASE_URL = $previousTestURL
+    $env:GO_TEST_REDIS_URL = $previousTestRedisURL
     $env:GO_TEST_RECOVERY_PHASE = $previousRecoveryPhase
     docker rm --force $containerName *> $null
+    docker rm --force $redisContainer *> $null
 }

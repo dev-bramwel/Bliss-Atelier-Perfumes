@@ -58,7 +58,7 @@ try {
     foreach ($path in @('/checkout.js','/shared.js','/style.css','/tailwind.css','/api/health/live','/api/health/ready')) {
         if ((Status ($origin + $path)) -ne 200) {throw 'Static asset or same-origin health failed'}
     }
-    foreach ($service in @('frontend','api','migrate','db','fake-provider')) {
+    foreach ($service in @('frontend','api','migrate','db','fake-provider','redis')) {
         $detail = (docker inspect (Container $service) | ConvertFrom-Json)[0]
         if ($detail.Config.User -eq '' -or $detail.Config.User -match '^0(:|$)') {throw 'Root container detected'}
         if ($service -ne 'frontend' -and $null -ne $detail.HostConfig.PortBindings -and @($detail.HostConfig.PortBindings.PSObject.Properties).Count -gt 0) {throw 'Internal service published a host port'}

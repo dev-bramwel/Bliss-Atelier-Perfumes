@@ -1,10 +1,16 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
 )
+
+// Limiter defines a rate limiter that checks if a request key is allowed.
+type Limiter interface {
+	Allow(ctx context.Context, key string) bool
+}
 
 // ipLimiter implements an in-memory sliding window rate limiter per client IP.
 type ipLimiter struct {
@@ -52,6 +58,18 @@ func (l *ipLimiter) Allow(ip string, now time.Time) bool {
 		}
 	}
 	return true
+}
+
+type memoryLimiterAdapter struct {
+	*ipLimiter
+}
+
+func (m *memoryLimiterAdapter) Allow(_ context.Context, key string) bool {
+	return m.ipLimiter.Allow(key, time.Now())
+}
+
+func newMemoryLimiter(window time.Duration, maxReqs int) Limiter {
+	return &memoryLimiterAdapter{ipLimiter: newIPLimiter(window, maxReqs)}
 }
 
 var defaultProxyChecker = NewTrustedProxyChecker("")
