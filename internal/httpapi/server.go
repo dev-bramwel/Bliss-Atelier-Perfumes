@@ -937,9 +937,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 400, map[string]string{"error": "invalid request payload"})
 				return
 			}
-			if req.AuthorizedBy == "" {
-				req.AuthorizedBy = manager
-			}
+			// Invariant: req.AuthorizedBy is strictly bound to the authenticated manager identity
+			req.AuthorizedBy = manager
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 			if err := orderStore.ResolvePaymentException(ctx, id, req); err != nil {
@@ -1000,9 +999,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 400, map[string]string{"error": "invalid request payload"})
 				return
 			}
-			if req.AuthorizedBy == "" {
-				req.AuthorizedBy = manager
-			}
+			// Invariant: req.AuthorizedBy is strictly bound to the authenticated manager identity
+			req.AuthorizedBy = manager
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 			order, audit, err := orderStore.RecordManualSettlement(ctx, req)
@@ -1045,9 +1043,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				respond(w, 400, map[string]string{"error": "invalid request payload"})
 				return
 			}
-			if req.AuthorizedBy == "" {
-				req.AuthorizedBy = manager
-			}
+			// Invariant: req.AuthorizedBy is strictly bound to the authenticated manager identity
+			req.AuthorizedBy = manager
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 			audit, err := orderStore.RecordPaymentCorrection(ctx, req)

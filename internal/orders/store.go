@@ -591,6 +591,24 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		return fmt.Errorf("failed to query order %s: %w", orderID, err)
 	}
 	if currentPaymentStatus == PaymentPaid {
+		// If payment was previously converged via query without a receipt number,
+		// and now the provider callback arrives with the definitive receipt, record MpesaTransaction
+		if receiptNumber != "" {
+			var existingMpesaID string
+			err = tx.QueryRow(ctx, `SELECT id FROM public."MpesaTransaction" WHERE "orderId" = $1 LIMIT 1`, orderID).Scan(&existingMpesaID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				mpesaID, genErr := generateID("mpesa")
+				if genErr == nil {
+					_, _ = tx.Exec(ctx, `
+						INSERT INTO public."MpesaTransaction" (
+							id, "orderId", "mpesaReceiptNumber", amount, "phoneNumber",
+							"transactionDate", "createdAt"
+						) VALUES ($1, $2, $3, $4, $5, $6, $7)
+					`, mpesaID, orderID, receiptNumber, totalKes, "", now, now)
+					_ = tx.Commit(ctx)
+				}
+			}
+		}
 		return nil // Idempotent duplicate success
 	}
 

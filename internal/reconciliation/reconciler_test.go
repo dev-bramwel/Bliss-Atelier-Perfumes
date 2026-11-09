@@ -148,8 +148,8 @@ func TestReconciler_SuccessConvergence(t *testing.T) {
 		t.Errorf("unexpected summary: %+v", summary)
 	}
 
-	if store.confirmed["ord-100"] != "NCBA-TX-1001" {
-		t.Errorf("expected order ord-100 confirmed with receipt NCBA-TX-1001, got %q", store.confirmed["ord-100"])
+	if store.confirmed["ord-100"] != "" {
+		t.Errorf("expected empty receipt on query convergence (awaiting provider callback), got %q", store.confirmed["ord-100"])
 	}
 
 	if store.updatedAtts["att-1"].Status != orders.AttemptSucceeded {
@@ -314,7 +314,7 @@ func TestReconciler_AmbiguousInitiationTimeout(t *testing.T) {
 			Status:                orders.AttemptUnknown,
 			Provider:              "ncba",
 			ProviderTransactionID: "", // No provider transaction ID
-			CreatedAt:             time.Now().Add(-6 * time.Minute),
+			CreatedAt:             time.Now().Add(-16 * time.Minute),
 		},
 	}
 
@@ -330,5 +330,41 @@ func TestReconciler_AmbiguousInitiationTimeout(t *testing.T) {
 
 	if store.updatedAtts["att-5"].Status != orders.AttemptFailed {
 		t.Errorf("expected attempt att-5 status failed, got %q", store.updatedAtts["att-5"].Status)
+	}
+}
+
+func TestReconciler_AmbiguousInitiationUnder15Minutes_ReschedulesToPreventQueueStarvation(t *testing.T) {
+	store := newMockStore()
+	store.attempts = []orders.PaymentAttempt{
+		{
+			ID:                    "att-6",
+			OrderID:               "ord-105",
+			AttemptNumber:         1,
+			AmountKes:             2500,
+			Phone:                 "254744444444",
+			Status:                orders.AttemptUnknown,
+			Provider:              "ncba",
+			ProviderTransactionID: "", // No provider transaction ID
+			CreatedAt:             time.Now().Add(-5 * time.Minute),
+		},
+	}
+
+	rec := New(store, nil, DefaultConfig(), nil)
+	summary, err := rec.ReconcileStaleAttempts(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if summary.Failed != 0 {
+		t.Errorf("expected attempt not to fail before 15m window, got %d failures", summary.Failed)
+	}
+
+	// Verify query retry was scheduled into the future to avoid queue starvation
+	schedTime, exists := store.schedQueries["att-6"]
+	if !exists {
+		t.Fatal("expected query schedule recorded for att-6")
+	}
+	if schedTime.Before(time.Now().Add(30 * time.Second)) {
+		t.Errorf("expected schedule in future, got %v", schedTime)
 	}
 }

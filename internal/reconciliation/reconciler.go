@@ -110,7 +110,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 
 		// Case 1: Ambiguous initiation with no provider transaction ID
 		if att.ProviderTransactionID == "" {
-			if time.Since(att.CreatedAt) >= 5*time.Minute {
+			if time.Since(att.CreatedAt) >= 15*time.Minute {
 				r.logger.Warn("reconciler_timing_out_unmapped_attempt",
 					"attempt_id", att.ID,
 					"order_id", att.OrderID,
@@ -119,6 +119,10 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 				_ = r.store.UpdatePaymentAttempt(ctx, att.ID, orders.AttemptFailed, "", "",
 					"Initiation timed out before provider transaction ID was established")
 				s.Failed++
+			} else {
+				// Reschedule query retry so in-flight attempts do not starve the batch on every tick
+				nextRetry := time.Now().Add(1 * time.Minute)
+				_ = r.store.UpdatePaymentAttemptQuerySchedule(ctx, att.ID, &nextRetry, "Awaiting provider initiation or callback")
 			}
 			continue
 		}
@@ -150,8 +154,8 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 				"order_id", att.OrderID,
 				"tx_id", att.ProviderTransactionID,
 			)
-			// Confirm payment for the order
-			cErr := r.store.ConfirmPayment(ctx, att.OrderID, att.ProviderTransactionID, att.AmountKes)
+			// Confirm payment for the order without passing checkoutRequestId as M-Pesa receipt
+			cErr := r.store.ConfirmPayment(ctx, att.OrderID, "", att.AmountKes)
 			if cErr != nil && !errors.Is(cErr, orders.ErrLatePaymentResolution) {
 				r.logger.Error("reconciler_confirm_payment_error",
 					"order_id", att.OrderID,
@@ -205,6 +209,9 @@ func (r *Reconciler) handleRetryOrException(ctx context.Context, att orders.Paym
 			"queries", nextQueryCount,
 			"reason", reason,
 		)
+		// Mark attempt query schedule terminal and clear next query time
+		_ = r.store.UpdatePaymentAttemptQuerySchedule(ctx, att.ID, nil, "Exceeded maximum query attempts: "+reason)
+
 		// Mark attempt unknown
 		_ = r.store.UpdatePaymentAttempt(ctx, att.ID, orders.AttemptUnknown, att.ProviderTransactionID, att.ProviderReferenceID,
 			"Exceeded maximum query attempts without definitive status from provider: "+reason)

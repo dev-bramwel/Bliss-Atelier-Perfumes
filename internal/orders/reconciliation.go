@@ -309,6 +309,7 @@ func (s *Store) ListUnresolvedPaymentAttempts(ctx context.Context, staleThreshol
 		FROM public.payment_attempt
 		WHERE status IN ('accepted', 'unknown')
 			AND created_at <= $1
+			AND query_count < 5
 			AND (next_query_at IS NULL OR next_query_at <= now())
 		ORDER BY created_at ASC
 		LIMIT $2
@@ -407,15 +408,6 @@ func (s *Store) RecordManualSettlement(ctx context.Context, req ManualSettlement
 		req.Provider = "ncba"
 	}
 
-	// 1. Receipt Uniqueness Check across the entire system
-	existingOrderID, err := s.FindReceiptOrder(ctx, req.ReceiptNumber)
-	if err != nil {
-		return nil, nil, fmt.Errorf("receipt uniqueness check failed: %w", err)
-	}
-	if existingOrderID != "" && existingOrderID != req.OrderID {
-		return nil, nil, fmt.Errorf("%w: receipt %s already paid order %s", ErrDuplicateReceipt, req.ReceiptNumber, existingOrderID)
-	}
-
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -423,6 +415,26 @@ func (s *Store) RecordManualSettlement(ctx context.Context, req ManualSettlement
 	defer rollback(tx)
 
 	now := time.Now().UTC()
+
+	// 1. Serialize concurrent settlements on the same receipt using transaction-scoped advisory lock
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, req.ReceiptNumber); err != nil {
+		return nil, nil, fmt.Errorf("failed to acquire receipt lock: %w", err)
+	}
+
+	// Receipt uniqueness check inside the transaction
+	var existingOrderID string
+	err = tx.QueryRow(ctx, `
+		SELECT "orderId"
+		FROM public."MpesaTransaction"
+		WHERE "mpesaReceiptNumber" = $1 AND status = 'SUCCESS'
+		LIMIT 1
+	`, req.ReceiptNumber).Scan(&existingOrderID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, fmt.Errorf("receipt uniqueness check failed: %w", err)
+	}
+	if existingOrderID != "" && existingOrderID != req.OrderID {
+		return nil, nil, fmt.Errorf("%w: receipt %s already paid order %s", ErrDuplicateReceipt, req.ReceiptNumber, existingOrderID)
+	}
 
 	// 2. Lock stock_reservation first, then Order (consistent locking order)
 	var resID, resStatus string
@@ -448,7 +460,7 @@ func (s *Store) RecordManualSettlement(ctx context.Context, req ManualSettlement
 		return nil, nil, ErrOrderAlreadyPaid
 	}
 
-	// 3. Expected payable verification
+	// 3. Expected payable verification & quote validity check
 	opt := strings.ToLower(strings.TrimSpace(deliveryOption))
 	isPickup := opt == "pickup" || opt == "showroom_pickup"
 	expectedPayable := totalKes
@@ -464,7 +476,19 @@ func (s *Store) RecordManualSettlement(ctx context.Context, req ManualSettlement
 			ORDER BY version DESC
 			LIMIT 1
 		`, req.OrderID).Scan(&quoteStatus, &quoteExpiresAt, &quoteAmount, &feeRecipient)
-		if err == nil && quoteStatus == "accepted" && feeRecipient == "merchant" {
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, nil, ErrDeliveryQuoteUnaccepted
+			}
+			return nil, nil, fmt.Errorf("failed to query delivery quote for order %s: %w", req.OrderID, err)
+		}
+		if quoteStatus != "accepted" {
+			return nil, nil, ErrDeliveryQuoteUnaccepted
+		}
+		if now.After(quoteExpiresAt) {
+			return nil, nil, ErrQuoteExpired
+		}
+		if feeRecipient == "merchant" {
 			expectedPayable = totalKes + quoteAmount
 		}
 	}

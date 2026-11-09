@@ -109,8 +109,10 @@ flowchart TD
 2. **Prompt Safety ("No Uncertain Outcome Causes Another Prompt")**: Customer payment prompts cannot be re-triggered while an attempt is actively in-flight or unresolved (`created`, `initiating`, `accepted`, `unknown`). Customers receive `409 Conflict` until the provider status is confirmed.
 3. **Evidence-Backed Manual Settlements**: Manual settlements require verified provider evidence (`receipt_number`, `evidence`, `authorized_by`, `notes`). Raw or arbitrary edits to `PAID` status are strictly prohibited.
 4. **No Silent Fulfillment Without Stock**: Manual settlements verify active stock reservations; if expired, the settlement cannot silently fulfill without verified stock, returning `ErrOrderReservationExpired` and requiring stock reconciliation.
-5. **Durable Receipt Deduplication**: Receipts cannot be reused across orders; duplicate receipts raise `DUPLICATE_RECEIPT` exceptions and are rejected.
-6. **Immutable Audit Trail**: All manual interventions, corrections, and exception resolutions are durably written to `public.payment_audit_ledger` with operator identity and evidence details.
+5. **Durable Receipt Deduplication & Concurrency Isolation**: Receipts cannot be reused across orders; duplicate receipts raise `DUPLICATE_RECEIPT` exceptions. Manual settlement atomically acquires a transaction-level advisory lock (`pg_advisory_xact_lock(hashtext(receipt))`) to prevent race conditions across concurrent settlements.
+6. **Delivery Quote Verification**: Manual settlements for delivery orders strictly verify that a valid delivery quote has been accepted by the customer and has not expired, matching `ConfirmPayment`.
+7. **Immutable Audit Trail & Anti-Impersonation**: All manual interventions, corrections, and exception resolutions are durably written to `public.payment_audit_ledger` strictly bound to the authenticated manager identity extracted from manager tokens (caller-supplied `authorizedBy` spoofing is rejected).
+8. **Queue Starvation & Infinite Polling Defenses**: Unmapped initiations without transaction IDs are rescheduled rather than hot-looped; terminal query counts are capped (`query_count < 5` filter with `next_query_at` cleared on escalation) preventing infinite queries or duplicate exception rows.
 
 ---
 
