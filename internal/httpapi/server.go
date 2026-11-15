@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/auth"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
@@ -122,6 +123,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	var ncbaConfig provider.NCBAConfig
 	var redisClient *rediscache.Client
 	var catalogCache CatalogCacheProvider
+	var authService *auth.Service
 
 	for _, d := range deps {
 		switch v := d.(type) {
@@ -141,6 +143,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			redisClient = v
 		case CatalogCacheProvider:
 			catalogCache = v
+		case *auth.Service:
+			authService = v
 		}
 	}
 
@@ -162,10 +166,34 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 	proxyChecker := NewTrustedProxyChecker(secConfig.TrustedProxies)
 	extractManager := func(r *http.Request) string {
+		if authService != nil {
+			if user, _, err := AuthenticateRequest(r.Context(), r, authService, proxyChecker); err == nil && user != nil && auth.IsStaff(user.Role) {
+				return user.Name
+			}
+		}
 		return ExtractManagerIdentity(r, secConfig.ManagerSecret)
 	}
 
+	authorizeOrder := func(ctx context.Context, r *http.Request, id string) (bool, error) {
+		if authService != nil {
+			if user, _, err := AuthenticateRequest(ctx, r, authService, proxyChecker); err == nil && user != nil {
+				if auth.IsStaff(user.Role) {
+					return true, nil
+				}
+				if user.Role == auth.RoleCustomer && orderStore != nil {
+					ord, err := orderStore.GetOrder(ctx, id)
+					if err == nil && ord != nil && strings.EqualFold(ord.CustomerName, user.Name) {
+						return true, nil
+					}
+				}
+			}
+		}
+		return AuthorizeOrderAccess(ctx, r, id, orderStore, []string{secConfig.ManagerSecret}...)
+	}
+
 	mux := http.NewServeMux()
+	registerAuthRoutes(mux, authService, proxyChecker)
+	registerAdminRoutes(mux, authService, proxyChecker)
 
 	catalogHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -453,7 +481,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
+			ok, err := authorizeOrder(ctx, r, id)
 			if err != nil {
 				slog.Error("authorize_payment_status_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
@@ -502,7 +530,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
+			ok, err := authorizeOrder(ctx, r, id)
 			if err != nil {
 				slog.Error("authorize_get_order_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
@@ -601,7 +629,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
+			ok, err := authorizeOrder(ctx, r, id)
 			if err != nil {
 				slog.Error("authorize_retry_payment_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
@@ -836,7 +864,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
+			ok, err := authorizeOrder(ctx, r, id)
 			if err != nil {
 				slog.Error("authorize_get_attempts_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
@@ -1147,7 +1175,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
+			ok, err := authorizeOrder(ctx, r, id)
 			if err != nil {
 				slog.Error("authorize_get_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
@@ -1199,7 +1227,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
+			ok, err := authorizeOrder(ctx, r, id)
 			if err != nil {
 				slog.Error("authorize_accept_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
@@ -1265,7 +1293,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 
-			ok, err := AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
+			ok, err := authorizeOrder(ctx, r, id)
 			if err != nil {
 				slog.Error("authorize_reject_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})

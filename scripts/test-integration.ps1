@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
 $containerName = 'bliss-foundation-test-' + [guid]::NewGuid().ToString('N').Substring(0, 10)
 $redisContainer = 'bliss-redis-test-' + [guid]::NewGuid().ToString('N').Substring(0, 10)
 $previousTestURL = $env:GO_TEST_DATABASE_URL
@@ -34,7 +35,7 @@ try {
 
     Push-Location (Join-Path $PSScriptRoot '..')
     try {
-        go test -count=1 -p 1 ./internal/database ./internal/migration ./internal/catalog ./internal/orders ./internal/delivery ./internal/outbox ./internal/worker ./internal/rediscache ./internal/httpapi ./internal/reconciliation
+        go test -count=1 -p 1 ./internal/database ./internal/migration ./internal/catalog ./internal/orders ./internal/delivery ./internal/outbox ./internal/worker ./internal/rediscache ./internal/httpapi ./internal/reconciliation ./internal/auth
         if ($LASTEXITCODE -ne 0) { throw 'Database and cache integration checks failed' }
         $env:GO_TEST_RECOVERY_PHASE = 'seed'
         go test -count=1 -run '^TestRecoveryFixture$' ./internal/migration

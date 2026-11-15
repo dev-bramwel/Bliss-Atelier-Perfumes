@@ -169,3 +169,35 @@ func TestRedisConfiguration(t *testing.T) {
 		t.Fatal("expected error for empty redis url file")
 	}
 }
+
+func TestGoogleOIDCConfiguration(t *testing.T) {
+	c, err := Load(func(k string) string {
+		switch k {
+		case "GO_GOOGLE_CLIENT_ID":
+			return "test-client-id.apps.googleusercontent.com"
+		case "GO_GOOGLE_CLIENT_SECRET":
+			return "test-client-secret"
+		case "GO_GOOGLE_REDIRECT_URL":
+			return "http://localhost:5001/api/auth/google/callback"
+		case "BLISS_BOOTSTRAP_OWNER_EMAIL":
+			return "owner@blissatelier.com"
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.GoogleClientID != "test-client-id.apps.googleusercontent.com" {
+		t.Errorf("unexpected client id: %s", c.GoogleClientID)
+	}
+	if c.GoogleClientSecret != "test-client-secret" {
+		t.Errorf("unexpected client secret: %s", c.GoogleClientSecret)
+	}
+	if c.GoogleRedirectURL != "http://localhost:5001/api/auth/google/callback" {
+		t.Errorf("unexpected redirect url: %s", c.GoogleRedirectURL)
+	}
+	if c.BootstrapOwnerEmail != "owner@blissatelier.com" {
+		t.Errorf("unexpected bootstrap owner email: %s", c.BootstrapOwnerEmail)
+	}
+}

@@ -203,13 +203,14 @@ func CORSHandler(allowedOrigins []string, next http.Handler) http.Handler {
 
 			if allowed {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Vary", "Origin")
 			}
 		}
 
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Guest-Token, X-Manager-Id, X-Manager-Secret, X-Manager-Key, Idempotency-Key")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Guest-Token, X-Manager-Id, X-Manager-Secret, X-Manager-Key, Idempotency-Key, X-CSRF-Token, X-Csrf-Token")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 			w.WriteHeader(http.StatusNoContent)
 			return

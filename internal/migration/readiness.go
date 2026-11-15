@@ -32,10 +32,10 @@ func RuntimeReady(ctx context.Context, pool *pgxpool.Pool) error {
 		return errors.New("schema unavailable")
 	}
 	expected := map[string]json.RawMessage{}
-	if json.Unmarshal([]byte(read("schema-v8.json")), &expected) != nil {
+	if json.Unmarshal([]byte(read("schema-v9.json")), &expected) != nil {
 		return errors.New("schema unavailable")
 	}
-	for _, name := range []string{"Order", "MpesaTransaction", "bliss_schema_migrations", "catalog_settings", "catalog_product", "stock_control", "stock_batch", "stock_entry", "stock_approval", "order_item", "stock_reservation", "stock_reservation_item", "order_fulfillment", "delivery_quote", "guest_order_access", "idempotency_key", "payment_attempt", "outbox_event", "inbox_message", "payment_exception", "payment_audit_ledger"} {
+	for _, name := range []string{"Order", "MpesaTransaction", "bliss_schema_migrations", "catalog_settings", "catalog_product", "stock_control", "stock_batch", "stock_entry", "stock_approval", "order_item", "stock_reservation", "stock_reservation_item", "order_fulfillment", "delivery_quote", "guest_order_access", "idempotency_key", "payment_attempt", "outbox_event", "inbox_message", "payment_exception", "payment_audit_ledger", "app_user", "login_transaction", "user_session", "admin_audit_log"} {
 		if !sameJSON(actual[name], expected[name]) {
 			return errors.New("schema unavailable")
 		}
@@ -49,7 +49,20 @@ func RuntimeReady(ctx context.Context, pool *pgxpool.Pool) error {
 	if tx.QueryRow(ctx, `SELECT bliss_ops.schema_ready() AND bool_and(
  has_table_privilege(name,'SELECT') AND has_table_privilege(name,'INSERT') AND
  has_table_privilege(name,'UPDATE') AND has_table_privilege(name,'DELETE'))
- FROM unnest(ARRAY['public."Order"','public."MpesaTransaction"','public.order_item','public.stock_reservation','public.stock_reservation_item','public.order_fulfillment','public.delivery_quote','public.guest_order_access','public.idempotency_key','public.payment_attempt','public.outbox_event','public.inbox_message','public.payment_exception','public.payment_audit_ledger']) AS tables(name)`).Scan(&ready) != nil || !ready {
+ FROM unnest(ARRAY['public."Order"','public."MpesaTransaction"','public.order_item','public.stock_reservation','public.stock_reservation_item','public.order_fulfillment','public.delivery_quote','public.guest_order_access','public.idempotency_key','public.payment_attempt','public.outbox_event','public.inbox_message','public.payment_exception','public.payment_audit_ledger','public.login_transaction','public.user_session']) AS tables(name)`).Scan(&ready) != nil || !ready {
+		return errors.New("schema unavailable")
+	}
+	var appUserReady bool
+	if tx.QueryRow(ctx, `SELECT bool_and(
+ has_table_privilege(name,'SELECT') AND has_table_privilege(name,'INSERT') AND
+ has_table_privilege(name,'UPDATE'))
+ FROM unnest(ARRAY['public.app_user']) AS tables(name)`).Scan(&appUserReady) != nil || !appUserReady {
+		return errors.New("schema unavailable")
+	}
+	var auditLogReady bool
+	if tx.QueryRow(ctx, `SELECT bool_and(
+ has_table_privilege(name,'SELECT') AND has_table_privilege(name,'INSERT'))
+ FROM unnest(ARRAY['public.admin_audit_log']) AS tables(name)`).Scan(&auditLogReady) != nil || !auditLogReady {
 		return errors.New("schema unavailable")
 	}
 	var ledgerReady bool

@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/auth"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
@@ -106,6 +107,37 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			}
 		}
 	}
+
+	var authService *auth.Service
+	if pool != nil {
+		authStore := auth.NewPGStore(pool)
+		var verifier auth.OIDCVerifier
+		if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
+			var vErr error
+			verifier, vErr = auth.NewProductionGoogleVerifier(ctx, auth.GoogleOIDCConfig{
+				ClientID:     cfg.GoogleClientID,
+				ClientSecret: cfg.GoogleClientSecret,
+				RedirectURL:  cfg.GoogleRedirectURL,
+			})
+			if vErr != nil {
+				logger.Warn("google_oidc_verifier_init_failed", "error", vErr.Error())
+			}
+		}
+		if verifier == nil {
+			verifier = auth.NewMockOIDCVerifier()
+		}
+		authService = auth.NewService(authStore, verifier, redisClient)
+
+		if cfg.BootstrapOwnerEmail != "" {
+			bootstrapped, bErr := authService.BootstrapInitialOwner(ctx, cfg.BootstrapOwnerEmail)
+			if bErr != nil {
+				logger.Warn("owner_bootstrap_failed", "error", bErr.Error())
+			} else if bootstrapped {
+				logger.Info("owner_bootstrap_succeeded", "email", cfg.BootstrapOwnerEmail)
+			}
+		}
+	}
+
 	switch command {
 	case "api":
 		listener, e := net.Listen("tcp", cfg.Address)
@@ -134,7 +166,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			ncbaClient, _ := provider.New(cfg.IOTimeout)
 			paymentProv, _ = provider.NewNCBA(ncbaConfig, ncbaClient)
 		}
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		if pool == nil || orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")
