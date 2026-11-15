@@ -514,4 +514,18 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 	if !strings.Contains(mgrInvWithCSRFRR.Header().Get("Set-Cookie"), "bliss_session") {
 		t.Fatalf("expected sliding session cookie refresh in response Set-Cookie")
 	}
+
+	// 10. Manager with empty display name still succeeds via user ID identity fallback
+	noNameMgr, _ := store.UpsertUserByGoogleSub(ctx, "sub-no-name-mgr", "noname.mgr@blissatelier.com", "", "")
+	_ = store.UpdateUserRole(ctx, noNameMgr.ID, auth.RoleManager)
+	noNameCookie, noNameCSRF := loginAs(noNameMgr)
+
+	noNameReq := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
+	noNameReq.AddCookie(noNameCookie)
+	noNameReq.Header.Set("X-CSRF-Token", noNameCSRF)
+	noNameRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(noNameRR, noNameReq)
+	if noNameRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for manager with blank profile name, got %d: %s", noNameRR.Code, noNameRR.Body.String())
+	}
 }

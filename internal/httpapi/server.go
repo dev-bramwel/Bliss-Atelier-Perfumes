@@ -173,6 +173,13 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					if len(w) > 0 && w[0] != nil {
 						RefreshSessionCookie(w[0], r, ses)
 					}
+					// Return user ID (or email/name fallback) so users with blank profile names are not rejected
+					if user.ID != "" {
+						return user.ID
+					}
+					if user.Email != "" {
+						return user.Email
+					}
 					return user.Name
 				}
 			}
