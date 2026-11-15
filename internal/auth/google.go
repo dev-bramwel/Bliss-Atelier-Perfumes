@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -145,6 +146,9 @@ func NewMockOIDCVerifier() *MockOIDCVerifier {
 }
 
 func (m *MockOIDCVerifier) AuthCodeURL(state string, nonce string, codeChallenge string) string {
+	if m.AuthURLStub == "" || m.AuthURLStub == "https://accounts.google.com/o/oauth2/v2/auth?mock=1" {
+		return fmt.Sprintf("/api/auth/google/callback?mock=1&state=%s&nonce=%s&challenge=%s", state, nonce, codeChallenge)
+	}
 	return fmt.Sprintf("%s&state=%s&nonce=%s&challenge=%s", m.AuthURLStub, state, nonce, codeChallenge)
 }
 
@@ -164,6 +168,9 @@ func (m *MockOIDCVerifier) ExchangeCode(ctx context.Context, code string, codeVe
 	}
 	tok, ok := m.Tokens[code]
 	if !ok {
+		if strings.HasPrefix(code, "mock-") {
+			return "raw-jwt-" + code, nil
+		}
 		return "", errors.New("invalid or expired mock code")
 	}
 	return tok, nil
@@ -177,6 +184,31 @@ func (m *MockOIDCVerifier) VerifyIDToken(ctx context.Context, rawIDToken string,
 	}
 	profile, ok := m.Profiles[rawIDToken]
 	if !ok {
+		if strings.HasPrefix(rawIDToken, "raw-jwt-mock-") {
+			role := strings.TrimPrefix(rawIDToken, "raw-jwt-mock-")
+			name := "Bliss Customer"
+			email := "customer@blissatelier.com"
+			sub := "sub-mock-customer"
+			if strings.Contains(role, "owner") {
+				name = "Bliss Owner"
+				email = "owner@blissatelier.com"
+				sub = "sub-mock-owner"
+			} else if strings.Contains(role, "manager") {
+				name = "Bliss Manager"
+				email = "manager@blissatelier.com"
+				sub = "sub-mock-manager"
+			} else if strings.Contains(role, "employee") {
+				name = "Bliss Employee"
+				email = "employee@blissatelier.com"
+				sub = "sub-mock-employee"
+			}
+			return &GoogleProfile{
+				Subject:       sub,
+				Email:         email,
+				EmailVerified: true,
+				Name:          name,
+			}, nil
+		}
 		return nil, errors.New("unknown or invalid mock id_token")
 	}
 	if exp, exists := m.Nonces[rawIDToken]; exists && expectedNonce != "" && exp != expectedNonce {

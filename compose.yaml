@@ -73,6 +73,10 @@ services:
       GO_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32"
       GO_MANAGER_SECRET: "bliss_manager_dev_secret"
       GO_REDIS_URL: "redis://redis:6379/0"
+      GO_GOOGLE_CLIENT_ID: ${GO_GOOGLE_CLIENT_ID:-mock}
+      GO_GOOGLE_CLIENT_SECRET: ${GO_GOOGLE_CLIENT_SECRET:-}
+      GO_GOOGLE_REDIRECT_URL: ${GO_GOOGLE_REDIRECT_URL:-http://localhost:8080/api/auth/google/callback}
+      GO_BOOTSTRAP_OWNER_EMAIL: ${GO_BOOTSTRAP_OWNER_EMAIL:-owner@blissatelier.com}
     secrets: [runtime_url]
     depends_on:
       migrate: { condition: service_completed_successfully }

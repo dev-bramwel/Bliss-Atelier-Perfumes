@@ -113,7 +113,9 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 	if pool != nil {
 		authStore := auth.NewPGStore(pool)
 		var verifier auth.OIDCVerifier
-		if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
+		if cfg.GoogleClientID == "mock" {
+			verifier = auth.NewMockOIDCVerifier()
+		} else if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
 			var vErr error
 			verifier, vErr = auth.NewProductionGoogleVerifier(ctx, auth.GoogleOIDCConfig{
 				ClientID:     cfg.GoogleClientID,
@@ -128,8 +130,9 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			authService = auth.NewService(authStore, verifier, redisClient)
 
 			if cfg.BootstrapOwnerEmail != "" {
+				authService.SetBootstrapOwnerEmail(cfg.BootstrapOwnerEmail)
 				bootstrapped, bErr := authService.BootstrapInitialOwner(ctx, cfg.BootstrapOwnerEmail)
-				if bErr != nil {
+				if bErr != nil && !errors.Is(bErr, auth.ErrBootstrapNotAllowed) {
 					logger.Warn("owner_bootstrap_failed", "error", bErr.Error())
 				} else if bootstrapped {
 					logger.Info("owner_bootstrap_succeeded", "email", cfg.BootstrapOwnerEmail)

@@ -24,9 +24,10 @@ var (
 
 // Service coordinates authentication, session state, anti-CSRF, and RBAC authorization.
 type Service struct {
-	store       Store
-	verifier    OIDCVerifier
-	redisClient *rediscache.Client
+	store               Store
+	verifier            OIDCVerifier
+	redisClient         *rediscache.Client
+	bootstrapOwnerEmail string
 }
 
 // NewService constructs an auth Service.
@@ -36,6 +37,11 @@ func NewService(store Store, verifier OIDCVerifier, redisClient *rediscache.Clie
 		verifier:    verifier,
 		redisClient: redisClient,
 	}
+}
+
+// SetBootstrapOwnerEmail configures the email that is eligible for one-time initial owner bootstrap.
+func (s *Service) SetBootstrapOwnerEmail(email string) {
+	s.bootstrapOwnerEmail = strings.TrimSpace(email)
 }
 
 // IsSafeReturnURL ensures return URLs are relative paths preventing open redirect vulnerabilities.
@@ -136,6 +142,15 @@ func (s *Service) CompleteLogin(ctx context.Context, state string, code string, 
 	user, err := s.store.UpsertUserByGoogleSub(ctx, profile.Subject, userEmail, profile.Name, profile.Picture)
 	if err != nil {
 		return nil, nil, "", "", "", fmt.Errorf("failed to upsert user account: %w", err)
+	}
+
+	// If bootstrap owner email is configured, and user's verified email matches, bootstrap if no owner exists
+	if s.bootstrapOwnerEmail != "" && user.Role != RoleOwner && strings.EqualFold(userEmail, s.bootstrapOwnerEmail) {
+		if _, bErr := s.BootstrapInitialOwner(ctx, userEmail); bErr == nil {
+			if updatedUser, uErr := s.store.GetUserByID(ctx, user.ID); uErr == nil && updatedUser != nil {
+				user = updatedUser
+			}
+		}
 	}
 
 	if !user.IsActive {
