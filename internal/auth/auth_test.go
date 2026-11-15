@@ -369,9 +369,12 @@ func TestAuthServiceFullFlow(t *testing.T) {
 	verifier.RegisterToken(testCode, testRawIDToken, googleProfile, nonce)
 
 	// 2. Complete Login
-	user, ses, rawToken, csrfToken, err := service.CompleteLogin(ctx, state, testCode, bindingCookie, "127.0.0.1", "Mozilla/5.0")
+	user, ses, rawToken, csrfToken, returnURL, err := service.CompleteLogin(ctx, state, testCode, bindingCookie, "127.0.0.1", "Mozilla/5.0")
 	if err != nil {
 		t.Fatalf("CompleteLogin failed: %v", err)
+	}
+	if returnURL != "/admin" {
+		t.Fatalf("expected returnURL to be /admin, got %s", returnURL)
 	}
 
 	if user.GoogleSub != "google-sub-12345" || user.Role != RoleCustomer {
@@ -382,7 +385,7 @@ func TestAuthServiceFullFlow(t *testing.T) {
 	}
 
 	// 3. Single-use replay protection
-	_, _, _, _, err = service.CompleteLogin(ctx, state, testCode, bindingCookie, "127.0.0.1", "Mozilla/5.0")
+	_, _, _, _, _, err = service.CompleteLogin(ctx, state, testCode, bindingCookie, "127.0.0.1", "Mozilla/5.0")
 	if err == nil {
 		t.Fatal("replaying login transaction must fail")
 	}

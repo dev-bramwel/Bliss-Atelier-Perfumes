@@ -99,10 +99,10 @@ func (s *Service) BeginLogin(ctx context.Context, returnURL string, ip string, u
 }
 
 // CompleteLogin validates OIDC callback params, exchanges code with PKCE, verifies token,
-// resolves/provisions user, and creates an authoritative session.
-func (s *Service) CompleteLogin(ctx context.Context, state string, code string, bindingCookie string, ip string, userAgent string) (*User, *UserSession, string, string, error) {
+// resolves/provisions user, and creates an authoritative session. Returns user, session, rawToken, csrfToken, returnURL, error.
+func (s *Service) CompleteLogin(ctx context.Context, state string, code string, bindingCookie string, ip string, userAgent string) (*User, *UserSession, string, string, string, error) {
 	if state == "" || code == "" || bindingCookie == "" {
-		return nil, nil, "", "", errors.New("missing oauth state, code, or browser binding")
+		return nil, nil, "", "", "", errors.New("missing oauth state, code, or browser binding")
 	}
 
 	stateHash := HashToken(state)
@@ -111,39 +111,39 @@ func (s *Service) CompleteLogin(ctx context.Context, state string, code string, 
 	// 1. Consume login transaction (atomic, single-use, browser-bound)
 	tx, err := s.store.ConsumeLoginTransaction(ctx, stateHash, browserBindingHash)
 	if err != nil {
-		return nil, nil, "", "", fmt.Errorf("invalid oauth transaction: %w", err)
+		return nil, nil, "", "", "", fmt.Errorf("invalid oauth transaction: %w", err)
 	}
 
 	// 2. Exchange authorization code with PKCE verifier
 	rawIDToken, err := s.verifier.ExchangeCode(ctx, code, tx.PKCEVerifier)
 	if err != nil {
-		return nil, nil, "", "", fmt.Errorf("token exchange failed: %w", err)
+		return nil, nil, "", "", "", fmt.Errorf("token exchange failed: %w", err)
 	}
 
 	// 3. Cryptographically verify ID token and nonce
 	profile, err := s.verifier.VerifyIDToken(ctx, rawIDToken, tx.Nonce)
 	if err != nil {
-		return nil, nil, "", "", fmt.Errorf("id token verification failed: %w", err)
+		return nil, nil, "", "", "", fmt.Errorf("id token verification failed: %w", err)
 	}
 
 	// 4. Resolve or create user account (google_sub is primary identity key)
 	user, err := s.store.UpsertUserByGoogleSub(ctx, profile.Subject, profile.Email, profile.Name, profile.Picture)
 	if err != nil {
-		return nil, nil, "", "", fmt.Errorf("failed to upsert user account: %w", err)
+		return nil, nil, "", "", "", fmt.Errorf("failed to upsert user account: %w", err)
 	}
 
 	if !user.IsActive {
-		return nil, nil, "", "", ErrAccountDeactivated
+		return nil, nil, "", "", "", ErrAccountDeactivated
 	}
 
 	// 5. Create authoritative server session
 	rawToken, err := GenerateSessionToken()
 	if err != nil {
-		return nil, nil, "", "", fmt.Errorf("failed to generate session token: %w", err)
+		return nil, nil, "", "", "", fmt.Errorf("failed to generate session token: %w", err)
 	}
 	csrfSecret, err := RandomString(32)
 	if err != nil {
-		return nil, nil, "", "", fmt.Errorf("failed to generate csrf secret: %w", err)
+		return nil, nil, "", "", "", fmt.Errorf("failed to generate csrf secret: %w", err)
 	}
 
 	now := time.Now()
@@ -168,7 +168,7 @@ func (s *Service) CompleteLogin(ctx context.Context, state string, code string, 
 	}
 
 	if err := s.store.CreateSession(ctx, session); err != nil {
-		return nil, nil, "", "", fmt.Errorf("failed to create session: %w", err)
+		return nil, nil, "", "", "", fmt.Errorf("failed to create session: %w", err)
 	}
 
 	// Cache session in Redis if available
@@ -190,7 +190,11 @@ func (s *Service) CompleteLogin(ctx context.Context, state string, code string, 
 	}
 
 	csrfToken := GenerateCSRFToken(csrfSecret)
-	return user, &session, rawToken, csrfToken, nil
+	returnURL := tx.ReturnURL
+	if !IsSafeReturnURL(returnURL) || returnURL == "" {
+		returnURL = "/"
+	}
+	return user, &session, rawToken, csrfToken, returnURL, nil
 }
 
 // ValidateSession verifies token against PostgreSQL (with Redis acceleration) and slides inactivity.

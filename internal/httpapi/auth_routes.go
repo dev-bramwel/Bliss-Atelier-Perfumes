@@ -173,7 +173,7 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 			return
 		}
 
-		user, ses, rawToken, csrfToken, err := authService.CompleteLogin(r.Context(), state, code, txCookie.Value, clientIP, r.UserAgent())
+		user, ses, rawToken, csrfToken, returnURL, err := authService.CompleteLogin(r.Context(), state, code, txCookie.Value, clientIP, r.UserAgent())
 		if err != nil {
 			http.Error(w, `{"error":"authentication failed: `+err.Error()+`"}`, http.StatusUnauthorized)
 			return
@@ -215,9 +215,9 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		})
 
-		returnURL := "/"
-		if r.URL.Query().Get("return_url") != "" && auth.IsSafeReturnURL(r.URL.Query().Get("return_url")) {
-			returnURL = r.URL.Query().Get("return_url")
+		// Ensure returnURL is safe relative path
+		if !auth.IsSafeReturnURL(returnURL) || returnURL == "" {
+			returnURL = "/"
 		}
 
 		if strings.Contains(r.Header.Get("Accept"), "application/json") || r.URL.Query().Get("format") == "json" {
@@ -267,7 +267,10 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 		}
 
 		rawToken := ExtractSessionToken(r)
-		_ = authService.RevokeSession(r.Context(), rawToken)
+		if err := authService.RevokeSession(r.Context(), rawToken); err != nil {
+			http.Error(w, `{"error":"failed to revoke session"}`, http.StatusInternalServerError)
+			return
+		}
 
 		// Clear cookies
 		http.SetCookie(w, &http.Cookie{
@@ -307,7 +310,10 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 			return
 		}
 
-		_ = authService.RevokeAllUserSessions(r.Context(), user.ID)
+		if err := authService.RevokeAllUserSessions(r.Context(), user.ID); err != nil {
+			http.Error(w, `{"error":"failed to revoke user sessions"}`, http.StatusInternalServerError)
+			return
+		}
 
 		http.SetCookie(w, &http.Cookie{
 			Name:     "bliss_session",
