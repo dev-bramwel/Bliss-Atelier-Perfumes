@@ -17,11 +17,12 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 
 	// 1. GET /api/admin/users - List users respecting Upward Visibility & Downward Isolation
 	mux.HandleFunc("GET /api/admin/users", func(w http.ResponseWriter, r *http.Request) {
-		user, _, err := AuthenticateRequest(r.Context(), r, authService, checker)
+		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
 			return
 		}
+		RefreshSessionCookie(w, r, ses)
 
 		if !auth.IsStaff(user.Role) {
 			http.Error(w, `{"error":"forbidden: staff role required"}`, http.StatusForbidden)
@@ -52,6 +53,7 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
 			return
 		}
+		RefreshSessionCookie(w, r, ses)
 
 		if !RequireCSRF(r, ses) {
 			http.Error(w, `{"error":"invalid csrf token"}`, http.StatusForbidden)
@@ -97,6 +99,7 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
 			return
 		}
+		RefreshSessionCookie(w, r, ses)
 
 		if !RequireCSRF(r, ses) {
 			http.Error(w, `{"error":"invalid csrf token"}`, http.StatusForbidden)
@@ -137,11 +140,12 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 
 	// 4. GET /api/admin/audit-logs - Inspect audit logs with Downward Isolation
 	mux.HandleFunc("GET /api/admin/audit-logs", func(w http.ResponseWriter, r *http.Request) {
-		user, _, err := AuthenticateRequest(r.Context(), r, authService, checker)
+		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
 			return
 		}
+		RefreshSessionCookie(w, r, ses)
 
 		if !auth.IsStaff(user.Role) {
 			http.Error(w, `{"error":"forbidden: staff role required"}`, http.StatusForbidden)

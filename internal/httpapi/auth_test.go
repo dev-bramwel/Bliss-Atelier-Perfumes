@@ -177,15 +177,17 @@ func (m *testAuthStore) RevokeSessionByTokenHash(ctx context.Context, tokenHash 
 	return nil
 }
 
-func (m *testAuthStore) RevokeSessionsByUserID(ctx context.Context, userID string) error {
+func (m *testAuthStore) RevokeSessionsByUserID(ctx context.Context, userID string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var revoked []string
 	for _, ses := range m.sessions {
-		if ses.UserID == userID {
+		if ses.UserID == userID && !ses.IsRevoked {
 			ses.IsRevoked = true
+			revoked = append(revoked, ses.TokenHash)
 		}
 	}
-	return nil
+	return revoked, nil
 }
 
 func (m *testAuthStore) RecordAuditLog(ctx context.Context, entry auth.AuditLogEntry) error {

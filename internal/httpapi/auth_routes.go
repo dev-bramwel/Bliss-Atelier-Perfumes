@@ -76,6 +76,43 @@ func SessionFromContext(ctx context.Context) *auth.UserSession {
 	return nil
 }
 
+// RefreshSessionCookie reissues the session cookie and CSRF cookie with renewed MaxAge matching sliding inactivity.
+func RefreshSessionCookie(w http.ResponseWriter, r *http.Request, ses *auth.UserSession) {
+	if w == nil || r == nil || ses == nil {
+		return
+	}
+	cookie, err := r.Cookie("bliss_session")
+	if err != nil || cookie == nil || cookie.Value == "" {
+		return
+	}
+	remaining := int(time.Until(ses.ExpiresAt).Seconds())
+	if remaining <= 0 {
+		return
+	}
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, &http.Cookie{
+		Name:     "bliss_session",
+		Value:    cookie.Value,
+		Path:     "/",
+		MaxAge:   remaining,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+	})
+	if ses.CSRFSecret != "" {
+		csrfToken := auth.GenerateCSRFToken(ses.CSRFSecret)
+		http.SetCookie(w, &http.Cookie{
+			Name:     "bliss_csrf",
+			Value:    csrfToken,
+			Path:     "/",
+			MaxAge:   remaining,
+			HttpOnly: false,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   secure,
+		})
+	}
+}
+
 // RequireCSRF verifies that state-modifying requests authenticated via cookie carry a valid CSRF header.
 func RequireCSRF(r *http.Request, ses *auth.UserSession) bool {
 	if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
@@ -205,6 +242,7 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
 			return
 		}
+		RefreshSessionCookie(w, r, ses)
 
 		csrfToken := auth.GenerateCSRFToken(ses.CSRFSecret)
 		w.Header().Set("Content-Type", "application/json")

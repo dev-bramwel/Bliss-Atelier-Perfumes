@@ -177,15 +177,12 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	authorizeOrder := func(ctx context.Context, r *http.Request, id string) (bool, error) {
 		if authService != nil {
 			if user, _, err := AuthenticateRequest(ctx, r, authService, proxyChecker); err == nil && user != nil {
-				if auth.IsStaff(user.Role) {
+				// Upward Visibility: Owner and Manager oversee all orders
+				if user.Role == auth.RoleOwner || user.Role == auth.RoleManager {
 					return true, nil
 				}
-				if user.Role == auth.RoleCustomer && orderStore != nil {
-					ord, err := orderStore.GetOrder(ctx, id)
-					if err == nil && ord != nil && strings.EqualFold(ord.CustomerName, user.Name) {
-						return true, nil
-					}
-				}
+				// Downward Isolation: Employees and Customers do not have blanket access to arbitrary orders.
+				// Customer and guest access requires possession of the order's guest token.
 			}
 		}
 		return AuthorizeOrderAccess(ctx, r, id, orderStore, []string{secConfig.ManagerSecret}...)
@@ -642,6 +639,15 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					respond(w, 403, map[string]string{"error": "access denied for this order"})
 				}
 				return
+			}
+
+			if authService != nil {
+				if _, ses, err := AuthenticateRequest(ctx, r, authService, proxyChecker); err == nil && ses != nil {
+					if !RequireCSRF(r, ses) {
+						respond(w, http.StatusForbidden, map[string]string{"error": "invalid csrf token"})
+						return
+					}
+				}
 			}
 
 			var maxBytesErr *http.MaxBytesError
@@ -1242,6 +1248,15 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 
+			if authService != nil {
+				if _, ses, err := AuthenticateRequest(ctx, r, authService, proxyChecker); err == nil && ses != nil {
+					if !RequireCSRF(r, ses) {
+						respond(w, http.StatusForbidden, map[string]string{"error": "invalid csrf token"})
+						return
+					}
+				}
+			}
+
 			var req struct {
 				Version int `json:"version"`
 			}
@@ -1306,6 +1321,15 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					respond(w, 403, map[string]string{"error": "access denied for this order"})
 				}
 				return
+			}
+
+			if authService != nil {
+				if _, ses, err := AuthenticateRequest(ctx, r, authService, proxyChecker); err == nil && ses != nil {
+					if !RequireCSRF(r, ses) {
+						respond(w, http.StatusForbidden, map[string]string{"error": "invalid csrf token"})
+						return
+					}
+				}
 			}
 
 			var req struct {

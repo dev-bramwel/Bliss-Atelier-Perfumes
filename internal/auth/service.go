@@ -203,17 +203,27 @@ func (s *Service) ValidateSession(ctx context.Context, rawToken string, ip strin
 
 	// Fast path: check Redis cache
 	if cachedSes, cachedUser := s.getCachedSession(ctx, tokenHash); cachedSes != nil && cachedUser != nil {
-		// Verify validity
+		// Verify cached validity
 		now := time.Now()
 		if cachedSes.IsRevoked || !cachedUser.IsActive {
+			s.evictCachedSession(ctx, tokenHash)
 			return nil, nil, ErrSessionNotFound
 		}
 		if now.After(cachedSes.ExpiresAt) || now.After(cachedSes.MaxExpiresAt) {
+			s.evictCachedSession(ctx, tokenHash)
 			return nil, nil, ErrSessionExpired
 		}
+
+		// Revalidate against authoritative DB to prevent privilege drift / stale revocation bypass
+		authoritativeUser, err := s.store.GetUserByID(ctx, cachedUser.ID)
+		if err != nil || authoritativeUser == nil || !authoritativeUser.IsActive || authoritativeUser.Role != cachedUser.Role {
+			s.evictCachedSession(ctx, tokenHash)
+			return nil, nil, ErrSessionNotFound
+		}
+
 		// Redis hit is valid; update sliding expiration in DB and Redis
-		s.slideExpiration(ctx, cachedSes, cachedUser, tokenHash, now)
-		return cachedSes, cachedUser, nil
+		s.slideExpiration(ctx, cachedSes, authoritativeUser, tokenHash, now)
+		return cachedSes, authoritativeUser, nil
 	}
 
 	// Authoritative DB path (Fail-Closed: DB error aborts request)
@@ -275,8 +285,14 @@ func (s *Service) RevokeAllUserSessions(ctx context.Context, userID string) erro
 	if userID == "" {
 		return nil
 	}
-	// PostgreSQL revocation
-	return s.store.RevokeSessionsByUserID(ctx, userID)
+	revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, h := range revokedHashes {
+		s.evictCachedSession(ctx, h)
+	}
+	return nil
 }
 
 // UpdateUserRole enforces Downward Isolation & Upward Visibility when modifying user roles.
@@ -307,10 +323,15 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor *User, targetUserID 
 	}
 
 	// Invariant: Privileged role change immediately revokes target's existing sessions
-	_ = s.store.RevokeSessionsByUserID(ctx, targetUserID)
+	revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUserID)
+	if err == nil {
+		for _, h := range revokedHashes {
+			s.evictCachedSession(ctx, h)
+		}
+	}
 
 	// Append-only audit record
-	_ = s.store.RecordAuditLog(ctx, AuditLogEntry{
+	if err := s.store.RecordAuditLog(ctx, AuditLogEntry{
 		UserID:     &actor.ID,
 		ActorRole:  actor.Role,
 		Action:     "update_user_role",
@@ -322,7 +343,9 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor *User, targetUserID 
 			"new_role":      newRole,
 			"target_email":  targetUser.Email,
 		},
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to record audit log: %w", err)
+	}
 
 	return nil
 }
@@ -351,10 +374,15 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 	}
 
 	if !isActive {
-		_ = s.store.RevokeSessionsByUserID(ctx, targetUserID)
+		revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUserID)
+		if err == nil {
+			for _, h := range revokedHashes {
+				s.evictCachedSession(ctx, h)
+			}
+		}
 	}
 
-	_ = s.store.RecordAuditLog(ctx, AuditLogEntry{
+	if err := s.store.RecordAuditLog(ctx, AuditLogEntry{
 		UserID:     &actor.ID,
 		ActorRole:  actor.Role,
 		Action:     "update_user_status",
@@ -365,7 +393,9 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 			"is_active":    isActive,
 			"target_email": targetUser.Email,
 		},
-	})
+	}); err != nil {
+		return fmt.Errorf("failed to record audit log: %w", err)
+	}
 
 	return nil
 }
@@ -456,7 +486,12 @@ func (s *Service) BootstrapInitialOwner(ctx context.Context, targetEmail string)
 	}
 
 	// Invalidate previous sessions
-	_ = s.store.RevokeSessionsByUserID(ctx, targetUser.ID)
+	revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUser.ID)
+	if err == nil {
+		for _, h := range revokedHashes {
+			s.evictCachedSession(ctx, h)
+		}
+	}
 
 	// Record immutable audit entry
 	_ = s.store.RecordAuditLog(ctx, AuditLogEntry{

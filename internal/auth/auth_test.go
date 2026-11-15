@@ -304,15 +304,17 @@ func (m *memStore) RevokeSessionByTokenHash(ctx context.Context, tokenHash strin
 	return nil
 }
 
-func (m *memStore) RevokeSessionsByUserID(ctx context.Context, userID string) error {
+func (m *memStore) RevokeSessionsByUserID(ctx context.Context, userID string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var revoked []string
 	for _, ses := range m.sessions {
-		if ses.UserID == userID {
+		if ses.UserID == userID && !ses.IsRevoked {
 			ses.IsRevoked = true
+			revoked = append(revoked, ses.TokenHash)
 		}
 	}
-	return nil
+	return revoked, nil
 }
 
 func (m *memStore) RecordAuditLog(ctx context.Context, entry AuditLogEntry) error {

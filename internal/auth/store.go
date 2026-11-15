@@ -33,7 +33,7 @@ type Store interface {
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (*UserSession, *User, error)
 	TouchSession(ctx context.Context, tokenHash string, newExpiresAt time.Time) error
 	RevokeSessionByTokenHash(ctx context.Context, tokenHash string) error
-	RevokeSessionsByUserID(ctx context.Context, userID string) error
+	RevokeSessionsByUserID(ctx context.Context, userID string) ([]string, error)
 
 	// Audit operations
 	RecordAuditLog(ctx context.Context, entry AuditLogEntry) error
@@ -276,10 +276,22 @@ func (s *PGStore) RevokeSessionByTokenHash(ctx context.Context, tokenHash string
 	return err
 }
 
-// RevokeSessionsByUserID revokes all active sessions for a user (e.g. on role change or user deactivation).
-func (s *PGStore) RevokeSessionsByUserID(ctx context.Context, userID string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE public.user_session SET is_revoked = TRUE WHERE user_id = $1`, userID)
-	return err
+// RevokeSessionsByUserID revokes all active sessions for a user (e.g. on role change or user deactivation),
+// returning the token hashes that were revoked so caches can be cleared.
+func (s *PGStore) RevokeSessionsByUserID(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `UPDATE public.user_session SET is_revoked = TRUE WHERE user_id = $1 AND is_revoked = FALSE RETURNING token_hash`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var hashes []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err == nil {
+			hashes = append(hashes, h)
+		}
+	}
+	return hashes, rows.Err()
 }
 
 // RecordAuditLog writes an immutable record to admin_audit_log.
