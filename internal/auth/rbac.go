@@ -66,10 +66,10 @@ func CanManageRole(actorRole string, targetRole string) bool {
 }
 
 // CanInspectAuditLogs enforces audit visibility:
-// - 'owner' has full upward visibility over all system audit logs.
-// - 'manager' can inspect operational audit events (actions by manager, employee, or customer),
-//   but is downward-isolated from owner actions.
-// - 'employee' and 'customer' cannot inspect audit logs.
+//   - 'owner' has full upward visibility over all system audit logs.
+//   - 'manager' can inspect operational audit events (actions by manager, employee, or customer),
+//     but is downward-isolated from owner actions.
+//   - 'employee' and 'customer' cannot inspect audit logs.
 func CanInspectAuditLogs(actorRole string, targetLogActorRole string) bool {
 	switch actorRole {
 	case RoleOwner:

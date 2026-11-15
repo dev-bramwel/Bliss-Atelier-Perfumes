@@ -125,13 +125,13 @@ func (p *ProductionGoogleVerifier) VerifyIDToken(ctx context.Context, rawIDToken
 
 // MockOIDCVerifier provides an in-memory test double for testing authorization-code and token verification.
 type MockOIDCVerifier struct {
-	mu           sync.Mutex
-	AuthURLStub  string
-	Tokens       map[string]string         // code -> rawIDToken
-	Profiles     map[string]*GoogleProfile // rawIDToken -> Profile
-	Nonces       map[string]string         // rawIDToken -> expectedNonce
-	ExchangeErr  error
-	VerifyErr    error
+	mu          sync.Mutex
+	AuthURLStub string
+	Tokens      map[string]string         // code -> rawIDToken
+	Profiles    map[string]*GoogleProfile // rawIDToken -> Profile
+	Nonces      map[string]string         // rawIDToken -> expectedNonce
+	ExchangeErr error
+	VerifyErr   error
 }
 
 // NewMockOIDCVerifier initializes an empty mock verifier.
