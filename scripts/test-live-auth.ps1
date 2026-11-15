@@ -7,7 +7,7 @@ Write-Host "================================================================="
 Write-Host " Testing Live Instance Google Auth & RBAC Architecture on $baseUrl"
 Write-Host "================================================================="
 
-function Perform-MockLogin {
+function Invoke-MockLogin {
     param(
         [string]$RoleName
     )
@@ -115,7 +115,7 @@ function Invoke-Api {
 
 # --- STEP 1: Bootstrapped Owner Login ---
 Write-Host "`n[STEP 1] Logging in as Owner (owner@blissatelier.com)..." -ForegroundColor Cyan
-$ownerAuth = Perform-MockLogin -RoleName "owner"
+$ownerAuth = Invoke-MockLogin -RoleName "owner"
 Write-Host "  -> Owner Logged In: ID=$($ownerAuth.User.id), Email=$($ownerAuth.User.email), Role=$($ownerAuth.User.role)" -ForegroundColor Green
 if ($ownerAuth.User.role -ne "owner") {
     throw "Owner role was not bootstrapped! Expected 'owner', got '$($ownerAuth.User.role)'"
@@ -123,11 +123,11 @@ if ($ownerAuth.User.role -ne "owner") {
 
 # --- STEP 2: Manager, Employee, and Customer Logins ---
 Write-Host "`n[STEP 2] Logging in candidate Manager, Employee, and Customer..." -ForegroundColor Cyan
-$managerAuth = Perform-MockLogin -RoleName "manager"
+$managerAuth = Invoke-MockLogin -RoleName "manager"
 Write-Host "  -> Manager Candidate ID=$($managerAuth.User.id), Email=$($managerAuth.User.email), Initial Role=$($managerAuth.User.role)"
-$employeeAuth = Perform-MockLogin -RoleName "employee"
+$employeeAuth = Invoke-MockLogin -RoleName "employee"
 Write-Host "  -> Employee Candidate ID=$($employeeAuth.User.id), Email=$($employeeAuth.User.email), Initial Role=$($employeeAuth.User.role)"
-$customerAuth = Perform-MockLogin -RoleName "customer"
+$customerAuth = Invoke-MockLogin -RoleName "customer"
 Write-Host "  -> Customer ID=$($customerAuth.User.id), Email=$($customerAuth.User.email), Initial Role=$($customerAuth.User.role)"
 
 # --- STEP 3: Owner Promotes Manager and Employee ---
@@ -138,9 +138,9 @@ Invoke-Api -Method "POST" -Path "/api/admin/users/$($employeeAuth.User.id)/role"
 Write-Host "  -> Promoted $($employeeAuth.User.email) to employee" -ForegroundColor Green
 
 # Refresh auth contexts after role update
-$managerAuth = Perform-MockLogin -RoleName "manager"
+$managerAuth = Invoke-MockLogin -RoleName "manager"
 if ($managerAuth.User.role -ne "manager") { throw "Manager role update failed" }
-$employeeAuth = Perform-MockLogin -RoleName "employee"
+$employeeAuth = Invoke-MockLogin -RoleName "employee"
 if ($employeeAuth.User.role -ne "employee") { throw "Employee role update failed" }
 
 # --- STEP 4: Upward Visibility & Downward Isolation Verification ---
