@@ -40,6 +40,12 @@ type Config struct {
 
 	// Redis caching & rate limiting configuration
 	RedisURL string
+
+	// Google OIDC & Identity configuration
+	GoogleClientID      string
+	GoogleClientSecret  string
+	GoogleRedirectURL   string
+	BootstrapOwnerEmail string
 }
 
 // Load uses separate GO_ settings so the legacy backend remains independent.
@@ -219,6 +225,46 @@ func Load(get func(string) string) (Config, error) {
 		if e != nil || (u.Scheme != "redis" && u.Scheme != "rediss") || u.Host == "" {
 			return Config{}, errors.New("GO_REDIS_URL must be a valid redis:// or rediss:// URL")
 		}
+	}
+
+	c.GoogleClientID = strings.TrimSpace(get("GO_GOOGLE_CLIENT_ID"))
+	if path := get("GO_GOOGLE_CLIENT_ID_FILE"); path != "" {
+		if c.GoogleClientID != "" {
+			return Config{}, errors.New("set only one of GO_GOOGLE_CLIENT_ID and GO_GOOGLE_CLIENT_ID_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_GOOGLE_CLIENT_ID_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_GOOGLE_CLIENT_ID_FILE could not be read")
+		}
+		c.GoogleClientID = strings.TrimSpace(string(data))
+	}
+
+	c.GoogleClientSecret = strings.TrimSpace(get("GO_GOOGLE_CLIENT_SECRET"))
+	if path := get("GO_GOOGLE_CLIENT_SECRET_FILE"); path != "" {
+		if c.GoogleClientSecret != "" {
+			return Config{}, errors.New("set only one of GO_GOOGLE_CLIENT_SECRET and GO_GOOGLE_CLIENT_SECRET_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_GOOGLE_CLIENT_SECRET_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_GOOGLE_CLIENT_SECRET_FILE could not be read")
+		}
+		c.GoogleClientSecret = strings.TrimSpace(string(data))
+	}
+
+	c.GoogleRedirectURL = strings.TrimSpace(get("GO_GOOGLE_REDIRECT_URL"))
+	c.BootstrapOwnerEmail = strings.TrimSpace(get("GO_BOOTSTRAP_OWNER_EMAIL"))
+	if c.BootstrapOwnerEmail == "" {
+		c.BootstrapOwnerEmail = strings.TrimSpace(get("BLISS_BOOTSTRAP_OWNER_EMAIL"))
 	}
 
 	if c.DatabaseURL != "" {

@@ -391,7 +391,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v8.json")), &expected); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v9.json")), &expected); err != nil {
 			t.Fatal(err)
 		}
 		if len(actual) != len(expected) {
@@ -473,6 +473,15 @@ func testRuntimeGrants(t *testing.T, admin *pgxpool.Pool) {
 	denied(`ALTER TABLE public."Order" ADD COLUMN surprise text`)
 	denied(`SELECT * FROM public.bliss_schema_migrations`)
 	denied(`UPDATE public.bliss_schema_migrations SET checksum='tampered'`)
+	execSQL(t, admin, `GRANT SELECT, INSERT, UPDATE ON TABLE public.app_user TO `+identifier(runtime))
+	execSQL(t, admin, `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.login_transaction, public.user_session TO `+identifier(runtime))
+	execSQL(t, admin, `GRANT SELECT, INSERT ON TABLE public.admin_audit_log TO `+identifier(runtime))
+	execSQL(t, runtimePool, `INSERT INTO public.app_user(id,google_sub,email,name,role) VALUES ('usr-1','sub-1','test@example.com','Test User','customer')`)
+	execSQL(t, runtimePool, `UPDATE public.app_user SET name='Updated' WHERE id='usr-1'`)
+	denied(`DELETE FROM public.app_user WHERE id='usr-1'`)
+	execSQL(t, runtimePool, `INSERT INTO public.admin_audit_log(id,actor_role,action,resource,ip_address) VALUES ('audit-1','owner','test_action','app_user','127.0.0.1')`)
+	denied(`UPDATE public.admin_audit_log SET action='tampered' WHERE id='audit-1'`)
+	denied(`DELETE FROM public.admin_audit_log WHERE id='audit-1'`)
 	run(t, migrationPool, "status")
 }
 
@@ -662,4 +671,37 @@ func TestGenerateSchemaV8(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log("Successfully generated schema-v8.json")
+}
+
+func TestGenerateSchemaV9(t *testing.T) {
+	if os.Getenv("GENERATE_SCHEMA_V9") != "1" {
+		t.Skip("schema generation not requested")
+	}
+	pool := testPool(t)
+	reset(t, pool)
+	legacy(t, pool, false)
+	execSQL(t, pool, read("ledger.sql"))
+	for _, s := range steps()[1:] {
+		execSQL(t, pool, s.sql)
+	}
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "SET LOCAL search_path=pg_catalog,public"); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := inspect(context.Background(), tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.MarshalIndent(actual, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("schema-v9.json", b, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Successfully generated schema-v9.json")
 }
