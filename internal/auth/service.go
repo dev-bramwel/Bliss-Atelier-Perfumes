@@ -214,9 +214,9 @@ func (s *Service) ValidateSession(ctx context.Context, rawToken string, ip strin
 			return nil, nil, ErrSessionExpired
 		}
 
-		// Revalidate against authoritative DB to prevent privilege drift / stale revocation bypass
-		authoritativeUser, err := s.store.GetUserByID(ctx, cachedUser.ID)
-		if err != nil || authoritativeUser == nil || !authoritativeUser.IsActive || authoritativeUser.Role != cachedUser.Role {
+		// Revalidate against authoritative DB to verify session revocation and user status
+		authoritativeSes, authoritativeUser, err := s.store.GetSessionByTokenHash(ctx, tokenHash)
+		if err != nil || authoritativeSes == nil || authoritativeUser == nil || authoritativeSes.IsRevoked || !authoritativeUser.IsActive || authoritativeUser.Role != cachedUser.Role {
 			s.evictCachedSession(ctx, tokenHash)
 			return nil, nil, ErrSessionNotFound
 		}
@@ -324,10 +324,11 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor *User, targetUserID 
 
 	// Invariant: Privileged role change immediately revokes target's existing sessions
 	revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUserID)
-	if err == nil {
-		for _, h := range revokedHashes {
-			s.evictCachedSession(ctx, h)
-		}
+	if err != nil {
+		return fmt.Errorf("failed to revoke target user sessions: %w", err)
+	}
+	for _, h := range revokedHashes {
+		s.evictCachedSession(ctx, h)
 	}
 
 	// Append-only audit record
@@ -375,10 +376,11 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 
 	if !isActive {
 		revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUserID)
-		if err == nil {
-			for _, h := range revokedHashes {
-				s.evictCachedSession(ctx, h)
-			}
+		if err != nil {
+			return fmt.Errorf("failed to revoke sessions for deactivated user: %w", err)
+		}
+		for _, h := range revokedHashes {
+			s.evictCachedSession(ctx, h)
 		}
 	}
 
@@ -403,8 +405,9 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 // ListUsers retrieves users respecting Upward Visibility and Downward Isolation:
 // - Owner: can list all users of all roles.
 // - Manager: can only list employee and customer accounts.
+// - Employee / Customer: denied access (Downward Isolation).
 func (s *Service) ListUsers(ctx context.Context, actor *User, filterRole string) ([]User, error) {
-	if actor == nil || !IsStaff(actor.Role) {
+	if actor == nil || (actor.Role != RoleOwner && actor.Role != RoleManager) {
 		return nil, ErrPermissionDenied
 	}
 
@@ -436,8 +439,9 @@ func (s *Service) ListUsers(ctx context.Context, actor *User, filterRole string)
 // InspectAuditLogs retrieves audit logs respecting Downward Isolation:
 // - Owner: full visibility over all system audit logs.
 // - Manager: operational visibility only (manager, employee, customer); owner logs hidden.
+// - Employee / Customer: denied access (Downward Isolation).
 func (s *Service) InspectAuditLogs(ctx context.Context, actor *User, limit int, offset int) ([]AuditLogEntry, error) {
-	if actor == nil || !IsStaff(actor.Role) {
+	if actor == nil || (actor.Role != RoleOwner && actor.Role != RoleManager) {
 		return nil, ErrPermissionDenied
 	}
 
@@ -512,15 +516,22 @@ func (s *Service) BootstrapInitialOwner(ctx context.Context, targetEmail string)
 
 // Redis session cache helpers
 type cachedSessionData struct {
-	Session UserSession `json:"session"`
-	User    User        `json:"user"`
+	Session    UserSession `json:"session"`
+	CSRFSecret string      `json:"csrf_secret"`
+	TokenHash  string      `json:"token_hash"`
+	User       User        `json:"user"`
 }
 
 func (s *Service) cacheSession(ctx context.Context, tokenHash string, user *User, ses *UserSession) {
 	if s.redisClient == nil || s.redisClient.Underlying() == nil {
 		return
 	}
-	data := cachedSessionData{Session: *ses, User: *user}
+	data := cachedSessionData{
+		Session:    *ses,
+		CSRFSecret: ses.CSRFSecret,
+		TokenHash:  ses.TokenHash,
+		User:       *user,
+	}
 	bytes, err := json.Marshal(data)
 	if err != nil {
 		return
@@ -544,6 +555,8 @@ func (s *Service) getCachedSession(ctx context.Context, tokenHash string) (*User
 	if err := json.Unmarshal([]byte(val), &data); err != nil {
 		return nil, nil
 	}
+	data.Session.CSRFSecret = data.CSRFSecret
+	data.Session.TokenHash = data.TokenHash
 	return &data.Session, &data.User
 }
 

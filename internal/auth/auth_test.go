@@ -474,4 +474,43 @@ func TestAuthServiceFullFlow(t *testing.T) {
 			t.Fatalf("downward isolation breach: manager saw owner audit log: %v", l)
 		}
 	}
+
+	// Downward Isolation: Employee cannot inspect audit logs
+	_, err = service.InspectAuditLogs(ctx, empUpdated, 10, 0)
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected permission denied when employee attempts to inspect audit logs, got %v", err)
+	}
+
+	// 8. User listing downward isolation
+	// Employee cannot list users
+	_, err = service.ListUsers(ctx, empUpdated, "")
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected permission denied when employee attempts to list users, got %v", err)
+	}
+
+	// Manager cannot request owner tier
+	_, err = service.ListUsers(ctx, mgrUpdated, RoleOwner)
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected permission denied when manager requests owner tier, got %v", err)
+	}
+
+	// Manager listing sees only employees and customers
+	mgrVisibleUsers, err := service.ListUsers(ctx, mgrUpdated, "")
+	if err != nil {
+		t.Fatalf("manager failed to list users: %v", err)
+	}
+	for _, u := range mgrVisibleUsers {
+		if u.Role == RoleOwner || u.Role == RoleManager {
+			t.Fatalf("downward isolation breach: manager saw %s user: %v", u.Role, u)
+		}
+	}
+
+	// Owner listing sees all tiers
+	ownerVisibleUsers, err := service.ListUsers(ctx, updatedUser, "")
+	if err != nil {
+		t.Fatalf("owner failed to list users: %v", err)
+	}
+	if len(ownerVisibleUsers) < 3 {
+		t.Fatalf("owner should see at least 3 users, got %d", len(ownerVisibleUsers))
+	}
 }
