@@ -15,8 +15,8 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 		return
 	}
 
-	// 1. GET /api/admin/users - List users respecting Upward Visibility & Downward Isolation
-	mux.HandleFunc("GET /api/admin/users", func(w http.ResponseWriter, r *http.Request) {
+	// 1. GET /admin/users & /api/admin/users - List users respecting Upward Visibility & Downward Isolation
+	handleListUsers := func(w http.ResponseWriter, r *http.Request) {
 		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
@@ -44,10 +44,12 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"users": users,
 		})
-	})
+	}
+	mux.HandleFunc("GET /admin/users", handleListUsers)
+	mux.HandleFunc("GET /api/admin/users", handleListUsers)
 
-	// 2. POST /api/admin/users/{id}/role - Modify user role
-	mux.HandleFunc("POST /api/admin/users/{id}/role", func(w http.ResponseWriter, r *http.Request) {
+	// 2. POST /admin/users/{id}/role & /api/admin/users/{id}/role - Modify user role
+	handleUpdateRole := func(w http.ResponseWriter, r *http.Request) {
 		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
@@ -90,10 +92,12 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 			"user_id": targetUserID,
 			"role":    req.Role,
 		})
-	})
+	}
+	mux.HandleFunc("POST /admin/users/{id}/role", handleUpdateRole)
+	mux.HandleFunc("POST /api/admin/users/{id}/role", handleUpdateRole)
 
-	// 3. POST /api/admin/users/{id}/status - Activate or deactivate user account
-	mux.HandleFunc("POST /api/admin/users/{id}/status", func(w http.ResponseWriter, r *http.Request) {
+	// 3. POST /admin/users/{id}/status & /api/admin/users/{id}/status - Activate or deactivate user account
+	handleUpdateStatus := func(w http.ResponseWriter, r *http.Request) {
 		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
@@ -136,10 +140,12 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 			"user_id":   targetUserID,
 			"is_active": *req.IsActive,
 		})
-	})
+	}
+	mux.HandleFunc("POST /admin/users/{id}/status", handleUpdateStatus)
+	mux.HandleFunc("POST /api/admin/users/{id}/status", handleUpdateStatus)
 
-	// 4. GET /api/admin/audit-logs - Inspect audit logs with Downward Isolation
-	mux.HandleFunc("GET /api/admin/audit-logs", func(w http.ResponseWriter, r *http.Request) {
+	// 4. GET /admin/audit-logs & /api/admin/audit-logs - Inspect audit logs with Downward Isolation
+	handleListAudit := func(w http.ResponseWriter, r *http.Request) {
 		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
@@ -180,5 +186,7 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"audit_logs": logs,
 		})
-	})
+	}
+	mux.HandleFunc("GET /admin/audit-logs", handleListAudit)
+	mux.HandleFunc("GET /api/admin/audit-logs", handleListAudit)
 }

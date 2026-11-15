@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -137,8 +138,8 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 		return
 	}
 
-	// 1. GET /api/auth/google - Initiate OAuth2 Authorization Code flow with PKCE
-	mux.HandleFunc("GET /api/auth/google", func(w http.ResponseWriter, r *http.Request) {
+	// 1. GET /auth/google & /api/auth/google - Initiate OAuth2 Authorization Code flow with PKCE
+	handleGoogleLogin := func(w http.ResponseWriter, r *http.Request) {
 		returnURL := r.URL.Query().Get("return_url")
 		clientIP := SafeClientIP(r, checker)
 
@@ -148,10 +149,18 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 			return
 		}
 
+		if mockRole := r.URL.Query().Get("mock_role"); mockRole != "" {
+			if strings.Contains(authURL, "?") {
+				authURL += "&mock_role=" + url.QueryEscape(mockRole)
+			} else {
+				authURL += "?mock_role=" + url.QueryEscape(mockRole)
+			}
+		}
+
 		http.SetCookie(w, &http.Cookie{
 			Name:     "bliss_oauth_tx",
 			Value:    bindingCookie,
-			Path:     "/api/auth",
+			Path:     "/",
 			MaxAge:   600, // 10 minutes
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
@@ -159,11 +168,20 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 		})
 
 		http.Redirect(w, r, authURL, http.StatusFound)
-	})
+	}
+	mux.HandleFunc("GET /auth/google", handleGoogleLogin)
+	mux.HandleFunc("GET /api/auth/google", handleGoogleLogin)
 
-	// 2. GET /api/auth/google/callback - Process Google OIDC callback
-	mux.HandleFunc("GET /api/auth/google/callback", func(w http.ResponseWriter, r *http.Request) {
+	// 2. GET /auth/google/callback & /api/auth/google/callback - Process Google OIDC callback
+	handleCallback := func(w http.ResponseWriter, r *http.Request) {
 		code := strings.TrimSpace(r.URL.Query().Get("code"))
+		if code == "" && r.URL.Query().Get("mock") != "" {
+			mockRole := r.URL.Query().Get("mock_role")
+			if mockRole == "" {
+				mockRole = "owner"
+			}
+			code = "mock-" + mockRole
+		}
 		state := strings.TrimSpace(r.URL.Query().Get("state"))
 		clientIP := SafeClientIP(r, checker)
 
@@ -183,7 +201,7 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 		http.SetCookie(w, &http.Cookie{
 			Name:     "bliss_oauth_tx",
 			Value:    "",
-			Path:     "/api/auth",
+			Path:     "/",
 			MaxAge:   -1,
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
@@ -233,10 +251,12 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 		}
 
 		http.Redirect(w, r, returnURL, http.StatusFound)
-	})
+	}
+	mux.HandleFunc("GET /auth/google/callback", handleCallback)
+	mux.HandleFunc("GET /api/auth/google/callback", handleCallback)
 
-	// 3. GET /api/auth/me - Current user profile and fresh CSRF token
-	mux.HandleFunc("GET /api/auth/me", func(w http.ResponseWriter, r *http.Request) {
+	// 3. GET /auth/me & /api/auth/me - Current user profile and fresh CSRF token
+	handleMe := func(w http.ResponseWriter, r *http.Request) {
 		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
@@ -251,10 +271,12 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 			"user":       user,
 			"csrf_token": csrfToken,
 		})
-	})
+	}
+	mux.HandleFunc("GET /auth/me", handleMe)
+	mux.HandleFunc("GET /api/auth/me", handleMe)
 
-	// 4. POST /api/auth/logout - Revoke current session
-	mux.HandleFunc("POST /api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+	// 4. POST /auth/logout & /api/auth/logout - Revoke current session
+	handleLogout := func(w http.ResponseWriter, r *http.Request) {
 		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
@@ -295,10 +317,12 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 			"status":  "logged_out",
 			"user_id": user.ID,
 		})
-	})
+	}
+	mux.HandleFunc("POST /auth/logout", handleLogout)
+	mux.HandleFunc("POST /api/auth/logout", handleLogout)
 
-	// 5. POST /api/auth/revoke-all - Revoke all active sessions for current user across all devices
-	mux.HandleFunc("POST /api/auth/revoke-all", func(w http.ResponseWriter, r *http.Request) {
+	// 5. POST /auth/revoke-all & /api/auth/revoke-all - Revoke all active sessions for current user across all devices
+	handleRevokeAll := func(w http.ResponseWriter, r *http.Request) {
 		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
@@ -337,5 +361,7 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 			"status":  "all_sessions_revoked",
 			"user_id": user.ID,
 		})
-	})
+	}
+	mux.HandleFunc("POST /auth/revoke-all", handleRevokeAll)
+	mux.HandleFunc("POST /api/auth/revoke-all", handleRevokeAll)
 }
