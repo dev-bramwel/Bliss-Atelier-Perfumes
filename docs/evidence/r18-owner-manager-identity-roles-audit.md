@@ -124,3 +124,19 @@ Forward SQL migration registered at version 9:
 - **Docker Core Verification (`scripts/Test-DockerCore.ps1`)**:
   - Built production multi-stage container images (`bliss-backend`, `bliss-frontend`, `bliss-postgres`).
   - Passed all container checks: non-root execution, loopback binding, read-only rootfs, clean credential layers, and migration failure gating.
+
+### 4.2 Live Instance & Production Google OIDC Verification
+- **Automated Live Harness (`scripts/test-live-auth.ps1`)**:
+  - Validated local live instance running full Docker Compose topology (`bliss-frontend-1` on port 8080, `bliss-api-1` on port 5001, `bliss-db-1` on PostgreSQL 17.11, `bliss-redis-1` on Redis 7).
+  - Exercised full authentication lifecycle: PKCE token initiation, callback transaction binding, session creation, sliding expiration, role promotions, Downward Isolation, session revocation on deactivation, and self-logout.
+- **Production Google OIDC Live Test**:
+  - Connected live stack to Google Production OIDC Provider (`accounts.google.com`) using registered Web OAuth 2.0 Client credentials.
+  - Authenticated genuine Google accounts:
+    - `mutugibramwel@gmail.com` (Subject `109843963122575544752`) -> Successfully bootstrapped as initial **`owner`**.
+    - `wangibrian66@gmail.com` (Subject `105826992383099195059`) -> Initialized as customer, elevated by Owner to **`manager`**.
+    - `mynahnoreen@gmail.com` (Subject `116581322152212910191`) -> Initialized as customer, elevated by Owner to **`employee`**.
+  - **Verified Security Invariants**:
+    - **One-time Bootstrap**: After `mutugibramwel@gmail.com` became Owner, subsequent bootstrap attempts are permanently locked (`CountOwners > 0`).
+    - **Privilege Separation**: Owner promoted accounts using `POST /api/admin/users/:id/role` with `X-CSRF-Token`.
+    - **Session Invalidation**: Prior customer sessions were immediately revoked upon role change, preventing privilege fixation.
+    - **Audit Log Integrity**: Every role transition and login was immutably recorded in PostgreSQL `admin_audit_log`.
