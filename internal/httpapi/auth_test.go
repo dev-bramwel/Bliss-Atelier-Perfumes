@@ -469,4 +469,49 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 	if ownerPromoteRR.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK when owner promotes employee to manager, got %d: %s", ownerPromoteRR.Code, ownerPromoteRR.Body.String())
 	}
+
+	// 6. Downward Isolation: Employee cannot list users
+	empOnlyUser, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp-only", "emp-only@blissatelier.com", "Employee Only", "")
+	_ = store.UpdateUserRole(ctx, empOnlyUser.ID, auth.RoleEmployee)
+	empOnlyCookie, empOnlyCSRF := loginAs(empOnlyUser)
+
+	empReq := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	empReq.AddCookie(empOnlyCookie)
+	empRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(empRR, empReq)
+	if empRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when employee lists users, got %d", empRR.Code)
+	}
+
+	// 7. Downward Isolation: Employee cannot access manager-only operations (e.g., catalog cache invalidation)
+	empInvReq := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
+	empInvReq.AddCookie(empOnlyCookie)
+	empInvReq.Header.Set("X-CSRF-Token", empOnlyCSRF)
+	empInvRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(empInvRR, empInvReq)
+	if empInvRR.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized when employee accesses manager endpoint, got %d: %s", empInvRR.Code, empInvRR.Body.String())
+	}
+
+	// 8. CSRF Protection: Manager session accessing mutating manager endpoint without CSRF is rejected
+	mgrInvNoCSRF := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
+	mgrInvNoCSRF.AddCookie(mgrCookie)
+	mgrInvNoCSRFRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(mgrInvNoCSRFRR, mgrInvNoCSRF)
+	if mgrInvNoCSRFRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when manager accesses endpoint without CSRF, got %d", mgrInvNoCSRFRR.Code)
+	}
+
+	// 9. Manager session accessing mutating manager endpoint WITH CSRF succeeds and refreshes session cookie
+	mgrInvWithCSRF := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
+	mgrInvWithCSRF.AddCookie(mgrCookie)
+	mgrInvWithCSRF.Header.Set("X-CSRF-Token", mgrCSRF)
+	mgrInvWithCSRFRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(mgrInvWithCSRFRR, mgrInvWithCSRF)
+	if mgrInvWithCSRFRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when manager accesses endpoint with CSRF, got %d: %s", mgrInvWithCSRFRR.Code, mgrInvWithCSRFRR.Body.String())
+	}
+	if !strings.Contains(mgrInvWithCSRFRR.Header().Get("Set-Cookie"), "bliss_session") {
+		t.Fatalf("expected sliding session cookie refresh in response Set-Cookie")
+	}
 }
