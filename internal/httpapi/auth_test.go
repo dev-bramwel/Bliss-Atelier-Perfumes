@@ -79,7 +79,7 @@ func (m *testAuthStore) CountOwners(ctx context.Context) (int, error) {
 	defer m.mu.Unlock()
 	count := 0
 	for _, u := range m.users {
-		if u.Role == auth.RoleOwner && u.IsActive {
+		if u.Role == auth.RoleOwner {
 			count++
 		}
 	}

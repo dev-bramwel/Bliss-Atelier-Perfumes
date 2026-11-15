@@ -204,7 +204,7 @@ func (m *memStore) CountOwners(ctx context.Context) (int, error) {
 	defer m.mu.Unlock()
 	count := 0
 	for _, u := range m.users {
-		if u.Role == RoleOwner && u.IsActive {
+		if u.Role == RoleOwner {
 			count++
 		}
 	}
@@ -399,6 +399,37 @@ func TestAuthServiceFullFlow(t *testing.T) {
 		t.Fatal("session validation returned incorrect user or session")
 	}
 
+	// 4b. Security: Unverified email claim is omitted and cannot satisfy bootstrap
+	authURL2, bind2, _ := service.BeginLogin(ctx, "/", "127.0.0.1", "test")
+	parts2 := strings.Split(authURL2, "&")
+	var state2, nonce2 string
+	for _, p := range parts2 {
+		if strings.HasPrefix(p, "state=") {
+			state2 = strings.TrimPrefix(p, "state=")
+		}
+		if strings.HasPrefix(p, "nonce=") {
+			nonce2 = strings.TrimPrefix(p, "nonce=")
+		}
+	}
+	unverifiedCode := "unverified-code"
+	verifier.RegisterToken(unverifiedCode, "id-tok-unverified", &GoogleProfile{
+		Subject:       "sub-unverified",
+		Email:         "unverified@blissatelier.com",
+		EmailVerified: false,
+		Name:          "Unverified User",
+	}, nonce2)
+	uUser, _, _, _, _, err := service.CompleteLogin(ctx, state2, unverifiedCode, bind2, "127.0.0.1", "test")
+	if err != nil {
+		t.Fatalf("CompleteLogin failed: %v", err)
+	}
+	if uUser.Email != "" {
+		t.Fatalf("expected unverified email to be omitted, got %q", uUser.Email)
+	}
+	unverifiedBootstrap, err := service.BootstrapInitialOwner(ctx, "unverified@blissatelier.com")
+	if !errors.Is(err, ErrBootstrapNotAllowed) || unverifiedBootstrap {
+		t.Fatalf("expected ErrBootstrapNotAllowed for unverified email, got %v", err)
+	}
+
 	// 5. Bootstrap Initial Owner
 	// Bootstrap succeeds for pre-existing account
 	bootstrapped, err := service.BootstrapInitialOwner(ctx, "owner.candidate@blissatelier.com")
@@ -423,6 +454,14 @@ func TestAuthServiceFullFlow(t *testing.T) {
 	if err != nil || bootstrappedAgain {
 		t.Fatal("subsequent bootstrap attempts must be permanently disabled once an owner exists")
 	}
+
+	// Invariant: Even if owner account is deactivated, bootstrap remains permanently disabled
+	_ = store.UpdateUserStatus(ctx, updatedUser.ID, false)
+	bootstrappedAfterDeactivate, err := service.BootstrapInitialOwner(ctx, "someone.else@blissatelier.com")
+	if err != nil || bootstrappedAfterDeactivate {
+		t.Fatal("bootstrap must remain permanently disabled even if owner is deactivated")
+	}
+	_ = store.UpdateUserStatus(ctx, updatedUser.ID, true)
 
 	// 6. Test User Role Updates & Downward Isolation
 	// Create an employee candidate

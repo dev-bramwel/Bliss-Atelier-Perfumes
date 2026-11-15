@@ -127,7 +127,13 @@ func (s *Service) CompleteLogin(ctx context.Context, state string, code string, 
 	}
 
 	// 4. Resolve or create user account (google_sub is primary identity key)
-	user, err := s.store.UpsertUserByGoogleSub(ctx, profile.Subject, profile.Email, profile.Name, profile.Picture)
+	// Security: Only associate and trust email if Google has cryptographically verified it.
+	// This prevents unverified email claims from hijacking accounts or satisfying bootstrap requirements.
+	userEmail := ""
+	if profile.EmailVerified {
+		userEmail = strings.TrimSpace(profile.Email)
+	}
+	user, err := s.store.UpsertUserByGoogleSub(ctx, profile.Subject, userEmail, profile.Name, profile.Picture)
 	if err != nil {
 		return nil, nil, "", "", "", fmt.Errorf("failed to upsert user account: %w", err)
 	}
@@ -218,11 +224,15 @@ func (s *Service) ValidateSession(ctx context.Context, rawToken string, ip strin
 			return nil, nil, ErrSessionExpired
 		}
 
-		// Revalidate against authoritative DB to verify session revocation and user status
+		// Revalidate against authoritative DB to verify session revocation, user status, and authoritative expiry
 		authoritativeSes, authoritativeUser, err := s.store.GetSessionByTokenHash(ctx, tokenHash)
 		if err != nil || authoritativeSes == nil || authoritativeUser == nil || authoritativeSes.IsRevoked || !authoritativeUser.IsActive || authoritativeUser.Role != cachedUser.Role {
 			s.evictCachedSession(ctx, tokenHash)
 			return nil, nil, ErrSessionNotFound
+		}
+		if now.After(authoritativeSes.ExpiresAt) || now.After(authoritativeSes.MaxExpiresAt) {
+			s.evictCachedSession(ctx, tokenHash)
+			return nil, nil, ErrSessionExpired
 		}
 
 		// Redis hit is valid; update sliding expiration in DB and Redis
@@ -269,9 +279,10 @@ func (s *Service) slideExpiration(ctx context.Context, ses *UserSession, user *U
 	ses.ExpiresAt = newExpiresAt
 	ses.LastSeenAt = now
 
-	// Asynchronously or synchronously update DB touch
-	_ = s.store.TouchSession(ctx, tokenHash, newExpiresAt)
-	s.cacheSession(ctx, tokenHash, user, ses)
+	// Authoritative DB touch must succeed before refreshing Redis cache (Fail-Closed)
+	if err := s.store.TouchSession(ctx, tokenHash, newExpiresAt); err == nil {
+		s.cacheSession(ctx, tokenHash, user, ses)
+	}
 }
 
 // RevokeSession explicitly logs out the current session.
@@ -479,12 +490,12 @@ func (s *Service) BootstrapInitialOwner(ctx context.Context, targetEmail string)
 		return false, nil
 	}
 
-	// 2. Target must already exist from Google sign-in
+	// 2. Target must already exist from Google sign-in with verified email
 	targetUser, err := s.store.GetUserByEmail(ctx, targetEmail)
 	if err != nil {
 		return false, fmt.Errorf("failed to lookup bootstrap user: %w", err)
 	}
-	if targetUser == nil {
+	if targetUser == nil || targetUser.Email == "" {
 		return false, ErrBootstrapNotAllowed
 	}
 

@@ -117,10 +117,11 @@ func (s *PGStore) GetUserByEmail(ctx context.Context, email string) (*User, erro
 	return &u, nil
 }
 
-// CountOwners returns the total count of active users with role 'owner'.
+// CountOwners returns the total count of users with role 'owner' (active or inactive)
+// ensuring owner bootstrap is permanently disabled once an owner has been established.
 func (s *PGStore) CountOwners(ctx context.Context) (int, error) {
 	var count int
-	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM public.app_user WHERE role = 'owner' AND is_active = TRUE`).Scan(&count)
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM public.app_user WHERE role = 'owner'`).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count owners: %w", err)
 	}
