@@ -504,12 +504,14 @@ func (s *Service) BootstrapInitialOwner(ctx context.Context, targetEmail string)
 		return false, fmt.Errorf("failed to promote initial owner: %w", err)
 	}
 
-	// Invalidate previous sessions
+	// Invalidate previous sessions; if revocation fails, rollback promotion to avoid elevating unrevoked sessions
 	revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUser.ID)
-	if err == nil {
-		for _, h := range revokedHashes {
-			s.evictCachedSession(ctx, h)
-		}
+	if err != nil {
+		_ = s.store.UpdateUserRole(ctx, targetUser.ID, RoleCustomer)
+		return false, fmt.Errorf("failed to revoke previous sessions for bootstrap target: %w", err)
+	}
+	for _, h := range revokedHashes {
+		s.evictCachedSession(ctx, h)
 	}
 
 	// Record immutable audit entry

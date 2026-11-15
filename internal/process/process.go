@@ -4,6 +4,7 @@ package process
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -120,20 +121,19 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 				RedirectURL:  cfg.GoogleRedirectURL,
 			})
 			if vErr != nil {
-				logger.Warn("google_oidc_verifier_init_failed", "error", vErr.Error())
+				return fmt.Errorf("failed to initialize Google OIDC verifier: %w", vErr)
 			}
 		}
-		if verifier == nil {
-			verifier = auth.NewMockOIDCVerifier()
-		}
-		authService = auth.NewService(authStore, verifier, redisClient)
+		if verifier != nil {
+			authService = auth.NewService(authStore, verifier, redisClient)
 
-		if cfg.BootstrapOwnerEmail != "" {
-			bootstrapped, bErr := authService.BootstrapInitialOwner(ctx, cfg.BootstrapOwnerEmail)
-			if bErr != nil {
-				logger.Warn("owner_bootstrap_failed", "error", bErr.Error())
-			} else if bootstrapped {
-				logger.Info("owner_bootstrap_succeeded", "email", cfg.BootstrapOwnerEmail)
+			if cfg.BootstrapOwnerEmail != "" {
+				bootstrapped, bErr := authService.BootstrapInitialOwner(ctx, cfg.BootstrapOwnerEmail)
+				if bErr != nil {
+					logger.Warn("owner_bootstrap_failed", "error", bErr.Error())
+				} else if bootstrapped {
+					logger.Info("owner_bootstrap_succeeded", "email", cfg.BootstrapOwnerEmail)
+				}
 			}
 		}
 	}
