@@ -199,8 +199,15 @@ func migrate() error {
 
 func main() {
 	var err error
-	if len(os.Args) == 3 && os.Args[1] == "secrets" && strings.TrimSpace(os.Args[2]) != "" {
-		err = secrets(os.Args[2])
+	if (len(os.Args) == 2 || len(os.Args) == 3) && os.Args[1] == "secrets" {
+		dir := ".local/dev"
+		if envDir := os.Getenv("BLISS_SECRET_DIR"); envDir != "" {
+			dir = envDir
+		}
+		if len(os.Args) == 3 && strings.TrimSpace(os.Args[2]) != "" {
+			dir = strings.TrimSpace(os.Args[2])
+		}
+		err = secrets(dir)
 	} else if len(os.Args) == 4 && os.Args[1] == "audit-image" {
 		err = auditImage(os.Args[2], os.Args[3])
 	} else if len(os.Args) == 2 && os.Args[1] == "provider-check" {
@@ -224,7 +231,7 @@ func main() {
 		defer stop()
 		err = telemetry.RunResponder(ctx, addr, token)
 	} else {
-		err = errors.New("usage: devstack secrets DIRECTORY | migrate | provider-check | audit-image ARCHIVE DIRECTORY | responder [ADDR]")
+		err = errors.New("usage: devstack secrets [DIRECTORY] | migrate | provider-check | audit-image ARCHIVE DIRECTORY | responder [ADDR]")
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

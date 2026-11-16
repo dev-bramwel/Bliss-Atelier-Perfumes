@@ -125,9 +125,14 @@ if ($dockerCmd) {
         # ----------------------------------------------------------------------
         Write-Host "`n  [4b] Verifying Live Containerized Alertmanager -> Responder Delivery..." -ForegroundColor Yellow
 
-        $secretPath = Join-Path $baseDir ".local/dev/drill_responder_token"
+        $secretDir = Join-Path $baseDir ".local/dev"
+        $secretPath = Join-Path $secretDir "drill_responder_token"
         if (-not (Test-Path $secretPath)) {
-            & go run ./cmd/devstack secrets
+            Write-Host "    Generating secrets via devstack in $secretDir..." -ForegroundColor Gray
+            & go run ./cmd/devstack secrets $secretDir
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $secretPath)) {
+                throw "Failed to bootstrap responder secrets in $secretDir via devstack secrets"
+            }
         }
         $secretToken = (Get-Content $secretPath -Raw).Trim()
 
