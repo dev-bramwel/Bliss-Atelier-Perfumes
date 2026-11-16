@@ -155,18 +155,20 @@ if ($dockerCmd) {
             }
             Write-Host "    ✓ Unauthorized access to responder rejected with 401" -ForegroundColor Green
 
-            # 2. Post synthetic firing alert to Alertmanager
+            # 2. Post synthetic firing alert to Alertmanager with unique drill run ID
+            $drillId = [System.Guid]::NewGuid().ToString("N").Substring(0, 8)
+            $alertName = "SyntheticPaymentDrill_$drillId"
             $startsAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
             $firingPayload = @"
 [
   {
     "labels": {
-      "alertname": "UnresolvedPaymentSpike",
+      "alertname": "$alertName",
       "severity": "critical",
       "service": "bliss-backend"
     },
     "annotations": {
-      "summary": "Live container drill: 5 payment attempts pending",
+      "summary": "Live container drill: 5 payment attempts pending (run $drillId)",
       "runbook_url": "docs/runbooks/runbook-payment-reconciliation-failure.md"
     },
     "startsAt": "$startsAt"
@@ -184,7 +186,7 @@ if ($dockerCmd) {
             for ($j = 0; $j -lt 10; $j++) {
                 Start-Sleep -Seconds 1
                 $alertsAfterFiring = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
-                if ($alertsAfterFiring -match "firing" -and $alertsAfterFiring -match "UnresolvedPaymentSpike") {
+                if ($alertsAfterFiring -match "firing" -and $alertsAfterFiring -match $alertName) {
                     $deliveredFiring = $true
                     break
                 }
@@ -192,7 +194,7 @@ if ($dockerCmd) {
             if (-not $deliveredFiring) {
                 throw "Drill responder did not receive firing alert notification from Alertmanager: $alertsAfterFiring"
             }
-            Write-Host "    ✓ Alertmanager delivered firing alert to responder with Docker secret auth" -ForegroundColor Green
+            Write-Host "    ✓ Alertmanager delivered firing alert ($alertName) to responder with Docker secret auth" -ForegroundColor Green
 
             # 3. Post synthetic resolved alert to Alertmanager
             $endsAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -200,12 +202,12 @@ if ($dockerCmd) {
 [
   {
     "labels": {
-      "alertname": "UnresolvedPaymentSpike",
+      "alertname": "$alertName",
       "severity": "critical",
       "service": "bliss-backend"
     },
     "annotations": {
-      "summary": "Live container drill: 5 payment attempts pending",
+      "summary": "Live container drill: 5 payment attempts pending (run $drillId)",
       "runbook_url": "docs/runbooks/runbook-payment-reconciliation-failure.md"
     },
     "startsAt": "$startsAt",
@@ -224,7 +226,7 @@ if ($dockerCmd) {
             for ($k = 0; $k -lt 12; $k++) {
                 Start-Sleep -Seconds 1
                 $alertsAfterResolve = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
-                if ($alertsAfterResolve -match "resolved") {
+                if ($alertsAfterResolve -match "resolved" -and $alertsAfterResolve -match $alertName) {
                     $deliveredResolved = $true
                     break
                 }
@@ -232,7 +234,7 @@ if ($dockerCmd) {
             if (-not $deliveredResolved) {
                 throw "Drill responder did not receive resolved alert notification from Alertmanager: $alertsAfterResolve"
             }
-            Write-Host "    ✓ Alertmanager delivered resolved alert to responder with Docker secret auth" -ForegroundColor Green
+            Write-Host "    ✓ Alertmanager delivered resolved alert ($alertName) to responder with Docker secret auth" -ForegroundColor Green
         } finally {
             docker compose --profile observability stop drill-responder alertmanager | Out-Null
         }
