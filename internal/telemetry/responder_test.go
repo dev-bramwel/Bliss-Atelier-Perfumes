@@ -59,6 +59,26 @@ func TestDrillResponder_LivenessAndAlertCapture(t *testing.T) {
 	if len(alerts[0].Alerts) != 1 || alerts[0].Alerts[0].Labels["alertname"] != "DbPoolSaturation" {
 		t.Errorf("unexpected alert payload contents: %+v", alerts[0])
 	}
+
+	// 5. Query alerts via GET /alerts without token -> 401
+	unauthGetReq := httptest.NewRequest(http.MethodGet, "/alerts", nil)
+	unauthGetRec := httptest.NewRecorder()
+	handler.ServeHTTP(unauthGetRec, unauthGetReq)
+	if unauthGetRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized from GET /alerts without token, got %d", unauthGetRec.Code)
+	}
+
+	// 6. Query alerts via GET /alerts with valid token -> 200 OK
+	authGetReq := httptest.NewRequest(http.MethodGet, "/alerts", nil)
+	authGetReq.Header.Set("Authorization", "Bearer test-token-123")
+	authGetRec := httptest.NewRecorder()
+	handler.ServeHTTP(authGetRec, authGetReq)
+	if authGetRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /alerts with token, got %d", authGetRec.Code)
+	}
+	if !strings.Contains(authGetRec.Body.String(), "DbPoolSaturation") {
+		t.Errorf("expected serialized alert payload in GET /alerts response, got %s", authGetRec.Body.String())
+	}
 }
 
 func TestDrillResponder_EnforcesMaxBodyBytes(t *testing.T) {

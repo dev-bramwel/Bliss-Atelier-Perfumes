@@ -119,6 +119,123 @@ if ($dockerCmd) {
             throw "amtool config routes test failed: expected drill_responder_webhook, got $amRoute"
         }
         Write-Host "  ✓ amtool route test: alerts route to $($amRoute.Trim())" -ForegroundColor Green
+
+        # ----------------------------------------------------------------------
+        # Live Containerized Alertmanager -> Drill-Responder Delivery Drill
+        # ----------------------------------------------------------------------
+        Write-Host "`n  [4b] Verifying Live Containerized Alertmanager -> Responder Delivery..." -ForegroundColor Yellow
+
+        $secretPath = Join-Path $baseDir ".local/dev/drill_responder_token"
+        if (-not (Test-Path $secretPath)) {
+            & go run ./cmd/devstack secrets
+        }
+        $secretToken = (Get-Content $secretPath -Raw).Trim()
+
+        Write-Host "    Starting drill-responder and alertmanager containers..." -ForegroundColor Gray
+        docker compose --profile observability up -d drill-responder alertmanager | Out-Null
+        try {
+            $ready = $false
+            for ($i = 0; $i -lt 15; $i++) {
+                $liveCode = curl.exe -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health/live
+                $amReadyCode = curl.exe -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9093/-/ready
+                if ($liveCode -eq "200" -and $amReadyCode -eq "200") {
+                    $ready = $true
+                    break
+                }
+                Start-Sleep -Seconds 1
+            }
+            if (-not $ready) {
+                throw "Alertmanager or Drill-Responder container failed to become ready within timeout"
+            }
+
+            # 1. Assert unauthenticated query rejected with 401
+            $unauthCode = curl.exe -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/alerts
+            if ($unauthCode -ne "401") {
+                throw "Expected 401 Unauthorized without bearer token on GET /alerts, got $unauthCode"
+            }
+            Write-Host "    ✓ Unauthorized access to responder rejected with 401" -ForegroundColor Green
+
+            # 2. Post synthetic firing alert to Alertmanager
+            $startsAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            $firingPayload = @"
+[
+  {
+    "labels": {
+      "alertname": "UnresolvedPaymentSpike",
+      "severity": "critical",
+      "service": "bliss-backend"
+    },
+    "annotations": {
+      "summary": "Live container drill: 5 payment attempts pending",
+      "runbook_url": "docs/runbooks/runbook-payment-reconciliation-failure.md"
+    },
+    "startsAt": "$startsAt"
+  }
+]
+"@
+            $tempFiringFile = [System.IO.Path]::GetTempFileName()
+            Set-Content -Path $tempFiringFile -Value $firingPayload
+            $null = curl.exe -s -X POST http://127.0.0.1:9093/api/v2/alerts -H "Content-Type: application/json" --data-binary "@$tempFiringFile"
+            Remove-Item $tempFiringFile
+
+            # Poll responder for firing alert notification (group_wait is 2s)
+            $deliveredFiring = $false
+            $alertsAfterFiring = "[]"
+            for ($j = 0; $j -lt 10; $j++) {
+                Start-Sleep -Seconds 1
+                $alertsAfterFiring = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
+                if ($alertsAfterFiring -match "firing" -and $alertsAfterFiring -match "UnresolvedPaymentSpike") {
+                    $deliveredFiring = $true
+                    break
+                }
+            }
+            if (-not $deliveredFiring) {
+                throw "Drill responder did not receive firing alert notification from Alertmanager: $alertsAfterFiring"
+            }
+            Write-Host "    ✓ Alertmanager delivered firing alert to responder with Docker secret auth" -ForegroundColor Green
+
+            # 3. Post synthetic resolved alert to Alertmanager
+            $endsAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            $resolvedPayload = @"
+[
+  {
+    "labels": {
+      "alertname": "UnresolvedPaymentSpike",
+      "severity": "critical",
+      "service": "bliss-backend"
+    },
+    "annotations": {
+      "summary": "Live container drill: 5 payment attempts pending",
+      "runbook_url": "docs/runbooks/runbook-payment-reconciliation-failure.md"
+    },
+    "startsAt": "$startsAt",
+    "endsAt": "$endsAt"
+  }
+]
+"@
+            $tempResolvedFile = [System.IO.Path]::GetTempFileName()
+            Set-Content -Path $tempResolvedFile -Value $resolvedPayload
+            $null = curl.exe -s -X POST http://127.0.0.1:9093/api/v2/alerts -H "Content-Type: application/json" --data-binary "@$tempResolvedFile"
+            Remove-Item $tempResolvedFile
+
+            # Poll responder for resolved alert notification (group_interval is 5s)
+            $deliveredResolved = $false
+            $alertsAfterResolve = "[]"
+            for ($k = 0; $k -lt 12; $k++) {
+                Start-Sleep -Seconds 1
+                $alertsAfterResolve = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
+                if ($alertsAfterResolve -match "resolved") {
+                    $deliveredResolved = $true
+                    break
+                }
+            }
+            if (-not $deliveredResolved) {
+                throw "Drill responder did not receive resolved alert notification from Alertmanager: $alertsAfterResolve"
+            }
+            Write-Host "    ✓ Alertmanager delivered resolved alert to responder with Docker secret auth" -ForegroundColor Green
+        } finally {
+            docker compose --profile observability stop drill-responder alertmanager | Out-Null
+        }
     } finally {
         Pop-Location
     }

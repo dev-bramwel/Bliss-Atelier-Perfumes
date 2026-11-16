@@ -79,6 +79,16 @@ func (r *DrillResponder) Reset() {
 	r.receivedAlerts = r.receivedAlerts[:0]
 }
 
+func (r *DrillResponder) isAuthorized(req *http.Request) bool {
+	if r.authToken == "" {
+		return false
+	}
+	authHeader := strings.TrimSpace(req.Header.Get("Authorization"))
+	expectedBearer := "Bearer " + r.authToken
+	customToken := strings.TrimSpace(req.Header.Get("X-Drill-Token"))
+	return authHeader == expectedBearer || customToken == r.authToken
+}
+
 // Handler returns the HTTP router serving /alerts and /health/live.
 func (r *DrillResponder) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -88,23 +98,29 @@ func (r *DrillResponder) Handler() http.Handler {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 	mux.HandleFunc("/alerts", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodGet {
+			if !r.isAuthorized(req) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(r.Alerts())
+			return
+		}
+
 		if req.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
 		// Enforce authentication via Bearer token or X-Drill-Token header
-		if r.authToken != "" {
-			authHeader := strings.TrimSpace(req.Header.Get("Authorization"))
-			expectedBearer := "Bearer " + r.authToken
-			customToken := strings.TrimSpace(req.Header.Get("X-Drill-Token"))
-
-			if authHeader != expectedBearer && customToken != r.authToken {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
-				return
-			}
+		if !r.isAuthorized(req) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
 		}
 
 		// Enforce strict 64 KiB request body limit
