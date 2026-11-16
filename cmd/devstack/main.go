@@ -26,7 +26,7 @@ import (
 )
 
 func secrets(directory string) error {
-	names := []string{"admin_password", "migrator_password", "runtime_password", "catalog_password", "migrator_url", "runtime_url", "catalog_url"}
+	names := []string{"admin_password", "migrator_password", "runtime_password", "catalog_password", "migrator_url", "runtime_url", "catalog_url", "drill_responder_token"}
 	existing := 0
 	for _, name := range names {
 		if info, err := os.Stat(filepath.Join(directory, name)); err == nil && !info.IsDir() {
@@ -37,16 +37,24 @@ func secrets(directory string) error {
 		return nil
 	}
 
-	legacyNames := []string{"admin_password", "migrator_password", "runtime_password", "migrator_url", "runtime_url"}
-	legacyCount := 0
-	for _, name := range legacyNames {
+	legacy7Names := []string{"admin_password", "migrator_password", "runtime_password", "catalog_password", "migrator_url", "runtime_url", "catalog_url"}
+	legacy7Count := 0
+	for _, name := range legacy7Names {
 		if info, err := os.Stat(filepath.Join(directory, name)); err == nil && !info.IsDir() {
-			legacyCount++
+			legacy7Count++
+		}
+	}
+
+	legacy5Names := []string{"admin_password", "migrator_password", "runtime_password", "migrator_url", "runtime_url"}
+	legacy5Count := 0
+	for _, name := range legacy5Names {
+		if info, err := os.Stat(filepath.Join(directory, name)); err == nil && !info.IsDir() {
+			legacy5Count++
 		}
 	}
 
 	// Refuse overwriting partial credentials, unless upgrading a complete legacy credential directory.
-	if existing != 0 && legacyCount != len(legacyNames) {
+	if existing != 0 && legacy7Count != len(legacy7Names) && legacy5Count != len(legacy5Names) {
 		return errors.New("partial local credentials exist; restore the matching set without overwriting a database's credentials")
 	}
 	if err := os.MkdirAll(directory, 0700); err != nil {
@@ -56,7 +64,7 @@ func secrets(directory string) error {
 		return err
 	}
 	values := map[string]string{}
-	for _, name := range legacyNames {
+	for _, name := range names {
 		if content, err := os.ReadFile(filepath.Join(directory, name)); err == nil {
 			values[name] = strings.TrimSpace(string(content))
 		}
@@ -76,6 +84,13 @@ func secrets(directory string) error {
 		if _, ok := values[key]; !ok {
 			values[key] = "postgresql://bliss_" + role + ":" + values[role+"_password"] + "@db:5432/bliss_dev?sslmode=disable"
 		}
+	}
+	if _, ok := values["drill_responder_token"]; !ok {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		values["drill_responder_token"] = hex.EncodeToString(b)
 	}
 	for _, name := range names {
 		targetPath := filepath.Join(directory, name)
@@ -198,6 +213,13 @@ func main() {
 			addr = strings.TrimSpace(os.Args[2])
 		}
 		token := os.Getenv("GO_DRILL_RESPONDER_TOKEN")
+		if token == "" {
+			if tokenFile := os.Getenv("GO_DRILL_RESPONDER_TOKEN_FILE"); tokenFile != "" {
+				if b, readErr := os.ReadFile(tokenFile); readErr == nil {
+					token = strings.TrimSpace(string(b))
+				}
+			}
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		err = telemetry.RunResponder(ctx, addr, token)

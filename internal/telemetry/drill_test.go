@@ -10,8 +10,9 @@ import (
 )
 
 func TestSyntheticIncidentDrill_ReachesDesignatedResponder(t *testing.T) {
+	testToken := "test-drill-responder-token"
 	// 1. Set up Designated Responder Webhook using the actual DrillResponder implementation
-	responder := NewDrillResponder()
+	responder := NewDrillResponder(testToken)
 	responderServer := httptest.NewServer(responder.Handler())
 	defer responderServer.Close()
 
@@ -105,7 +106,7 @@ func TestSyntheticIncidentDrill_ReachesDesignatedResponder(t *testing.T) {
 			t.Fatalf("failed to build alert request: %v", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+DefaultDrillResponderToken)
+		req.Header.Set("Authorization", "Bearer "+testToken)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("failed to deliver alert to responder: %v", err)

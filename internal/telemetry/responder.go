@@ -14,9 +14,6 @@ import (
 	"time"
 )
 
-// DefaultDrillResponderToken is the default pre-shared authentication token for local & CI drills.
-const DefaultDrillResponderToken = "bliss-drill-responder-secret"
-
 // MaxAlertBodyBytes enforces a strict 64 KiB payload bound on Alertmanager webhooks.
 const MaxAlertBodyBytes = 64 * 1024
 
@@ -49,11 +46,15 @@ type DrillResponder struct {
 
 // NewDrillResponder initializes an in-memory alert recipient store with token validation.
 func NewDrillResponder(authToken ...string) *DrillResponder {
-	token := DefaultDrillResponderToken
+	var token string
 	if len(authToken) > 0 && authToken[0] != "" {
 		token = authToken[0]
 	} else if env := os.Getenv("GO_DRILL_RESPONDER_TOKEN"); env != "" {
 		token = env
+	} else if file := os.Getenv("GO_DRILL_RESPONDER_TOKEN_FILE"); file != "" {
+		if b, err := os.ReadFile(file); err == nil {
+			token = strings.TrimSpace(string(b))
+		}
 	}
 
 	return &DrillResponder{
@@ -146,6 +147,9 @@ func RunResponder(ctx context.Context, addr string, authToken ...string) error {
 		addr = ":9099"
 	}
 	responder := NewDrillResponder(authToken...)
+	if responder.authToken == "" {
+		return errors.New("drill responder token required: configure authToken, GO_DRILL_RESPONDER_TOKEN, or GO_DRILL_RESPONDER_TOKEN_FILE")
+	}
 	server := &http.Server{
 		Addr:              addr,
 		Handler:           responder.Handler(),

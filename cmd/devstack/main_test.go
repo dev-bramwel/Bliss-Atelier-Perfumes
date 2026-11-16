@@ -24,8 +24,16 @@ func TestSetupPreservesExistingCredentials(t *testing.T) {
 	if err != nil || !strings.Contains(string(catalogURL), "bliss_catalog:") {
 		t.Fatal("invalid generated catalog url")
 	}
+	drillToken, err := os.ReadFile(filepath.Join(directory, "drill_responder_token"))
+	if err != nil || len(drillToken) != 64 {
+		t.Fatal("invalid generated drill responder token")
+	}
 	if err = secrets(directory); err != nil {
 		t.Fatal(err)
+	}
+	afterDrillToken, err := os.ReadFile(filepath.Join(directory, "drill_responder_token"))
+	if err != nil || string(drillToken) != string(afterDrillToken) {
+		t.Fatal("setup rotated existing drill responder token")
 	}
 	after, err := os.ReadFile(filepath.Join(directory, "runtime_password"))
 	if err != nil || string(before) != string(after) {
@@ -85,6 +93,10 @@ func TestSetupUpgradesLegacyCredentialsPreservingPasswords(t *testing.T) {
 	catURL, err := os.ReadFile(filepath.Join(directory, "catalog_url"))
 	if err != nil || !strings.Contains(string(catURL), "bliss_catalog:"+string(catPass)) {
 		t.Fatalf("invalid catalog_url after upgrade: %v, url=%s", err, string(catURL))
+	}
+	drillToken, err := os.ReadFile(filepath.Join(directory, "drill_responder_token"))
+	if err != nil || len(drillToken) != 64 {
+		t.Fatalf("invalid drill_responder_token after upgrade: %v, len=%d", err, len(drillToken))
 	}
 }
 

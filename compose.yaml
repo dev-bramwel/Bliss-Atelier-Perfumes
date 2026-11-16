@@ -162,7 +162,8 @@ services:
     entrypoint: [/app/devstack]
     command: [responder, "0.0.0.0:9099"]
     environment:
-      GO_DRILL_RESPONDER_TOKEN: "bliss-drill-responder-secret"
+      GO_DRILL_RESPONDER_TOKEN_FILE: /run/secrets/drill_responder_token
+    secrets: [drill_responder_token]
     ports: ["127.0.0.1:9099:9099"]
     networks: [edge, private]
     healthcheck:
@@ -204,6 +205,7 @@ services:
     volumes:
       - ./infra/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager_data:/alertmanager
+    secrets: [drill_responder_token]
     ports: ["127.0.0.1:9093:9093"]
     networks: [edge, private]
     mem_limit: 64m
@@ -257,3 +259,5 @@ secrets:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/runtime_url
   catalog_url:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/catalog_url
+  drill_responder_token:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/drill_responder_token

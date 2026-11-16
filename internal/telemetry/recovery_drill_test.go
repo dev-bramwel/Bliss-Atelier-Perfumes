@@ -19,7 +19,8 @@ import (
 // - Remediating the root cause emits recovery signals that clear the alert condition (status "resolved").
 // - The designated drill responder receives both "firing" and "resolved" state notifications with token auth.
 func TestRunbookDiagnosisAndRecovery_Drill(t *testing.T) {
-	responder := NewDrillResponder()
+	testToken := "test-drill-recovery-token"
+	responder := NewDrillResponder(testToken)
 	responderServer := httptest.NewServer(responder.Handler())
 	defer responderServer.Close()
 
@@ -53,7 +54,7 @@ func TestRunbookDiagnosisAndRecovery_Drill(t *testing.T) {
 			t.Fatalf("failed to build request: %v", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+DefaultDrillResponderToken)
+		req.Header.Set("Authorization", "Bearer "+testToken)
 
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
