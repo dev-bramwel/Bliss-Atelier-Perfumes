@@ -405,7 +405,7 @@ var (
 	HTTPRequestsInFlight = DefaultRegistry.NewGauge("http_requests_in_flight", "Current number of in-flight HTTP requests.", nil)
 
 	// Database
-	DBPoolConnections   = DefaultRegistry.NewGauge("db_pool_connections", "Number of database connections by state.", []string{"state"})
+	DBPoolConnections    = DefaultRegistry.NewGauge("db_pool_connections", "Number of database connections by state.", []string{"state"})
 	DBPoolMaxConnections = DefaultRegistry.NewGauge("db_pool_max_connections", "Configured maximum database connection pool size.", nil)
 	DBPoolAcquireWait    = DefaultRegistry.NewCounter("db_pool_acquire_wait_duration_seconds_total", "Cumulative wait duration acquiring database connections.", nil)
 
@@ -414,16 +414,16 @@ var (
 	RateLimitEventsTotal      = DefaultRegistry.NewCounter("rate_limit_events_total", "Total rate limiting events.", []string{"bucket", "status"})
 
 	// Payments & Financial Reconciliation
-	PaymentAttemptsTotal   = DefaultRegistry.NewCounter("payment_attempts_total", "Total payment attempts recorded.", []string{"provider", "status"})
-	PaymentExceptionsTotal = DefaultRegistry.NewCounter("payment_exceptions_total", "Total payment reconciliation exceptions detected.", []string{"type"})
+	PaymentAttemptsTotal    = DefaultRegistry.NewCounter("payment_attempts_total", "Total payment attempts recorded.", []string{"provider", "status"})
+	PaymentExceptionsTotal  = DefaultRegistry.NewCounter("payment_exceptions_total", "Total payment reconciliation exceptions detected.", []string{"type"})
 	UnresolvedPaymentsGauge = DefaultRegistry.NewGauge("unresolved_payments_gauge", "Number of currently unresolved payment attempts.", nil)
 	ReconciliationRunsTotal = DefaultRegistry.NewCounter("reconciliation_runs_total", "Total query reconciliation sweeps executed.", []string{"status"})
 
 	// Outbox & Queue
-	OutboxPendingEventsGauge     = DefaultRegistry.NewGauge("outbox_pending_events_gauge", "Number of pending events in transactional outbox.", nil)
-	OutboxEventsPublishedTotal   = DefaultRegistry.NewCounter("outbox_events_published_total", "Total events published from transactional outbox.", []string{"destination"})
+	OutboxPendingEventsGauge      = DefaultRegistry.NewGauge("outbox_pending_events_gauge", "Number of pending events in transactional outbox.", nil)
+	OutboxEventsPublishedTotal    = DefaultRegistry.NewCounter("outbox_events_published_total", "Total events published from transactional outbox.", []string{"destination"})
 	RabbitMQMessagesConsumedTotal = DefaultRegistry.NewCounter("rabbitmq_messages_consumed_total", "Total RabbitMQ messages consumed by background workers.", []string{"queue", "status"})
-	RabbitMQDLQMessagesGauge     = DefaultRegistry.NewGauge("rabbitmq_dlq_messages_gauge", "Dead letter queue messages detected.", []string{"queue"})
+	RabbitMQDLQMessagesGauge      = DefaultRegistry.NewGauge("rabbitmq_dlq_messages_gauge", "Dead letter queue messages detected.", []string{"queue"})
 
 	// Stock Reservations
 	StockReservationsActiveGauge  = DefaultRegistry.NewGauge("stock_reservations_active_gauge", "Currently active 15-minute stock reservations.", nil)

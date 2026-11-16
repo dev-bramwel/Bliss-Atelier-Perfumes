@@ -16,8 +16,8 @@ type AlertNotification struct {
 	Receiver string `json:"receiver"`
 	Status   string `json:"status"`
 	Alerts   []struct {
-		Status string            `json:"status"`
-		Labels map[string]string `json:"labels"`
+		Status      string            `json:"status"`
+		Labels      map[string]string `json:"labels"`
 		Annotations map[string]string `json:"annotations"`
 	} `json:"alerts"`
 }
