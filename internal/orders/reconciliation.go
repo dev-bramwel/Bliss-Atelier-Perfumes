@@ -246,6 +246,11 @@ func (s *Store) GetPaymentExceptionByID(ctx context.Context, id string) (*Paymen
 
 // ResolvePaymentException updates an exception to resolved or dismissed with operator notes and evidence.
 func (s *Store) ResolvePaymentException(ctx context.Context, id string, req ResolveExceptionRequest) error {
+	switch req.Action {
+	case "applied_to_order", "refund_recorded", "dismissed_duplicate", "voided":
+	default:
+		return errors.New("invalid resolution action")
+	}
 	if strings.TrimSpace(req.Action) == "" {
 		return errors.New("resolution action is required")
 	}
@@ -254,6 +259,9 @@ func (s *Store) ResolvePaymentException(ctx context.Context, id string, req Reso
 	}
 	if strings.TrimSpace(req.Notes) == "" {
 		return errors.New("resolution notes are required")
+	}
+	if req.ActorRole != "" && strings.TrimSpace(req.Evidence) == "" {
+		return errors.New("evidence reference is required")
 	}
 
 	status := ExceptionStatusResolved
@@ -270,7 +278,12 @@ func (s *Store) ResolvePaymentException(ctx context.Context, id string, req Reso
 		ordID = &req.OrderID
 	}
 
-	tag, err := s.Pool.Exec(ctx, `
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(tx)
+	tag, err := tx.Exec(ctx, `
 		UPDATE public.payment_exception
 		SET status = $1, resolution_action = $2, resolution_notes = $3, resolved_by = $4,
 			evidence = coalesce($5, evidence), order_id = coalesce($6, order_id),
@@ -283,7 +296,7 @@ func (s *Store) ResolvePaymentException(ctx context.Context, id string, req Reso
 	if tag.RowsAffected() == 0 {
 		// Check whether it was not found or already resolved
 		var currentStatus string
-		if err := s.Pool.QueryRow(ctx, `SELECT status FROM public.payment_exception WHERE id = $1`, id).Scan(&currentStatus); err == nil {
+		if err := tx.QueryRow(ctx, `SELECT status FROM public.payment_exception WHERE id = $1`, id).Scan(&currentStatus); err == nil {
 			if currentStatus != ExceptionStatusOpen {
 				return ErrExceptionAlreadyResolved
 			}
@@ -291,12 +304,25 @@ func (s *Store) ResolvePaymentException(ctx context.Context, id string, req Reso
 		return ErrExceptionNotFound
 	}
 
-	return nil
+	if req.ActorRole != "" {
+		if strings.TrimSpace(req.Evidence) == "" {
+			return errors.New("evidence reference is required")
+		}
+		metadata, _ := json.Marshal(map[string]string{"action": req.Action, "notes": req.Notes, "evidence": req.Evidence})
+		if _, err := tx.Exec(ctx, `INSERT INTO public.admin_audit_log(id,user_id,actor_role,action,resource,resource_id,ip_address,metadata) VALUES(gen_random_uuid()::text,$1,$2,'resolve_payment_exception','payment_exception',$3,$4,$5)`, req.AuthorizedBy, req.ActorRole, id, req.IPAddress, metadata); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // ListUnresolvedPaymentAttempts returns payment attempts in 'accepted' or 'unknown' status
 // that are due for query reconciliation.
 func (s *Store) ListUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration, limit int) ([]PaymentAttempt, error) {
+	return s.UnresolvedPage(ctx, staleThreshold, limit, 0)
+}
+
+func (s *Store) UnresolvedPage(ctx context.Context, staleThreshold time.Duration, limit, offset int) ([]PaymentAttempt, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
@@ -312,8 +338,8 @@ func (s *Store) ListUnresolvedPaymentAttempts(ctx context.Context, staleThreshol
 			AND query_count < 5
 			AND (next_query_at IS NULL OR next_query_at <= now())
 		ORDER BY created_at ASC
-		LIMIT $2
-	`, cutoff, limit)
+		LIMIT $2 OFFSET $3
+	`, cutoff, limit, max(0, offset))
 	if err != nil {
 		return nil, fmt.Errorf("failed to query unresolved payment attempts: %w", err)
 	}
@@ -750,16 +776,25 @@ func (s *Store) RecordPaymentCorrection(ctx context.Context, req PaymentCorrecti
 
 // ListPaymentAuditRecords returns audit ledger entries for an order or all recent entries.
 func (s *Store) ListPaymentAuditRecords(ctx context.Context, orderID string) ([]PaymentAuditRecord, error) {
+	return s.PaymentAuditPage(ctx, orderID, 50, 0)
+}
+
+func (s *Store) PaymentAuditPage(ctx context.Context, orderID string, limit, offset int) ([]PaymentAuditRecord, error) {
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	offset = max(0, offset)
 	query := `
 		SELECT id, order_id, action, amount_kes, receipt_number, provider, evidence, notes, authorized_by, created_at
 		FROM public.payment_audit_ledger
 	`
 	var args []any
 	if orderID != "" {
-		query += ` WHERE order_id = $1 ORDER BY created_at DESC LIMIT 50`
-		args = append(args, orderID)
+		query += ` WHERE order_id = $1 ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3`
+		args = append(args, orderID, limit, offset)
 	} else {
-		query += ` ORDER BY created_at DESC LIMIT 50`
+		query += ` ORDER BY created_at DESC,id DESC LIMIT $1 OFFSET $2`
+		args = append(args, limit, offset)
 	}
 
 	rows, err := s.Pool.Query(ctx, query, args...)

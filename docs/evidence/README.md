@@ -36,3 +36,7 @@ Reference documentation for the probe commands/images: [PostgreSQL image](https:
 - [R15 transactional outbox and RabbitMQ workers](r15-transactional-outbox-rabbitmq.md): transactional outbox, publisher confirms, AMQP 0.9.1 topology, consumer inbox deduplication, poison DLQ quarantine, and broker outage independence.
 - [R16 Redis cache and security-aware rate limits](r16-redis-cache-rate-limits.md): public catalog read-through caching with bounded TTL, explicit stock/price invalidation, authoritative PostgreSQL read fallback, SafeClientIP spoofing defenses, and in-memory rate limit enforcement during Redis outages.
 - [R17 payment reconciliation and exceptions](r17-payment-reconciliation-exceptions.md): bounded exponential backoff reconciliation, customer prompt safety locks, structured payment exceptions, auditable manual settlement ledger, and zero silent fulfillment without stock.
+# R19 administrative workspace
+
+See [R19 administrative UI evidence](r19-administrative-ui.md) for implementation
+coverage, verification results and the outstanding Docker integration run.

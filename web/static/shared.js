@@ -3,6 +3,106 @@
 // --------------------
 const SHOP_WHATSAPP_NUMBER = "254796382024"; // format: 2547...
 
+// Shared connection protection. Writes are never queued or replayed: an uncertain
+// response must be checked against the server before an operator retries it.
+window.BlissConnection = (() => {
+  let offline = false;
+  let checking = false;
+  let previousFocus = null;
+  const overlay = document.getElementById("offlineOverlay");
+  const admin = /^\/(admin(?:\/|$)|dashboard(?:\.html)?$)/.test(
+    window.location.pathname || "",
+  );
+  const emit = () => {
+    if (typeof window.dispatchEvent === "function")
+      window.dispatchEvent(new Event("bliss:connection"));
+  };
+  function protectButtons() {
+    document.querySelectorAll("[data-mutation]").forEach((button) => {
+      if (offline) {
+        if (button.dataset.offlineDisabled === undefined)
+          button.dataset.offlineDisabled = String(button.disabled);
+        button.disabled = true;
+      } else if (button.dataset.offlineDisabled !== undefined) {
+        button.disabled = button.dataset.offlineDisabled === "true";
+        delete button.dataset.offlineDisabled;
+      }
+    });
+  }
+  function dropped() {
+    const first = !offline;
+    offline = true;
+    protectButtons();
+    if (overlay) {
+      if (first) previousFocus = document.activeElement;
+      overlay.hidden = false;
+      overlay.dataset.restored = "false";
+      const description = document.getElementById("offlineDescription");
+      if (description && admin)
+        description.textContent =
+          "Atelier management connection dropped. Active dashboard inputs and drafts are held safely in memory.";
+      const badge = document.getElementById("offlineBadge");
+      if (badge) badge.textContent = "Connection retrying...";
+      if (typeof overlay.showModal === "function" && !overlay.open)
+        overlay.showModal();
+      if (first && typeof overlay.focus === "function") overlay.focus();
+    }
+    emit();
+  }
+  async function heartbeat() {
+    if (!offline || checking) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    checking = true;
+    try {
+      const response = await fetch("/api/health/live", {
+        cache: "no-store",
+        credentials: "same-origin",
+        signal: AbortSignal.timeout(2500),
+      });
+      const data = response.ok ? await response.json() : null;
+      if (data?.status !== "alive") return;
+      offline = false;
+      if (overlay) overlay.dataset.restored = "true";
+      const badge = document.getElementById("offlineBadge");
+      if (badge) badge.textContent = "Atelier Online ✓";
+      protectButtons();
+      emit();
+      setTimeout(() => {
+        if (offline || !overlay) return;
+        if (typeof overlay.close === "function") overlay.close();
+        overlay.hidden = true;
+        if (previousFocus?.isConnected) previousFocus.focus();
+      }, 900);
+    } catch {
+      /* The next bounded heartbeat will retry; form DOM stays intact. */
+    } finally {
+      checking = false;
+    }
+  }
+  window.addEventListener("offline", dropped);
+  window.addEventListener("online", heartbeat);
+  overlay?.addEventListener("cancel", (event) => {
+    if (offline) event.preventDefault();
+  });
+  const video = document.getElementById("offlineVideo");
+  video?.addEventListener("loadeddata", () => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    video.hidden = false;
+    const fallback = document.getElementById("offlineAtomizer");
+    if (fallback) fallback.hidden = true;
+  });
+  if (typeof navigator !== "undefined" && navigator.onLine === false) dropped();
+  setInterval(heartbeat, 3000);
+  return {
+    get offline() {
+      return offline;
+    },
+    dropped,
+    heartbeat,
+    protectButtons,
+  };
+})();
+
 // --------------------
 // PRODUCTS
 // --------------------
@@ -236,7 +336,6 @@ function clearCart() {
   saveCart(cart);
   document.dispatchEvent(new Event("cartUpdated"));
 }
-
 
 // --------------------
 // CART BADGES & NAVIGATION

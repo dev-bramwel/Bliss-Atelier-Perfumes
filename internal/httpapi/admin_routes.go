@@ -30,7 +30,8 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 		}
 
 		filterRole := strings.TrimSpace(r.URL.Query().Get("role"))
-		users, err := authService.ListUsers(r.Context(), user, filterRole)
+		limit, offset := pageBounds(r)
+		users, err := authService.ListUsersPage(r.Context(), user, filterRole, limit, offset)
 		if err != nil {
 			if errors.Is(err, auth.ErrPermissionDenied) {
 				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusForbidden)
