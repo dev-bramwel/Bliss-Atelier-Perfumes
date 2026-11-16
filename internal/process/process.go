@@ -390,9 +390,10 @@ func startWorkerMetricsServer(listener net.Listener, ioTimeout time.Duration, pi
 	})
 
 	server := &http.Server{
-		Handler:      metricsMux,
-		ReadTimeout:  ioTimeout,
-		WriteTimeout: ioTimeout,
+		Handler:           metricsMux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       ioTimeout,
+		WriteTimeout:      ioTimeout,
 	}
 
 	go func() {

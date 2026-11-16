@@ -147,10 +147,11 @@ func RunResponder(ctx context.Context, addr string, authToken ...string) error {
 	}
 	responder := NewDrillResponder(authToken...)
 	server := &http.Server{
-		Addr:         addr,
-		Handler:      responder.Handler(),
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+		Addr:              addr,
+		Handler:           responder.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      5 * time.Second,
 	}
 
 	listener, err := net.Listen("tcp", addr)
