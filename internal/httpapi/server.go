@@ -21,6 +21,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reconciliation"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 func respond(w http.ResponseWriter, code int, body any) {
@@ -1410,6 +1411,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		mux.HandleFunc("POST /api/orders/{id}/delivery-quote/reject", handleRejectQuote)
 	}
 
+	mux.Handle("GET /metrics", telemetry.Handler())
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"status": "Bliss Atelier API running"})
 	})
@@ -1435,9 +1437,11 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		mux.ServeHTTP(w, r)
 	})
 
+	telemetryWrapped := telemetry.HTTPMiddleware(innerHandler)
+
 	a.server = &http.Server{
 		Addr:              address,
-		Handler:           CORSHandler(secConfig.AllowedOrigins, innerHandler),
+		Handler:           CORSHandler(secConfig.AllowedOrigins, telemetryWrapped),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      timeout + 5*time.Second,

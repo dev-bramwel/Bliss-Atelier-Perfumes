@@ -11,6 +11,7 @@ import (
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // OrderStore defines the repository capabilities required by the reconciler.
@@ -93,8 +94,12 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 
 	attempts, err := r.store.ListUnresolvedPaymentAttempts(ctx, r.cfg.StaleThreshold, 50)
 	if err != nil {
+		telemetry.ReconciliationRunsTotal.Inc("failure")
 		return s, fmt.Errorf("failed to list unresolved attempts: %w", err)
 	}
+
+	telemetry.UnresolvedPaymentsGauge.Set(float64(len(attempts)))
+	telemetry.ReconciliationRunsTotal.Inc("success")
 
 	s.Processed = len(attempts)
 	if len(attempts) == 0 {
@@ -217,6 +222,7 @@ func (r *Reconciler) handleRetryOrException(ctx context.Context, att orders.Paym
 			"Exceeded maximum query attempts without definitive status from provider: "+reason)
 
 		// Raise actionable payment exception
+		telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionStaleAttemptUnresolved)
 		ordID := att.OrderID
 		attID := att.ID
 		pTx := att.ProviderTransactionID

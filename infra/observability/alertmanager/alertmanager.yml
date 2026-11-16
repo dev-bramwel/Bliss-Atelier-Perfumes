@@ -1,0 +1,15 @@
+global:
+  resolve_timeout: 1m
+
+route:
+  group_by: ["alertname", "severity"]
+  group_wait: 2s
+  group_interval: 5s
+  repeat_interval: 1h
+  receiver: "drill_responder_webhook"
+
+receivers:
+  - name: "drill_responder_webhook"
+    webhook_configs:
+      - url: "http://drill-responder:9099/alerts"
+        send_resolved: true

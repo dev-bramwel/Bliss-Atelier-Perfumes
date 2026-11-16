@@ -9,6 +9,7 @@ import (
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // PublisherConfig configures the outbox dispatcher.
@@ -91,6 +92,7 @@ func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	telemetry.OutboxPendingEventsGauge.Set(float64(len(records)))
 	if len(records) == 0 {
 		return nil
 	}
@@ -137,6 +139,7 @@ func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 			p.logger.Error("outbox_mark_published_failed", "count", len(publishedIDs), "error", err.Error())
 			return err
 		}
+		telemetry.OutboxEventsPublishedTotal.Add(float64(len(publishedIDs)), p.cfg.Destination)
 		p.logger.Debug("outbox_events_published", "count", len(publishedIDs))
 	}
 

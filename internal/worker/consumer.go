@@ -15,6 +15,7 @@ import (
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // ConsumerName identifying this background worker in public.inbox_message.
@@ -83,6 +84,8 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	if msgID == "" {
 		// Deliveries without message IDs are treated as poison
 		c.logger.Error("consumer_missing_message_id", "routing_key", d.RoutingKey())
+		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
+		telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
 		_ = d.RejectToDLQ()
 		return errors.New("delivery missing message ID")
 	}
@@ -92,6 +95,8 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	if err := json.Unmarshal(d.Body(), &env); err != nil {
 		c.logger.Error("consumer_poison_message_unmarshal_failed", "msg_id", msgID, "error", err.Error())
 		c.recordDeadLetter(ctx, msgID, d.Body(), "unmarshal failed: "+err.Error())
+		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
+		telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
 		_ = d.RejectToDLQ()
 		return nil
 	}
@@ -99,6 +104,8 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	if err := env.Validate(); err != nil {
 		c.logger.Error("consumer_poison_message_validation_failed", "msg_id", msgID, "error", err.Error())
 		c.recordDeadLetter(ctx, msgID, d.Body(), "validation failed: "+err.Error())
+		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
+		telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
 		_ = d.RejectToDLQ()
 		return nil
 	}
@@ -130,12 +137,15 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 			if errors.Is(err, ErrPoisonPayload) {
 				c.logger.Error("consumer_poison_payload_quarantined", "msg_id", msgID, "event_id", env.EventID, "error", err.Error())
 				c.recordDeadLetter(ctx, msgID, d.Body(), "payload rejected: "+err.Error())
+				telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
+				telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
 				_ = d.RejectToDLQ()
 				return nil
 			}
 
 			c.logger.Warn("consumer_handler_failed", "event_id", env.EventID, "type", env.EventType, "error", err.Error())
 			// Transient handler failure: release claim and requeue for retry
+			telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "nack")
 			c.releaseProcessingClaim(ctx, msgID)
 			_ = d.Nack(true)
 			return err
@@ -147,11 +157,13 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	// 4. Record Successful Processing in Inbox
 	if err := c.recordProcessed(ctx, msgID, d.Body()); err != nil {
 		c.logger.Error("consumer_record_inbox_failed", "event_id", env.EventID, "error", err.Error())
+		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "nack")
 		_ = d.Nack(true)
 		return err
 	}
 
 	// 5. Positive Acknowledgment
+	telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "ack")
 	return d.Ack()
 }
 

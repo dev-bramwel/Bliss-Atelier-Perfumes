@@ -19,6 +19,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // CatalogInvalidator purges cached catalog projections on stock/state mutations.
@@ -364,6 +365,7 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
 	}
 
+	telemetry.StockReservationsActiveGauge.Inc()
 	invalidateCatalogDetached(s.Invalidator)
 
 	return &Order{
@@ -474,6 +476,8 @@ func (s *Store) ReleaseExpired(ctx context.Context, now time.Time) (int, error) 
 		return 0, fmt.Errorf("failed to commit expired releases: %w", err)
 	}
 	if releasedCount > 0 {
+		telemetry.StockReservationsActiveGauge.Add(-float64(releasedCount))
+		telemetry.StockReservationsExpiredTotal.Add(float64(releasedCount))
 		invalidateCatalogDetached(s.Invalidator)
 	}
 	return releasedCount, nil

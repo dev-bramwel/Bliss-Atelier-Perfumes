@@ -1,0 +1,90 @@
+groups:
+  - name: bliss_platform_alerts
+    rules:
+      # 1. API 5xx Error Surge
+      - alert: ApiHigh5xxRate
+        expr: (sum(rate(http_requests_total{status=~"5.."}[1m])) or vector(0)) / (sum(rate(http_requests_total[1m])) > 0) * 100 > 5
+        for: 10s
+        labels:
+          severity: critical
+        annotations:
+          summary: "High API 5xx Error Rate"
+          description: "HTTP 5xx error rate is exceeding 5% over the last minute."
+          runbook_url: "docs/runbooks/runbook-api-error-surge.md"
+
+      # 2. API Latency Degradation
+      - alert: ApiHighLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le)) > 1.0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API p95 Latency"
+          description: "p95 API response duration exceeds 1.0s threshold."
+          runbook_url: "docs/runbooks/runbook-api-error-surge.md"
+
+      # 3. PostgreSQL Connection Pool Saturation
+      - alert: DbPoolSaturation
+        expr: (db_pool_connections{state="acquired"} / db_pool_max_connections) * 100 > 85
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database Connection Pool Saturation"
+          description: "Acquired database connections exceed 85% of configured maximum."
+          runbook_url: "docs/runbooks/runbook-database-pool-exhaustion.md"
+
+      # 4. Unresolved Payment Spikes
+      - alert: UnresolvedPaymentSpike
+        expr: unresolved_payments_gauge > 3
+        for: 15s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Unresolved Payment Attempts Spike"
+          description: "Unresolved payment attempts count is high, requiring automated or operator reconciliation."
+          runbook_url: "docs/runbooks/runbook-payment-reconciliation-failure.md"
+
+      # 5. Payment Exceptions Detected
+      - alert: PaymentExceptionDetected
+        expr: increase(payment_exceptions_total[1m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Payment Exception Raised"
+          description: "Payment reconciliation exception detected (amount mismatch, unmapped tx, or duplicate receipt)."
+          runbook_url: "docs/runbooks/runbook-payment-reconciliation-failure.md"
+
+      # 6. Dead-Letter Queue Poison Messages
+      - alert: DlqPoisonMessagesDetected
+        expr: rabbitmq_dlq_messages_gauge > 0
+        for: 0s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Poison Messages Quarantined in DLQ"
+          description: "One or more unprocessable messages rejected to Dead Letter Queue."
+          runbook_url: "docs/runbooks/runbook-dlq-poison-messages.md"
+
+      # 7. Outbox Backlog Growing
+      - alert: OutboxBacklogGrowing
+        expr: outbox_pending_events_gauge > 20
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Transactional Outbox Backlog Growing"
+          description: "Outbox dispatcher pending queue depth exceeds 20 events."
+          runbook_url: "docs/runbooks/runbook-dlq-poison-messages.md"
+
+      # 8. Redis Outage Fallback Active
+      - alert: RedisOutageFallbackActive
+        expr: increase(redis_cache_operations_total{operation="error"}[1m]) > 0
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis Cache Outage Active"
+          description: "Redis operations encountering errors; application running on database fallback."
+          runbook_url: "docs/runbooks/runbook-cache-and-rate-limit-outage.md"

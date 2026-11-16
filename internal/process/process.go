@@ -29,6 +29,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reconciliation"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/worker"
 )
 
@@ -143,6 +144,9 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 
 	switch command {
 	case "api":
+		if pool != nil {
+			telemetry.RegisterPoolStats(pool)
+		}
 		listener, e := net.Listen("tcp", cfg.Address)
 		if e != nil {
 			return errors.New("HTTP listener unavailable")
