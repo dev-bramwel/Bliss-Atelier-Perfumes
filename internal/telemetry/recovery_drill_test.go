@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reconciliation"
@@ -108,21 +109,144 @@ func (p *mockPaymentProvider) QueryReceipt(ctx context.Context, req provider.Rec
 
 func (p *mockPaymentProvider) Close() {}
 
-type testDelivery struct {
+// controlledDLQFixture models the controlled Dead-Letter Queue (DLQ) and PostgreSQL
+// dead_letter_message audit store to verify the runbook diagnosis and remediation procedure:
+// 1. Poison messages rejected by worker logic are captured in quarantine.
+// 2. Operators inspect the dead-letter records to diagnose unmarshal / schema validation failure.
+// 3. Operators either replay a repaired payload or archive an unprocessable message.
+// 4. Draining/replaying the quarantine drives the metric recovery signal from actual queue state.
+type quarantinedDeadLetter struct {
+	ID        string
+	Queue     string
+	Payload   []byte
+	Reason    string
+	CreatedAt time.Time
+	Replayed  bool
+	Archived  bool
+}
+
+type controlledDLQFixture struct {
+	mu         sync.Mutex
+	quarantine map[string]*quarantinedDeadLetter
+}
+
+func newControlledDLQFixture() *controlledDLQFixture {
+	f := &controlledDLQFixture{
+		quarantine: make(map[string]*quarantinedDeadLetter),
+	}
+	telemetry.RabbitMQDLQMessagesGauge.Set(0, "dead_letter")
+	return f
+}
+
+func (f *controlledDLQFixture) Depth() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	count := 0
+	for _, m := range f.quarantine {
+		if !m.Replayed && !m.Archived {
+			count++
+		}
+	}
+	return count
+}
+
+func (f *controlledDLQFixture) syncMetric() {
+	depth := f.Depth()
+	telemetry.RabbitMQDLQMessagesGauge.Set(float64(depth), "dead_letter")
+}
+
+func (f *controlledDLQFixture) NewPoisonDelivery(msgID, routingKey string, body []byte) *fixtureDelivery {
+	return &fixtureDelivery{
+		msgID:      msgID,
+		routingKey: routingKey,
+		body:       body,
+		onRejectDLQ: func() {
+			f.mu.Lock()
+			f.quarantine[msgID] = &quarantinedDeadLetter{
+				ID:        msgID,
+				Queue:     "dead_letter",
+				Payload:   body,
+				Reason:    "unmarshal failed: invalid character in json",
+				CreatedAt: time.Now(),
+			}
+			f.mu.Unlock()
+			f.syncMetric()
+		},
+	}
+}
+
+func (f *controlledDLQFixture) Inspect(msgID string) (*quarantinedDeadLetter, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	m, ok := f.quarantine[msgID]
+	if !ok {
+		return nil, false
+	}
+	cp := *m
+	return &cp, true
+}
+
+func (f *controlledDLQFixture) ReplayPatched(msgID, routingKey string, repairedBody []byte) *fixtureDelivery {
+	return &fixtureDelivery{
+		msgID:      msgID,
+		routingKey: routingKey,
+		body:       repairedBody,
+		onAck: func() {
+			f.mu.Lock()
+			if m, ok := f.quarantine[msgID]; ok {
+				m.Replayed = true
+			}
+			f.mu.Unlock()
+			f.syncMetric()
+		},
+	}
+}
+
+func (f *controlledDLQFixture) Archive(msgID string) {
+	f.mu.Lock()
+	if m, ok := f.quarantine[msgID]; ok {
+		m.Archived = true
+	}
+	f.mu.Unlock()
+	f.syncMetric()
+}
+
+type fixtureDelivery struct {
 	msgID       string
 	routingKey  string
 	body        []byte
-	rejectedDLQ bool
+	redelivered bool
 	acked       bool
+	nacked      bool
+	requeued    bool
+	rejectedDLQ bool
+	onRejectDLQ func()
+	onAck       func()
 }
 
-func (d *testDelivery) MessageID() string       { return d.msgID }
-func (d *testDelivery) RoutingKey() string      { return d.routingKey }
-func (d *testDelivery) Body() []byte            { return d.body }
-func (d *testDelivery) Redelivered() bool       { return false }
-func (d *testDelivery) Ack() error              { d.acked = true; return nil }
-func (d *testDelivery) Nack(requeue bool) error { return nil }
-func (d *testDelivery) RejectToDLQ() error      { d.rejectedDLQ = true; return nil }
+func (d *fixtureDelivery) MessageID() string       { return d.msgID }
+func (d *fixtureDelivery) RoutingKey() string      { return d.routingKey }
+func (d *fixtureDelivery) Body() []byte            { return d.body }
+func (d *fixtureDelivery) Redelivered() bool       { return d.redelivered }
+func (d *fixtureDelivery) Ack() error {
+	d.acked = true
+	if d.onAck != nil {
+		d.onAck()
+	}
+	return nil
+}
+func (d *fixtureDelivery) Nack(requeue bool) error {
+	d.nacked = true
+	d.requeued = requeue
+	return nil
+}
+func (d *fixtureDelivery) RejectToDLQ() error {
+	d.rejectedDLQ = true
+	if d.onRejectDLQ != nil {
+		d.onRejectDLQ()
+	}
+	return nil
+}
 
 // =============================================================================
 // TestRunbookDiagnosisAndRecovery_Drill
@@ -294,14 +418,15 @@ func TestRunbookDiagnosisAndRecovery_Drill(t *testing.T) {
 
 	// =========================================================================
 	// Incident 2: Dead-Letter Queue (DLQ) Poison Messages
-	// Exercises real worker delivery processing & poison quarantine via worker.NotificationConsumer
+	// Exercises real worker delivery processing, dead-letter store inspection,
+	// and repaired payload replay using controlledDLQFixture and worker.NotificationConsumer
 	// =========================================================================
 	t.Run("Queue_DLQ_Incident_Lifecycle", func(t *testing.T) {
 		runbookURL := "docs/runbooks/runbook-dlq-poison-messages.md"
 		ctx := context.Background()
 
-		// Reset baseline for isolated assertion
-		telemetry.RabbitMQDLQMessagesGauge.Set(0, "dead_letter")
+		// Initialize controlled DLQ queue and store fixture
+		fixture := newControlledDLQFixture()
 
 		// Construct notification consumer with logger
 		consumer := worker.NewNotificationConsumer(
@@ -310,24 +435,36 @@ func TestRunbookDiagnosisAndRecovery_Drill(t *testing.T) {
 			slog.New(slog.NewTextHandler(io.Discard, nil)),
 		)
 
-		// Step 1: Induction - Poison message delivered to worker (malformed JSON envelope)
-		delivery := &testDelivery{
-			msgID:      "msg-poison-001",
-			routingKey: "notifications.order.created",
-			body:       []byte("this-is-not-valid-json-and-will-fail-unmarshal"),
-		}
+		// Register real order-created domain handler to verify recovery processing
+		var handledEventIDs []string
+		consumer.RegisterHandler(events.TypeOrderCreated, func(ctx context.Context, env events.Envelope) error {
+			handledEventIDs = append(handledEventIDs, env.EventID)
+			return nil
+		})
 
-		err := consumer.ProcessDelivery(ctx, delivery)
+		// Step 1: Induction - Poison message delivered to worker (malformed JSON envelope)
+		poisonDelivery := fixture.NewPoisonDelivery(
+			"msg-poison-001",
+			"notifications.order.created",
+			[]byte("this-is-not-valid-json-and-will-fail-unmarshal"),
+		)
+
+		err := consumer.ProcessDelivery(ctx, poisonDelivery)
 		if err != nil {
 			t.Fatalf("unexpected error from ProcessDelivery: %v", err)
 		}
 
 		// Verify delivery was quarantined to DLQ by worker logic
-		if !delivery.rejectedDLQ {
+		if !poisonDelivery.rejectedDLQ {
 			t.Fatalf("expected delivery to be rejected to DLQ by NotificationConsumer")
 		}
 
-		// Verify telemetry recorded the DLQ metric
+		// Verify fixture captured the quarantined message and queue depth increased to 1
+		if fixture.Depth() != 1 {
+			t.Fatalf("expected DLQ fixture depth to be 1, got %d", fixture.Depth())
+		}
+
+		// Verify telemetry recorded the DLQ metric from real queue depth
 		metrics := telemetry.DefaultRegistry.Gather()
 		if !strings.Contains(metrics, `rabbitmq_dlq_messages_gauge{queue="dead_letter"} 1`) {
 			t.Fatalf("expected rabbitmq_dlq_messages_gauge to be 1 in telemetry, got: %s", metrics)
@@ -346,17 +483,64 @@ func TestRunbookDiagnosisAndRecovery_Drill(t *testing.T) {
 			t.Fatalf("expected runbook %s, got %s", runbookURL, lastAlert.Annotations["runbook_url"])
 		}
 
-		// Step 3: Remediation - Payload inspected and operator drains DLQ per runbook procedure
-		telemetry.RabbitMQDLQMessagesGauge.Set(0, "dead_letter")
+		// Step 3: Operational Remediation per Runbook (docs/runbooks/runbook-dlq-poison-messages.md)
+		// Action 3.1: Operator inspects quarantined dead-letter in store
+		deadLetter, found := fixture.Inspect("msg-poison-001")
+		if !found {
+			t.Fatalf("expected quarantined message msg-poison-001 in DLQ store")
+		}
+		if !strings.Contains(deadLetter.Reason, "unmarshal failed") {
+			t.Fatalf("expected unmarshal failure reason in quarantine, got: %s", deadLetter.Reason)
+		}
 
-		// Step 4: Recovery Verification - Gauge cleared, resolved alert dispatched
+		// Action 3.2: Bug diagnosed; operator patches event payload and replays into queue
+		validPayload, err := json.Marshal(events.OrderCreatedPayload{
+			OrderID:  "ord-dlq-recovered-01",
+			TotalKes: 3200,
+		})
+		if err != nil {
+			t.Fatalf("failed to marshal order created payload: %v", err)
+		}
+		repairedEnv := events.Envelope{
+			EventID:          "evt-dlq-recovered-01",
+			EventType:        events.TypeOrderCreated,
+			SchemaVersion:    1,
+			OccurredAt:       time.Now().UTC(),
+			AggregateID:      "ord-dlq-recovered-01",
+			AggregateVersion: 1,
+			Payload:          validPayload,
+		}
+		repairedBytes, err := json.Marshal(repairedEnv)
+		if err != nil {
+			t.Fatalf("failed to marshal repaired envelope: %v", err)
+		}
+
+		replayedDelivery := fixture.ReplayPatched("msg-poison-001", "notifications.order.created", repairedBytes)
+		err = consumer.ProcessDelivery(ctx, replayedDelivery)
+		if err != nil {
+			t.Fatalf("replayed delivery processing failed: %v", err)
+		}
+
+		// Verify worker successfully processed and positively ACKed the replayed delivery
+		if !replayedDelivery.acked {
+			t.Fatalf("expected replayed delivery to be positively ACKed by worker")
+		}
+		if len(handledEventIDs) != 1 || handledEventIDs[0] != "evt-dlq-recovered-01" {
+			t.Fatalf("expected worker event handler execution for evt-dlq-recovered-01, got: %v", handledEventIDs)
+		}
+
+		// Step 4: Recovery Verification - DLQ queue drained, metric reflects recovery signal from queue state
+		if fixture.Depth() != 0 {
+			t.Fatalf("expected DLQ queue depth to be 0 after replay, got %d", fixture.Depth())
+		}
+
 		recoveryMetrics := telemetry.DefaultRegistry.Gather()
 		if !strings.Contains(recoveryMetrics, `rabbitmq_dlq_messages_gauge{queue="dead_letter"} 0`) {
-			t.Fatalf("expected rabbitmq_dlq_messages_gauge to clear to 0")
+			t.Fatalf("expected rabbitmq_dlq_messages_gauge to clear to 0 in telemetry, got: %s", recoveryMetrics)
 		}
 
 		sendAlertNotification(t, "DlqPoisonMessagesDetected", "critical", "resolved", runbookURL,
-			"Dead letter queue drained and poison message quarantined.")
+			"Dead letter queue drained and poison message repaired and processed.")
 
 		alertsAfterRecovery := responder.Alerts()
 		recoveredAlert := alertsAfterRecovery[len(alertsAfterRecovery)-1].Alerts[0]
