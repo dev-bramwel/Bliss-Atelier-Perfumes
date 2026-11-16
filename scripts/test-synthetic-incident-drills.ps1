@@ -3,6 +3,10 @@
 # Issue #29 [R23]: Telemetry, Alerts, Dashboards & Incident Runbooks
 # ==============================================================================
 
+param(
+    [switch]$RequireDocker = $false
+)
+
 $ErrorActionPreference = "Stop"
 
 Write-Host "=================================================================" -ForegroundColor Cyan
@@ -89,7 +93,17 @@ foreach ($df in $dashboardFiles) {
 Write-Host "`n[4/6] Verifying Alert Rules and Routing via promtool & amtool..." -ForegroundColor Yellow
 
 $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+$dockerAvailable = $false
 if ($dockerCmd) {
+    & docker info --format '{{.ServerVersion}}' 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        $dockerAvailable = $true
+    }
+}
+
+$dockerSkipped = $false
+
+if ($dockerAvailable) {
     Push-Location $baseDir
     try {
         # Check rule syntax
@@ -247,7 +261,11 @@ if ($dockerCmd) {
         Pop-Location
     }
 } else {
-    Write-Host "  ! Docker not found in PATH; skipping containerized promtool/amtool checks" -ForegroundColor Yellow
+    if ($RequireDocker) {
+        throw "Docker engine is required for containerized promtool, amtool, and live Alertmanager delivery drills, but Docker was not found in PATH or daemon is unreachable"
+    }
+    $dockerSkipped = $true
+    Write-Host "  ! Docker unavailable or daemon not responding; skipping containerized promtool/amtool checks" -ForegroundColor Yellow
 }
 
 # ------------------------------------------------------------------------------
@@ -284,6 +302,12 @@ try {
     Pop-Location
 }
 
-Write-Host "`n=================================================================" -ForegroundColor Green
-Write-Host "  ALL OBSERVABILITY DRILLS & AUDITS PASSED WITH FULL COMPLIANCE   " -ForegroundColor Green
-Write-Host "=================================================================" -ForegroundColor Green
+if ($dockerSkipped) {
+    Write-Host "`n=================================================================" -ForegroundColor Yellow
+    Write-Host "  PARTIAL RUN: CODE DRILLS PASSED (CONTAINER CHECKS SKIPPED)      " -ForegroundColor Yellow
+    Write-Host "=================================================================" -ForegroundColor Yellow
+} else {
+    Write-Host "`n=================================================================" -ForegroundColor Green
+    Write-Host "  ALL OBSERVABILITY DRILLS & AUDITS PASSED WITH FULL COMPLIANCE   " -ForegroundColor Green
+    Write-Host "=================================================================" -ForegroundColor Green
+}
