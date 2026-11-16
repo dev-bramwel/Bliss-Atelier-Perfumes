@@ -13,3 +13,6 @@ receivers:
     webhook_configs:
       - url: "http://drill-responder:9099/alerts"
         send_resolved: true
+        http_config:
+          bearer_token: "bliss-drill-responder-secret"
+

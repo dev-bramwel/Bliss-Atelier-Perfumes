@@ -1,7 +1,9 @@
 package telemetry
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -116,6 +118,26 @@ func TestCorrelationIDContextAndPropagation(t *testing.T) {
 	attr := Attr(ctx)
 	if attr.Key != "correlation_id" || attr.Value.String() != "trace-abc-123" {
 		t.Errorf("unexpected slog attr: %v", attr)
+	}
+
+	// 4. CorrelationHandler integration with structured logger
+	var logBuf bytes.Buffer
+	jsonHandler := slog.NewJSONHandler(&logBuf, nil)
+	corrLogger := slog.New(NewCorrelationHandler(jsonHandler))
+
+	// Log with context containing correlation ID
+	corrLogger.InfoContext(ctx, "payment_processed", "amount", 2500)
+	logged := logBuf.String()
+	if !strings.Contains(logged, `"correlation_id":"trace-abc-123"`) {
+		t.Errorf("expected structured log to contain correlation_id attribute, got: %s", logged)
+	}
+
+	// Log without correlation ID
+	logBuf.Reset()
+	corrLogger.InfoContext(context.Background(), "system_ready")
+	loggedWithout := logBuf.String()
+	if strings.Contains(loggedWithout, `"correlation_id"`) {
+		t.Errorf("expected no correlation_id when context lacks one, got: %s", loggedWithout)
 	}
 }
 

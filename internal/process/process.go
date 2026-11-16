@@ -42,7 +42,10 @@ func Main(command string) {
 }
 
 func Run(ctx context.Context, command string, args []string, get func(string) string, output io.Writer) int {
-	logger := slog.New(slog.NewJSONHandler(output, nil))
+	logger := slog.New(telemetry.NewCorrelationHandler(slog.NewJSONHandler(output, &slog.HandlerOptions{
+		ReplaceAttr: httpapi.RedactingReplaceAttr,
+	})))
+	slog.SetDefault(logger)
 	if err := run(ctx, command, args, get, logger); err != nil {
 		logger.Error("process_failed", "reason", err.Error())
 		return 1

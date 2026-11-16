@@ -197,9 +197,10 @@ func main() {
 		if len(os.Args) >= 3 && strings.TrimSpace(os.Args[2]) != "" {
 			addr = strings.TrimSpace(os.Args[2])
 		}
+		token := os.Getenv("GO_DRILL_RESPONDER_TOKEN")
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		err = telemetry.RunResponder(ctx, addr)
+		err = telemetry.RunResponder(ctx, addr, token)
 	} else {
 		err = errors.New("usage: devstack secrets DIRECTORY | migrate | provider-check | audit-image ARCHIVE DIRECTORY | responder [ADDR]")
 	}

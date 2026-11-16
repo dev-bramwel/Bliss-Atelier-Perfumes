@@ -93,7 +93,7 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	// 1. Parse and Validate Envelope (Poison Message Detection)
 	var env events.Envelope
 	if err := json.Unmarshal(d.Body(), &env); err != nil {
-		c.logger.Error("consumer_poison_message_unmarshal_failed", "msg_id", msgID, "error", err.Error())
+		c.logger.ErrorContext(ctx, "consumer_poison_message_unmarshal_failed", "msg_id", msgID, "error", err.Error())
 		c.recordDeadLetter(ctx, msgID, d.Body(), "unmarshal failed: "+err.Error())
 		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
 		telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
@@ -101,8 +101,12 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 		return nil
 	}
 
+	if env.CorrelationID != "" {
+		ctx = telemetry.WithCorrelationID(ctx, env.CorrelationID)
+	}
+
 	if err := env.Validate(); err != nil {
-		c.logger.Error("consumer_poison_message_validation_failed", "msg_id", msgID, "error", err.Error())
+		c.logger.ErrorContext(ctx, "consumer_poison_message_validation_failed", "msg_id", msgID, "error", err.Error())
 		c.recordDeadLetter(ctx, msgID, d.Body(), "validation failed: "+err.Error())
 		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
 		telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
@@ -113,13 +117,13 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	// 2. Atomic Pre-Claim and Durable Deduplication
 	claimed, isDuplicate, err := c.claimMessage(ctx, msgID, d.Body())
 	if err != nil {
-		c.logger.Error("consumer_inbox_claim_failed", "msg_id", msgID, "error", err.Error())
+		c.logger.ErrorContext(ctx, "consumer_inbox_claim_failed", "msg_id", msgID, "error", err.Error())
 		_ = d.Nack(true)
 		return err
 	}
 	if !claimed {
 		if isDuplicate {
-			c.logger.Info("consumer_duplicate_delivery_ignored", "msg_id", msgID, "redelivered", d.Redelivered())
+			c.logger.InfoContext(ctx, "consumer_duplicate_delivery_ignored", "msg_id", msgID, "redelivered", d.Redelivered())
 			return d.Ack()
 		}
 		// Another worker is actively processing this message; requeue
@@ -135,7 +139,7 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	if exists && handler != nil {
 		if err := handler(ctx, env); err != nil {
 			if errors.Is(err, ErrPoisonPayload) {
-				c.logger.Error("consumer_poison_payload_quarantined", "msg_id", msgID, "event_id", env.EventID, "error", err.Error())
+				c.logger.ErrorContext(ctx, "consumer_poison_payload_quarantined", "msg_id", msgID, "event_id", env.EventID, "error", err.Error())
 				c.recordDeadLetter(ctx, msgID, d.Body(), "payload rejected: "+err.Error())
 				telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
 				telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
@@ -143,7 +147,7 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 				return nil
 			}
 
-			c.logger.Warn("consumer_handler_failed", "event_id", env.EventID, "type", env.EventType, "error", err.Error())
+			c.logger.WarnContext(ctx, "consumer_handler_failed", "event_id", env.EventID, "type", env.EventType, "error", err.Error())
 			// Transient handler failure: release claim and requeue for retry
 			telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "nack")
 			c.releaseProcessingClaim(ctx, msgID)
@@ -151,12 +155,12 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 			return err
 		}
 	} else {
-		c.logger.Debug("consumer_unhandled_event_type", "type", env.EventType, "event_id", env.EventID)
+		c.logger.DebugContext(ctx, "consumer_unhandled_event_type", "type", env.EventType, "event_id", env.EventID)
 	}
 
 	// 4. Record Successful Processing in Inbox
 	if err := c.recordProcessed(ctx, msgID, d.Body()); err != nil {
-		c.logger.Error("consumer_record_inbox_failed", "event_id", env.EventID, "error", err.Error())
+		c.logger.ErrorContext(ctx, "consumer_record_inbox_failed", "event_id", env.EventID, "error", err.Error())
 		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "nack")
 		_ = d.Nack(true)
 		return err

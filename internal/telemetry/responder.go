@@ -8,9 +8,20 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
+
+// DefaultDrillResponderToken is the default pre-shared authentication token for local & CI drills.
+const DefaultDrillResponderToken = "bliss-drill-responder-secret"
+
+// MaxAlertBodyBytes enforces a strict 64 KiB payload bound on Alertmanager webhooks.
+const MaxAlertBodyBytes = 64 * 1024
+
+// MaxRetainedAlerts bounds in-memory alert history to prevent heap exhaustion.
+const MaxRetainedAlerts = 50
 
 // ResponderAlert represents a single alert within an Alertmanager notification payload.
 type ResponderAlert struct {
@@ -28,17 +39,26 @@ type AlertNotification struct {
 	Alerts   []ResponderAlert `json:"alerts"`
 }
 
-// DrillResponder is a lightweight receiver that captures incoming Alertmanager notifications
-// and exposes readiness/liveness endpoints for synthetic incident drills.
+// DrillResponder is a bounded, authenticated receiver that captures incoming Alertmanager
+// notifications and exposes liveness endpoints for synthetic incident drills.
 type DrillResponder struct {
 	mu             sync.RWMutex
+	authToken      string
 	receivedAlerts []AlertNotification
 }
 
-// NewDrillResponder initializes an in-memory alert recipient store.
-func NewDrillResponder() *DrillResponder {
+// NewDrillResponder initializes an in-memory alert recipient store with token validation.
+func NewDrillResponder(authToken ...string) *DrillResponder {
+	token := DefaultDrillResponderToken
+	if len(authToken) > 0 && authToken[0] != "" {
+		token = authToken[0]
+	} else if env := os.Getenv("GO_DRILL_RESPONDER_TOKEN"); env != "" {
+		token = env
+	}
+
 	return &DrillResponder{
-		receivedAlerts: make([]AlertNotification, 0),
+		authToken:      token,
+		receivedAlerts: make([]AlertNotification, 0, MaxRetainedAlerts),
 	}
 }
 
@@ -49,6 +69,13 @@ func (r *DrillResponder) Alerts() []AlertNotification {
 	copied := make([]AlertNotification, len(r.receivedAlerts))
 	copy(copied, r.receivedAlerts)
 	return copied
+}
+
+// Reset clears retained alerts (useful in multi-stage drill suites).
+func (r *DrillResponder) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.receivedAlerts = r.receivedAlerts[:0]
 }
 
 // Handler returns the HTTP router serving /alerts and /health/live.
@@ -64,17 +91,45 @@ func (r *DrillResponder) Handler() http.Handler {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+
+		// Enforce authentication via Bearer token or X-Drill-Token header
+		if r.authToken != "" {
+			authHeader := strings.TrimSpace(req.Header.Get("Authorization"))
+			expectedBearer := "Bearer " + r.authToken
+			customToken := strings.TrimSpace(req.Header.Get("X-Drill-Token"))
+
+			if authHeader != expectedBearer && customToken != r.authToken {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+				return
+			}
+		}
+
+		// Enforce strict 64 KiB request body limit
+		req.Body = http.MaxBytesReader(w, req.Body, MaxAlertBodyBytes)
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "request entity too large", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "failed to read body", http.StatusBadRequest)
 			return
 		}
+
 		var notif AlertNotification
 		if err := json.Unmarshal(body, &notif); err != nil {
 			http.Error(w, "invalid json payload", http.StatusBadRequest)
 			return
 		}
+
+		// Retain alerts with bounded ring buffer semantics
 		r.mu.Lock()
+		if len(r.receivedAlerts) >= MaxRetainedAlerts {
+			r.receivedAlerts = r.receivedAlerts[1:]
+		}
 		r.receivedAlerts = append(r.receivedAlerts, notif)
 		r.mu.Unlock()
 
@@ -86,11 +141,11 @@ func (r *DrillResponder) Handler() http.Handler {
 }
 
 // RunResponder serves the drill responder over HTTP until ctx is cancelled.
-func RunResponder(ctx context.Context, addr string) error {
+func RunResponder(ctx context.Context, addr string, authToken ...string) error {
 	if addr == "" {
 		addr = ":9099"
 	}
-	responder := NewDrillResponder()
+	responder := NewDrillResponder(authToken...)
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      responder.Handler(),

@@ -100,7 +100,13 @@ func TestSyntheticIncidentDrill_ReachesDesignatedResponder(t *testing.T) {
 		}
 
 		payloadBytes, _ := json.Marshal(payload)
-		resp, err := http.Post(responderServer.URL+"/alerts", "application/json", strings.NewReader(string(payloadBytes)))
+		req, err := http.NewRequest(http.MethodPost, responderServer.URL+"/alerts", strings.NewReader(string(payloadBytes)))
+		if err != nil {
+			t.Fatalf("failed to build alert request: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+DefaultDrillResponderToken)
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("failed to deliver alert to responder: %v", err)
 		}

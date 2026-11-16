@@ -161,6 +161,8 @@ services:
     profiles: ["observability"]
     entrypoint: [/app/devstack]
     command: [responder, "0.0.0.0:9099"]
+    environment:
+      GO_DRILL_RESPONDER_TOKEN: "bliss-drill-responder-secret"
     ports: ["127.0.0.1:9099:9099"]
     networks: [edge, private]
     healthcheck:

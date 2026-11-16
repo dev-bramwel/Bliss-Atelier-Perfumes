@@ -14,7 +14,7 @@ $baseDir = Split-Path -Parent $PSScriptRoot
 # ------------------------------------------------------------------------------
 # STEP 1: Verify Incident Runbooks
 # ------------------------------------------------------------------------------
-Write-Host "`n[1/5] Verifying Incident Runbooks in docs/runbooks/..." -ForegroundColor Yellow
+Write-Host "`n[1/6] Verifying Incident Runbooks in docs/runbooks/..." -ForegroundColor Yellow
 
 $requiredRunbooks = @(
     "docs/runbooks/runbook-payment-reconciliation-failure.md",
@@ -39,7 +39,7 @@ foreach ($rb in $requiredRunbooks) {
 # ------------------------------------------------------------------------------
 # STEP 2: Verify Prometheus Alerting Rules & Runbook Linkage
 # ------------------------------------------------------------------------------
-Write-Host "`n[2/5] Verifying Prometheus Alerting Rules & Runbook Linkage..." -ForegroundColor Yellow
+Write-Host "`n[2/6] Verifying Prometheus Alerting Rules & Runbook Linkage..." -ForegroundColor Yellow
 
 $alertsPath = Join-Path $baseDir "infra/observability/prometheus/alerts.yml"
 if (-not (Test-Path $alertsPath)) {
@@ -63,7 +63,7 @@ Write-Host "  ✓ All alerting rules have verified runbook_url destinations" -Fo
 # ------------------------------------------------------------------------------
 # STEP 3: Verify Provisioned Grafana Dashboards
 # ------------------------------------------------------------------------------
-Write-Host "`n[3/5] Verifying Provisioned Grafana Dashboards..." -ForegroundColor Yellow
+Write-Host "`n[3/6] Verifying Provisioned Grafana Dashboards..." -ForegroundColor Yellow
 
 $dashboardFiles = @(
     "infra/observability/grafana/dashboards/bliss-system-overview.json",
@@ -84,26 +84,69 @@ foreach ($df in $dashboardFiles) {
 }
 
 # ------------------------------------------------------------------------------
-# STEP 4: Execute Go Synthetic Incident Drill Suite
+# STEP 4: Prometheus & Alertmanager Tooling Rule & Route Verification
 # ------------------------------------------------------------------------------
-Write-Host "`n[4/5] Executing Go Synthetic Incident Drill Suite..." -ForegroundColor Yellow
+Write-Host "`n[4/6] Verifying Alert Rules and Routing via promtool & amtool..." -ForegroundColor Yellow
+
+$dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+if ($dockerCmd) {
+    Push-Location $baseDir
+    try {
+        # Check rule syntax
+        $promCheck = docker run --rm --entrypoint /bin/promtool -v "${baseDir}/infra/observability/prometheus:/etc/prometheus:ro" prom/prometheus:v2.53.0 check rules /etc/prometheus/alerts.yml
+        if ($LASTEXITCODE -ne 0) {
+            throw "promtool check rules failed"
+        }
+        Write-Host "  ✓ promtool check rules: $($promCheck.Trim())" -ForegroundColor Green
+
+        # Run unit tests for alerting rules
+        $promTest = docker run --rm --entrypoint /bin/promtool -v "${baseDir}/infra/observability/prometheus:/etc/prometheus:ro" prom/prometheus:v2.53.0 test rules /etc/prometheus/alerts_test.yml
+        if ($LASTEXITCODE -ne 0) {
+            throw "promtool test rules failed"
+        }
+        Write-Host "  ✓ promtool test rules: $($promTest.Trim())" -ForegroundColor Green
+
+        # Check Alertmanager routing
+        $amCheck = docker run --rm --entrypoint /bin/amtool -v "${baseDir}/infra/observability/alertmanager:/etc/alertmanager:ro" prom/alertmanager:v0.27.0 check-config /etc/alertmanager/alertmanager.yml
+        if ($LASTEXITCODE -ne 0) {
+            throw "amtool check-config failed"
+        }
+        Write-Host "  ✓ amtool check-config: validated Alertmanager configuration" -ForegroundColor Green
+
+        # Test route resolution
+        $amRoute = docker run --rm --entrypoint /bin/amtool -v "${baseDir}/infra/observability/alertmanager:/etc/alertmanager:ro" prom/alertmanager:v0.27.0 config routes test --config.file=/etc/alertmanager/alertmanager.yml alertname=UnresolvedPaymentSpike severity=critical
+        if ($LASTEXITCODE -ne 0 -or $amRoute.Trim() -ne "drill_responder_webhook") {
+            throw "amtool config routes test failed: expected drill_responder_webhook, got $amRoute"
+        }
+        Write-Host "  ✓ amtool route test: alerts route to $($amRoute.Trim())" -ForegroundColor Green
+    } finally {
+        Pop-Location
+    }
+} else {
+    Write-Host "  ! Docker not found in PATH; skipping containerized promtool/amtool checks" -ForegroundColor Yellow
+}
+
+# ------------------------------------------------------------------------------
+# STEP 5: Execute Go Synthetic Incident Drill Suite & Recovery Lifecycles
+# ------------------------------------------------------------------------------
+Write-Host "`n[5/6] Executing Go Synthetic Incident Drills & Recovery Lifecycles..." -ForegroundColor Yellow
 
 Push-Location $baseDir
 try {
-    $drillOutput = go test -v -run "TestSyntheticIncidentDrill" ./internal/telemetry
+    $drillOutput = go test -v -run "TestSyntheticIncidentDrill|TestRunbookDiagnosisAndRecovery" ./internal/telemetry
     if ($LASTEXITCODE -ne 0) {
         throw "Go synthetic incident drill failed with exit code $LASTEXITCODE"
     }
     $drillOutput | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
-    Write-Host "  ✓ Synthetic incident drill executed successfully and reached designated responder" -ForegroundColor Green
+    Write-Host "  ✓ Incident induction, diagnosis, and recovery lifecycles verified" -ForegroundColor Green
 } finally {
     Pop-Location
 }
 
 # ------------------------------------------------------------------------------
-# STEP 5: Strict PII & Metric Label Cardinality Audit
+# STEP 6: Strict PII & Metric Label Cardinality Audit
 # ------------------------------------------------------------------------------
-Write-Host "`n[5/5] Auditing Telemetry for PII Redaction & Label Cardinality..." -ForegroundColor Yellow
+Write-Host "`n[6/6] Auditing Telemetry for PII Redaction & Label Cardinality..." -ForegroundColor Yellow
 
 Push-Location $baseDir
 try {

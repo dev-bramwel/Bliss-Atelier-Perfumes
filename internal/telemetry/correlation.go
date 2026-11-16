@@ -69,3 +69,33 @@ func Attr(ctx context.Context) slog.Attr {
 	}
 	return slog.String("correlation_id", id)
 }
+
+// CorrelationHandler is an slog.Handler middleware that automatically extracts
+// correlation_id from context.Context and attaches it as a structured log attribute.
+type CorrelationHandler struct {
+	inner slog.Handler
+}
+
+// NewCorrelationHandler wraps an inner slog.Handler with automatic context correlation_id injection.
+func NewCorrelationHandler(inner slog.Handler) *CorrelationHandler {
+	return &CorrelationHandler{inner: inner}
+}
+
+func (h *CorrelationHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.inner.Enabled(ctx, level)
+}
+
+func (h *CorrelationHandler) Handle(ctx context.Context, r slog.Record) error {
+	if id := FromContext(ctx); id != "" {
+		r.AddAttrs(slog.String("correlation_id", id))
+	}
+	return h.inner.Handle(ctx, r)
+}
+
+func (h *CorrelationHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &CorrelationHandler{inner: h.inner.WithAttrs(attrs)}
+}
+
+func (h *CorrelationHandler) WithGroup(name string) slog.Handler {
+	return &CorrelationHandler{inner: h.inner.WithGroup(name)}
+}

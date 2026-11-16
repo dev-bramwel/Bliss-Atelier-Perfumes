@@ -10,6 +10,7 @@ import (
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // CreatePaymentAttempt registers a new payment attempt for an order under strict safety constraints.
@@ -142,7 +143,7 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 	}
 
 	// Transactional outbox event enqueue
-	evt, err := events.NewEvent(events.TypePaymentAttempt, orderID, nextAttemptNum, "", events.PaymentAttemptPayload{
+	evt, err := events.NewEvent(events.TypePaymentAttempt, orderID, nextAttemptNum, telemetry.FromContext(ctx), events.PaymentAttemptPayload{
 		AttemptID:     attempt.ID,
 		OrderID:       orderID,
 		AttemptNumber: nextAttemptNum,

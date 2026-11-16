@@ -3,7 +3,7 @@
 **Issue:** [#29 - [R23] Deliver dashboards, traces, alerts and incident runbooks](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/29)  
 **Milestone:** Week 5: Business operations and visibility  
 **Area:** Observability / SRE / Platform  
-**Status:** Completed and verified locally against unit tests, synthetic incident drills, and static PII audits.  
+**Status:** Completed and verified locally against unit tests, promtool rule tests, amtool routing tests, synthetic incident drills, and static PII audits.  
 
 ---
 
@@ -15,17 +15,22 @@ Bliss Atelier Perfumes requires robust, zero-leak operational visibility and inc
 1. **Strict Bounded-Cardinality Metrics**:
    - Zero high-cardinality values permitted in metric labels. Dynamic identifiers (order IDs `ord_...`, user IDs `usr_...`, customer IP addresses, guest tokens `gt_...`) are strictly prohibited in metric labels.
    - Route paths are normalized to bounded templates (e.g. `/api/orders/{id}/payment-status`, `/api/admin/users/{id}/role`). Any unmapped path collapses into `/unmapped`.
+   - HTTP methods are normalized via `NormalizeMethod` to bounded standard verbs (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`); unmapped verbs collapse into `UNKNOWN`.
 2. **Total PII & Secret Redaction**:
    - Customer phone numbers (`+254...`, `07...`), addresses, session tokens, and webhook secrets are redacted across all logs, traces, and metrics.
-3. **Correlation ID Continuity**:
-   - Every inbound HTTP request receives or preserves an `X-Correlation-ID` header. This identifier is attached to `context.Context`, injected into structured `slog` attributes, and propagated into outbox event envelopes and message queue headers.
+3. **Correlation ID Continuity & Tracing Scope**:
+   - The tracing scope delivered is **request-to-worker correlation ID tracing**.
+   - Every inbound HTTP request receives or preserves an `X-Correlation-ID` header.
+   - Attached to `context.Context` via `telemetry.WithCorrelationID`.
+   - Automatically injected into all structured `slog` logs via `telemetry.CorrelationHandler`.
+   - Propagated through domain events (`events.NewEvent(..., correlationID, ...)`), stored in `public.outbox_event`, packaged into RabbitMQ `events.Envelope`, and restored in `worker.NotificationConsumer` context for asynchronous execution traceability.
 4. **Lightweight, Zero-Dependency Prometheus Exposition (`GET /metrics`)**:
-   - Standard Prometheus 0.0.4 text exposition format served on `GET /metrics` with zero external Go module overhead.
+   - Standard Prometheus 0.0.4 text exposition format served on `GET /metrics` on both API (`:8080`) and Worker (`:5002`) with zero external Go module overhead.
    - Dynamic collectors sample PostgreSQL connection pool stats (`pgxpool.Stat()`) and outbox queue depths on-demand during scrapes without background polling waste.
 5. **Actionable Alerting Rules Linked to Runbooks**:
    - Every alert definition in `infra/observability/prometheus/alerts.yml` includes an explicit, validated `runbook_url` pointing to an operational procedure in `docs/runbooks/`.
 6. **Isolated Docker Compose Profile (`observability`)**:
-   - Core development (`docker compose up -d`) remains lean and lightweight, while `docker compose --profile observability up -d` launches Prometheus, Alertmanager, and Grafana on demand.
+   - Core development (`docker compose up -d`) remains lean and lightweight, while `docker compose --profile observability up -d` launches Prometheus, Alertmanager, Grafana, and the Drill Responder on demand.
 
 ---
 
@@ -38,12 +43,12 @@ flowchart TD
     end
 
     subgraph Instrumentation Layer
-        API -->|"HTTP Middleware"| Tel["internal/telemetry"]
+        API -->|"HTTP Middleware & CorrelationHandler"| Tel["internal/telemetry"]
         API -->|"Pool Stats Hook"| PGPool["PostgreSQL pgxpool"]
         API -->|"Cache / Rate Limit Events"| Redis["Redis 7"]
         API -->|"Payment Attempts & Exceptions"| Reconciler["Payment Reconciler"]
         API -->|"Outbox Pending Depth"| OutboxStore["Transactional Outbox"]
-        Worker["RabbitMQ Worker"] -->|"DLQ / Message Acks"| Tel
+        Worker["RabbitMQ Worker (:5002)"] -->|"DLQ / Message Acks"| Tel
         PGPool -.->|"On Scrape"| Tel
         Redis -.-> Tel
         Reconciler -.-> Tel
@@ -52,12 +57,13 @@ flowchart TD
 
     subgraph Monitoring Stack (Profile: observability)
         Prom["Prometheus (prom/prometheus:v2.53.0)"] -->|"Scrapes GET /metrics (every 5s)"| API
+        Prom -->|"Scrapes GET /metrics (every 5s)"| Worker
         Prom -->|"Evaluates alerts.yml"| Alertmanager["Alertmanager (prom/alertmanager:v0.27.0)"]
         Prom -->|"Metrics Datasource"| Grafana["Grafana (grafana/grafana:11.1.0)"]
     end
 
     subgraph Incident Response & Recovery
-        Alertmanager -->|"Dispatches Webhook Alert"| ResponderSink["Designated Responder (Synthetic Drill Sink)"]
+        Alertmanager -->|"Dispatches Webhook Alert (Bearer Auth)"| ResponderSink["Designated Responder (Synthetic Drill Sink :9099)"]
         ResponderSink -->|"Links to"| Runbooks["Operational Runbooks (docs/runbooks/)"]
     end
 ```
@@ -73,6 +79,7 @@ flowchart TD
 | **HTTP API** | `http_requests_in_flight` | Gauge | none | Current concurrent in-flight requests. |
 | **Database** | `db_pool_connections` | Gauge | `state` (`acquired`, `idle`, `total`) | Live PostgreSQL connection pool utilization via `pgxpool.Stat()`. |
 | **Database** | `db_pool_max_connections` | Gauge | none | Configured pool maximum (`GO_DB_MAX_CONNECTIONS`). |
+| **Database** | `db_pool_acquire_wait_duration_seconds_total` | Counter | none | Cumulative wait duration acquiring database connections. |
 | **Redis Cache** | `redis_cache_operations_total` | Counter | `cache`, `operation` (`hit`, `miss`, `error`) | Catalog and session cache efficiency. |
 | **Rate Limiter**| `rate_limit_events_total` | Counter | `bucket`, `status` (`allowed`, `exceeded`) | Sliding-window abuse mitigation events. |
 | **Payments** | `payment_attempts_total` | Counter | `provider`, `status` (`initiated`, `success`, `failed`) | Mobile payment lifecycle tracking. |
@@ -132,37 +139,51 @@ Configured in `infra/observability/prometheus/alerts.yml` and `infra/observabili
 
 ## 6. Synthetic Incident Drill Execution Results
 
-Automated verification was executed via [`scripts/test-synthetic-incident-drills.ps1`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/scripts/test-synthetic-incident-drills.ps1) and `internal/telemetry/drill_test.go`:
+Automated verification was executed via [`scripts/test-synthetic-incident-drills.ps1`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/scripts/test-synthetic-incident-drills.ps1):
 
 ```
 =================================================================
   BLISS ATELIER: OBSERVABILITY & INCIDENT DRILL VERIFICATION    
 =================================================================
 
-[1/5] Verifying Incident Runbooks in docs/runbooks/...
+[1/6] Verifying Incident Runbooks in docs/runbooks/...
   ✓ Found runbook: docs/runbooks/runbook-payment-reconciliation-failure.md (3875 bytes)
   ✓ Found runbook: docs/runbooks/runbook-dlq-poison-messages.md (3266 bytes)
   ✓ Found runbook: docs/runbooks/runbook-database-pool-exhaustion.md (2845 bytes)
   ✓ Found runbook: docs/runbooks/runbook-cache-and-rate-limit-outage.md (2544 bytes)
   ✓ Found runbook: docs/runbooks/runbook-api-error-surge.md (2805 bytes)
 
-[2/5] Verifying Prometheus Alerting Rules & Runbook Linkage...
+[2/6] Verifying Prometheus Alerting Rules & Runbook Linkage...
   ✓ Configured Alerts (8): ApiHigh5xxRate, ApiHighLatency, DbPoolSaturation, UnresolvedPaymentSpike, PaymentExceptionDetected, DlqPoisonMessagesDetected, OutboxBacklogGrowing, RedisOutageFallbackActive
   ✓ All alerting rules have verified runbook_url destinations
 
-[3/5] Verifying Provisioned Grafana Dashboards...
+[3/6] Verifying Provisioned Grafana Dashboards...
   ✓ Dashboard: 'Bliss Atelier - System & API Overview' (6 panels)
   ✓ Dashboard: 'Bliss Atelier - Financial & Payment Operations' (4 panels)
   ✓ Dashboard: 'Bliss Atelier - Messaging, Outbox & SRE' (5 panels)
 
-[4/5] Executing Go Synthetic Incident Drill Suite...
-    === RUN   TestSyntheticIncidentDrill_ReachesDesignatedResponder
-    --- PASS: TestSyntheticIncidentDrill_ReachesDesignatedResponder (0.01s)
-    PASS
-    ok  	github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry	2.022s
-  ✓ Synthetic incident drill executed successfully and reached designated responder
+[4/6] Verifying Alert Rules and Routing via promtool & amtool...
+  ✓ promtool check rules: Checking /etc/prometheus/alerts.yml SUCCESS: 8 rules found 
+  ✓ promtool test rules: Unit Testing:  /etc/prometheus/alerts_test.yml SUCCESS 
+  ✓ amtool check-config: validated Alertmanager configuration
+  ✓ amtool route test: alerts route to drill_responder_webhook
 
-[5/5] Auditing Telemetry for PII Redaction & Label Cardinality...
+[5/6] Executing Go Synthetic Incident Drills & Recovery Lifecycles...
+    === RUN   TestSyntheticIncidentDrill_ReachesDesignatedResponder
+    --- PASS: TestSyntheticIncidentDrill_ReachesDesignatedResponder (0.04s)
+    === RUN   TestRunbookDiagnosisAndRecovery_Drill
+    === RUN   TestRunbookDiagnosisAndRecovery_Drill/Payment_Reconciliation_Incident_Lifecycle
+    === RUN   TestRunbookDiagnosisAndRecovery_Drill/Queue_DLQ_Incident_Lifecycle
+    === RUN   TestRunbookDiagnosisAndRecovery_Drill/API_5xx_Surge_Incident_Lifecycle
+    --- PASS: TestRunbookDiagnosisAndRecovery_Drill (0.05s)
+        --- PASS: TestRunbookDiagnosisAndRecovery_Drill/Payment_Reconciliation_Incident_Lifecycle (0.01s)
+        --- PASS: TestRunbookDiagnosisAndRecovery_Drill/Queue_DLQ_Incident_Lifecycle (0.02s)
+        --- PASS: TestRunbookDiagnosisAndRecovery_Drill/API_5xx_Surge_Incident_Lifecycle (0.02s)
+    PASS
+    ok  	github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry	6.592s
+  ✓ Incident induction, diagnosis, and recovery lifecycles verified
+
+[6/6] Auditing Telemetry for PII Redaction & Label Cardinality...
   ✓ Zero customer phone numbers, addresses, or tokens found in metrics
   ✓ Zero dynamic order IDs found in metric labels
 
@@ -184,18 +205,59 @@ Five comprehensive runbooks delivered in [`docs/runbooks/`](file:///C:/Users/mut
 
 ---
 
-## 8. Definition of Done & Sign-Off
+## 8. Resolution of Review Findings
+
+| Finding | Review Item | Resolution |
+| :--- | :--- | :--- |
+| **Finding 1 `[P1]`** | Exercise Prometheus $\rightarrow$ Alertmanager $\rightarrow$ responder path using real tooling rather than synthetic-only mocks. | Added [`infra/observability/prometheus/alerts_test.yml`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/infra/observability/prometheus/alerts_test.yml) covering all 8 alerting rules with PromQL synthetic time series. Integrated containerized `promtool check rules`, `promtool test rules`, `amtool check-config`, and `amtool config routes test` directly into the automated drill script. Configured Alertmanager webhook authentication with Bearer token matching responder. |
+| **Finding 2 `[P2]`** | Exercise and verify diagnosis and recovery runbooks for Payment, DLQ, and API incidents. | Added [`internal/telemetry/recovery_drill_test.go`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/internal/telemetry/recovery_drill_test.go) with `TestRunbookDiagnosisAndRecovery_Drill`, executing the 4-phase lifecycle (Induction $\rightarrow$ Diagnosis $\rightarrow$ Remediation $\rightarrow$ Recovery Verification) across Payment, DLQ, and API 5xx incidents, explicitly asserting that remediation actions clear the alert condition (`resolved` status). |
+| **Finding 3 `[P2]`** | Implement or narrow the advertised tracing scope. | Implemented `telemetry.CorrelationHandler` wrapping `slog.Handler` to automatically attach `"correlation_id"` to structured log records. Propagated `FromContext(ctx)` through domain events in `internal/orders`, persisted into `public.outbox_event`, published in RabbitMQ `events.Envelope`, and restored in `worker.NotificationConsumer` via `WithCorrelationID`. Clarified throughout docs that the tracing scope delivered is **request-to-worker correlation ID tracing**. |
+| **Finding 4 `[P2]`** | Bound and protect the drill responder's alert ingestion. | Hardened [`internal/telemetry/responder.go`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/internal/telemetry/responder.go) with `MaxAlertBodyBytes = 64 * 1024` (413 Payload Too Large on oversized bodies), ring buffer retention capped at `MaxRetainedAlerts = 50` to prevent memory exhaustion, and Bearer token authentication (`Authorization: Bearer <token>` or `X-Drill-Token`). Updated `compose.yaml` and `alertmanager.yml` to supply `bliss-drill-responder-secret`. |
+
+---
+
+## 9. Schema, Configuration & Rollback Accounting
+
+### Database Schema Accounting
+- **Migrations Required:** **Zero (`0`)**.
+- **Schema Impact:** No database tables or schema modifications were required. The observability implementation reads live PostgreSQL stats via `pgxpool.Stat()` dynamic collectors and queries existing `public.outbox_event` and `public.dead_letter_message` tables without schema churn.
+
+### Configuration Accounting
+
+| Variable | Target Subsystem | Default Value | Description |
+| :--- | :--- | :--- | :--- |
+| `GO_WORKER_METRICS_ADDR` | Worker process | `:5002` | Port on which the background worker exposes `GET /metrics`. Scraped by Prometheus. |
+| `GO_DRILL_RESPONDER_ADDR` | Drill Responder | `:9099` | HTTP bind address for the synthetic incident drill alert responder webhook receiver. |
+| `GO_DRILL_RESPONDER_TOKEN` | Drill Responder | `bliss-drill-responder-secret` | Shared secret token required in `Authorization: Bearer <token>` or `X-Drill-Token`. |
+
+### Operational Rollback Procedure
+If observability services or instrumentation need to be reverted:
+1. Revert application container changes:
+   ```bash
+   git revert <commit-hash>
+   docker compose build api worker
+   docker compose up -d api worker
+   ```
+2. Stop observability profile containers:
+   ```bash
+   docker compose --profile observability down
+   ```
+3. Because no database migrations were applied, no SQL rollbacks or schema restorations are required. Core operations continue unaffected.
+
+---
+
+## 10. Definition of Done & Sign-Off
 
 - [x] Pull Request opened and green: [PR #82](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/pull/82)
 - [x] All CI checks passing (Docker core validation, Security and contracts, PR closing blockers, PR Agent, Vercel).
-- [x] All 4 Codex review suggestions addressed and verified:
-  - Worker process metrics exposed on `:5002` and scraped by Prometheus.
-  - Drill responder service wired in `cmd/devstack` and `compose.yaml`.
-  - PromQL vector matching fixed with `ignoring(state)` for `DbPoolSaturation`.
-  - HTTP method cardinality normalized (`NormalizeMethod`).
+- [x] All 4 review suggestions from `wanjiru-noreen` resolved and verified:
+  - Finding 1: `promtool test rules` and Alertmanager routing verification implemented and passing.
+  - Finding 2: Full incident diagnosis and recovery lifecycle drills executed for Payment, DLQ, and API incidents.
+  - Finding 3: Tracing scope clearly defined as request-to-worker correlation ID tracing with structured log integration.
+  - Finding 4: Drill responder protected with 64 KiB body limit, 50-alert ring buffer, and Bearer token authentication.
 - [x] All unit and integration tests passing (`go test -v ./...`).
 - [x] Telemetry endpoint `GET /metrics` emits valid Prometheus 0.0.4 text format under 2ms.
 - [x] Zero high-cardinality labels and zero PII verified via automated audit.
 - [x] `compose.yaml` profile `observability` config validated.
-- [x] Synthetic incident drills verified reaching designated responder webhook.
+- [x] Synthetic incident drills and recovery verification passing 100%.
 - [x] 5 operational runbooks delivered and cross-referenced in alert annotations.

@@ -343,7 +343,7 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 	for i, it := range orderItems {
 		orderItemsPayload[i] = events.OrderItemPayload{ProductID: it.ProductID, Quantity: it.Quantity}
 	}
-	evt, err := events.NewEvent(events.TypeOrderCreated, orderID, 1, "", events.OrderCreatedPayload{
+	evt, err := events.NewEvent(events.TypeOrderCreated, orderID, 1, telemetry.FromContext(ctx), events.OrderCreatedPayload{
 		OrderID:          orderID,
 		CustomerName:     req.Customer.Name,
 		CustomerPhone:    req.Customer.Phone,
@@ -789,7 +789,7 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		}
 
 		// Transactional outbox event enqueue
-		evt, err := events.NewEvent(events.TypeOrderPaid, orderID, 2, "", events.OrderPaidPayload{
+		evt, err := events.NewEvent(events.TypeOrderPaid, orderID, 2, telemetry.FromContext(ctx), events.OrderPaidPayload{
 			OrderID:       orderID,
 			ReceiptNumber: receiptNumber,
 			AmountKes:     totalKes,
