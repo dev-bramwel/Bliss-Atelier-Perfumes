@@ -205,18 +205,28 @@ Five comprehensive runbooks delivered in [`docs/runbooks/`](file:///C:/Users/mut
 
 ---
 
-## 8. Resolution of Review Findings
+## 8. Resolution of Initial Review Findings (Round 1)
 
 | Finding | Review Item | Resolution |
 | :--- | :--- | :--- |
 | **Finding 1 `[P1]`** | Exercise Prometheus $\rightarrow$ Alertmanager $\rightarrow$ responder path using real tooling rather than synthetic-only mocks. | Added [`infra/observability/prometheus/alerts_test.yml`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/infra/observability/prometheus/alerts_test.yml) covering all 8 alerting rules with PromQL synthetic time series. Integrated containerized `promtool check rules`, `promtool test rules`, `amtool check-config`, and `amtool config routes test` directly into the automated drill script. Configured Alertmanager webhook authentication with Bearer token matching responder. |
 | **Finding 2 `[P2]`** | Exercise and verify diagnosis and recovery runbooks for Payment, DLQ, and API incidents. | Added [`internal/telemetry/recovery_drill_test.go`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/internal/telemetry/recovery_drill_test.go) with `TestRunbookDiagnosisAndRecovery_Drill`, executing the 4-phase lifecycle (Induction $\rightarrow$ Diagnosis $\rightarrow$ Remediation $\rightarrow$ Recovery Verification) across Payment, DLQ, and API 5xx incidents, explicitly asserting that remediation actions clear the alert condition (`resolved` status). |
 | **Finding 3 `[P2]`** | Implement or narrow the advertised tracing scope. | Implemented `telemetry.CorrelationHandler` wrapping `slog.Handler` to automatically attach `"correlation_id"` to structured log records. Propagated `FromContext(ctx)` through domain events in `internal/orders`, persisted into `public.outbox_event`, published in RabbitMQ `events.Envelope`, and restored in `worker.NotificationConsumer` via `WithCorrelationID`. Clarified throughout docs that the tracing scope delivered is **request-to-worker correlation ID tracing**. |
-| **Finding 4 `[P2]`** | Bound and protect the drill responder's alert ingestion. | Hardened [`internal/telemetry/responder.go`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/internal/telemetry/responder.go) with `MaxAlertBodyBytes = 64 * 1024` (413 Payload Too Large on oversized bodies), ring buffer retention capped at `MaxRetainedAlerts = 50` to prevent memory exhaustion, and Bearer token authentication (`Authorization: Bearer <token>` or `X-Drill-Token`). Updated `compose.yaml` and `alertmanager.yml` to supply `bliss-drill-responder-secret`. |
+| **Finding 4 `[P2]`** | Bound and protect the drill responder's alert ingestion. | Hardened [`internal/telemetry/responder.go`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/internal/telemetry/responder.go) with `MaxAlertBodyBytes = 64 * 1024` (413 Payload Too Large on oversized bodies), ring buffer retention capped at `MaxRetainedAlerts = 50` to prevent memory exhaustion, and Bearer token authentication (`Authorization: Bearer <token>` or `X-Drill-Token`). |
 
 ---
 
-## 9. Schema, Configuration & Rollback Accounting
+## 9. Resolution of Follow-Up Review Findings (Round 2)
+
+| Follow-up Finding | Severity | Problem & Review Requirement | Operational Resolution & Evidence |
+| :--- | :--- | :--- | :--- |
+| **Finding 1** | `[P1]` | **Live Containerized Alertmanager $\to$ Responder Delivery**: Verify that firing and resolved notifications actually reach the configured drill-responder container through the deployed Alertmanager stack, using Bearer token authentication from Docker secrets. | Added automated Step `[4b]` to [`scripts/test-synthetic-incident-drills.ps1`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/scripts/test-synthetic-incident-drills.ps1). Launches containerized `drill-responder` and `alertmanager`, asserts unauthenticated `GET /alerts` returns `401 Unauthorized`, posts a synthetic alert to Alertmanager API (`POST /api/v2/alerts`), verifies Alertmanager delivers firing notification with secret Bearer auth to `drill-responder:9099`, posts resolved alert, and verifies resolved notification arrival. Enabled `--cluster.listen-address=` for single-node instant routing and added `isAuthorized` check with authenticated `GET /alerts` query endpoint. |
+| **Finding 2** | `[P2]` | **Real Operational Remediation in Recovery Drills**: Update recovery drills so that instead of simply calling `UnresolvedPaymentsGauge.Set(0)` in memory, the test actually performs the documented operational remediation against services: executing reconciliation sweeps (`ReconcileStaleAttempts`), handling dead-letter messages in `NotificationConsumer`, and executing HTTP requests through `HTTPMiddleware`. | Updated [`internal/telemetry/recovery_drill_test.go`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/internal/telemetry/recovery_drill_test.go) (`package telemetry_test`) to exercise real domain service logic:<br>1. **Payment Triage**: Constructs `reconciliation.New(...)` with mock repository and provider, invokes `reconciler.ReconcileStaleAttempts(ctx)` to verify 4 stale attempts update the gauge and record `STALE_ATTEMPT_UNRESOLVED` exceptions, settles attempts, and reruns the sweep to automatically clear the gauge to 0.<br>2. **DLQ Triage**: Invokes `worker.NotificationConsumer.ProcessDelivery(ctx, delivery)` with poison payload to verify unmarshal rejection to DLQ and `RabbitMQDLQMessagesGauge.Inc("dead_letter")`. Then follows runbook procedure to drain quarantine.<br>3. **API 5xx Surge**: Runs HTTP requests through `telemetry.HTTPMiddleware` to record 30 status 500 errors, then runs 600 healthy requests through middleware to normalize error rate below 5%. |
+| **Finding 3** | `[P2]` | **Externalize Responder Bearer Token via Docker Secrets**: Remove `bliss-drill-responder-secret` from committed files. Generate tokens dynamically via `devstack secrets`, load via `bearer_token_file: /run/secrets/drill_responder_token` in Alertmanager and Docker secrets, with no committed plaintext fallbacks. | 1. Removed `DefaultDrillResponderToken = "bliss-drill-responder-secret"` from [`internal/telemetry/responder.go`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/internal/telemetry/responder.go). Responder requires explicit token via constructor, `GO_DRILL_RESPONDER_TOKEN` env, or `GO_DRILL_RESPONDER_TOKEN_FILE` file path; refuses to start unauthenticated.<br>2. Updated [`cmd/devstack/main.go`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/cmd/devstack/main.go) to generate a cryptographically secure 32-byte hex token in `.local/dev/drill_responder_token` (with backward-compatible secret set upgrade).<br>3. Updated [`compose.yaml`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/compose.yaml) to mount `drill_responder_token` into both `alertmanager` and `drill-responder` via Docker secrets.<br>4. Updated [`infra/observability/alertmanager/alertmanager.yml`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/infra/observability/alertmanager/alertmanager.yml) to load auth token via `http_config.bearer_token_file: "/run/secrets/drill_responder_token"`. Zero committed plaintext fallback secrets. |
+
+---
+
+## 10. Schema, Configuration & Rollback Accounting
 
 ### Database Schema Accounting
 - **Migrations Required:** **Zero (`0`)**.
@@ -228,14 +238,29 @@ Five comprehensive runbooks delivered in [`docs/runbooks/`](file:///C:/Users/mut
 | :--- | :--- | :--- | :--- |
 | `GO_WORKER_METRICS_ADDR` | Worker process | `:5002` | Port on which the background worker exposes `GET /metrics`. Scraped by Prometheus. |
 | `GO_DRILL_RESPONDER_ADDR` | Drill Responder | `:9099` | HTTP bind address for the synthetic incident drill alert responder webhook receiver. |
-| `GO_DRILL_RESPONDER_TOKEN` | Drill Responder | `bliss-drill-responder-secret` | Shared secret token required in `Authorization: Bearer <token>` or `X-Drill-Token`. |
+| `GO_DRILL_RESPONDER_TOKEN_FILE` | Drill Responder | `/run/secrets/drill_responder_token` | Path to Docker secret file containing the dynamic authentication token. Loaded securely without committed plaintext. |
+| `GO_DRILL_RESPONDER_TOKEN` | Drill Responder | *(unset)* | Environment variable alternative for supplying authentication token (used in tests). |
+
+### Secret Generation & Rotation Procedure
+1. **Initial Provisioning:**
+   ```bash
+   go run ./cmd/devstack secrets
+   ```
+   Generates a 32-byte hex string in `.local/dev/drill_responder_token` (mode `0600`).
+2. **Rotation:**
+   ```bash
+   # Generate new token
+   openssl rand -hex 32 > .local/dev/drill_responder_token
+   # Restart Alertmanager and Drill Responder to load updated secret
+   docker compose --profile observability restart alertmanager drill-responder
+   ```
 
 ### Operational Rollback Procedure
 If observability services or instrumentation need to be reverted:
 1. Revert application container changes:
    ```bash
    git revert <commit-hash>
-   docker compose build api worker
+   docker compose build api worker drill-responder
    docker compose up -d api worker
    ```
 2. Stop observability profile containers:
@@ -246,15 +271,19 @@ If observability services or instrumentation need to be reverted:
 
 ---
 
-## 10. Definition of Done & Sign-Off
+## 11. Definition of Done & Sign-Off
 
 - [x] Pull Request opened and green: [PR #82](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/pull/82)
 - [x] All CI checks passing (Docker core validation, Security and contracts, PR closing blockers, PR Agent, Vercel).
-- [x] All 4 review suggestions from `wanjiru-noreen` resolved and verified:
+- [x] All Round 1 review suggestions resolved and verified:
   - Finding 1: `promtool test rules` and Alertmanager routing verification implemented and passing.
   - Finding 2: Full incident diagnosis and recovery lifecycle drills executed for Payment, DLQ, and API incidents.
   - Finding 3: Tracing scope clearly defined as request-to-worker correlation ID tracing with structured log integration.
   - Finding 4: Drill responder protected with 64 KiB body limit, 50-alert ring buffer, and Bearer token authentication.
+- [x] All Round 2 follow-up review suggestions resolved and verified:
+  - Finding 1: Live containerized Alertmanager $\to$ Drill-Responder firing and resolved webhook delivery verified with Docker secret auth.
+  - Finding 2: Recovery drills execute genuine operational domain remediation (`ReconcileStaleAttempts`, `NotificationConsumer.ProcessDelivery` poison handling, and `HTTPMiddleware`).
+  - Finding 3: Responder Bearer token externalized via Docker secrets (`devstack secrets`, zero committed plaintext fallbacks).
 - [x] All unit and integration tests passing (`go test -v ./...`).
 - [x] Telemetry endpoint `GET /metrics` emits valid Prometheus 0.0.4 text format under 2ms.
 - [x] Zero high-cardinality labels and zero PII verified via automated audit.
