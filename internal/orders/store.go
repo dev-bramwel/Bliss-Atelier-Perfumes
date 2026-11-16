@@ -807,6 +807,7 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("failed to commit confirm payment transaction: %w", err)
 		}
+		telemetry.StockReservationsActiveGauge.Dec()
 		invalidateCatalogDetached(s.Invalidator)
 		return nil
 	}
@@ -816,6 +817,7 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 	if resStatus == ReservationActive {
 		_, _ = tx.Exec(ctx, `UPDATE public.stock_reservation SET status = $1, released_at = $2 WHERE id = $3`,
 			ReservationReleased, now, resID)
+		telemetry.StockReservationsActiveGauge.Dec()
 	}
 	_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2 WHERE id = $3`,
 		PaymentResolutionRequired, now, orderID)
