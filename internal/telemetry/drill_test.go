@@ -2,58 +2,28 @@ package telemetry
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
-	"sync"
 	"testing"
 )
 
-// AlertNotification represents the payload sent by Alertmanager to the designated responder webhook.
-type AlertNotification struct {
-	Receiver string `json:"receiver"`
-	Status   string `json:"status"`
-	Alerts   []struct {
-		Status      string            `json:"status"`
-		Labels      map[string]string `json:"labels"`
-		Annotations map[string]string `json:"annotations"`
-	} `json:"alerts"`
-}
-
 func TestSyntheticIncidentDrill_ReachesDesignatedResponder(t *testing.T) {
-	// 1. Set up Designated Responder Webhook Mock Receiver
-	var mu sync.Mutex
-	var receivedAlerts []AlertNotification
-
-	responderServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Errorf("failed to read responder alert body: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		var notif AlertNotification
-		if err := json.Unmarshal(body, &notif); err != nil {
-			t.Errorf("failed to unmarshal alert notification: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		mu.Lock()
-		receivedAlerts = append(receivedAlerts, notif)
-		mu.Unlock()
-
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"received"}`))
-	}))
+	// 1. Set up Designated Responder Webhook using the actual DrillResponder implementation
+	responder := NewDrillResponder()
+	responderServer := httptest.NewServer(responder.Handler())
 	defer responderServer.Close()
+
+	// Verify responder liveness endpoint
+	liveResp, err := http.Get(responderServer.URL + "/health/live")
+	if err != nil {
+		t.Fatalf("failed to query responder liveness: %v", err)
+	}
+	if liveResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from /health/live, got %d", liveResp.StatusCode)
+	}
+	_ = liveResp.Body.Close()
 
 	// 2. Simulate Synthetic Incident 1: Unresolved Payment Exception
 	PaymentExceptionsTotal.Inc("AMOUNT_MISMATCH")
@@ -114,11 +84,7 @@ func TestSyntheticIncidentDrill_ReachesDesignatedResponder(t *testing.T) {
 		payload := AlertNotification{
 			Receiver: "drill_responder_webhook",
 			Status:   "firing",
-			Alerts: []struct {
-				Status      string            `json:"status"`
-				Labels      map[string]string `json:"labels"`
-				Annotations map[string]string `json:"annotations"`
-			}{
+			Alerts: []ResponderAlert{
 				{
 					Status: "firing",
 					Labels: map[string]string{
@@ -134,7 +100,7 @@ func TestSyntheticIncidentDrill_ReachesDesignatedResponder(t *testing.T) {
 		}
 
 		payloadBytes, _ := json.Marshal(payload)
-		resp, err := http.Post(responderServer.URL, "application/json", strings.NewReader(string(payloadBytes)))
+		resp, err := http.Post(responderServer.URL+"/alerts", "application/json", strings.NewReader(string(payloadBytes)))
 		if err != nil {
 			t.Fatalf("failed to deliver alert to responder: %v", err)
 		}
@@ -145,9 +111,7 @@ func TestSyntheticIncidentDrill_ReachesDesignatedResponder(t *testing.T) {
 	}
 
 	// 5. Verify all synthetic alerts reached designated responder
-	mu.Lock()
-	defer mu.Unlock()
-
+	receivedAlerts := responder.Alerts()
 	if len(receivedAlerts) != 3 {
 		t.Fatalf("expected 3 delivered alerts at responder sink, got %d", len(receivedAlerts))
 	}

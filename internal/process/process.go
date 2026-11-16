@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -182,6 +183,18 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			return nil
 		}
 		logger.Info("worker_started", "role", "background_reconciliation_and_expiry_sweep")
+		telemetry.RegisterPoolStats(pool)
+
+		metricsListener, mErr := net.Listen("tcp", cfg.WorkerMetricsAddr)
+		if mErr != nil {
+			return fmt.Errorf("worker metrics listener unavailable on %s: %w", cfg.WorkerMetricsAddr, mErr)
+		}
+		metricsServer := startWorkerMetricsServer(metricsListener, cfg.IOTimeout, ping, logger)
+		defer func() {
+			drainCtx, drainCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+			defer drainCancel()
+			_ = metricsServer.Shutdown(drainCtx)
+		}()
 
 		var paymentProv provider.PaymentProvider
 		if cfg.NCBAUsername != "" && cfg.NCBAPassword != "" {
@@ -350,4 +363,41 @@ func runMessagingWorker(ctx context.Context, pool *pgxpool.Pool, rabbitURL strin
 		case <-time.After(backoff):
 		}
 	}
+}
+
+func startWorkerMetricsServer(listener net.Listener, ioTimeout time.Duration, ping httpapi.Ping, logger *slog.Logger) *http.Server {
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", telemetry.Handler())
+	metricsMux.HandleFunc("/health/live", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	metricsMux.HandleFunc("/health/ready", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if ping != nil {
+			if pErr := ping(r.Context()); pErr != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"unhealthy"}`))
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ready"}`))
+	})
+
+	server := &http.Server{
+		Handler:      metricsMux,
+		ReadTimeout:  ioTimeout,
+		WriteTimeout: ioTimeout,
+	}
+
+	go func() {
+		if sErr := server.Serve(listener); sErr != nil && !errors.Is(sErr, http.ErrServerClosed) {
+			logger.Error("worker_metrics_server_failed", "error", sErr.Error())
+		}
+	}()
+
+	logger.Info("worker_metrics_started", "addr", listener.Addr().String())
+	return server
 }

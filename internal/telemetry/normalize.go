@@ -202,3 +202,28 @@ func NormalizeRoute(path string) string {
 
 	return "/unmapped"
 }
+
+// NormalizeMethod normalizes an HTTP method into a canonical, bounded label.
+// Standard HTTP methods (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS) are recognized
+// and returned uppercase. Any custom, unrecognized, or arbitrary method is collapsed to
+// "OTHER" to eliminate cardinality exhaustion vectors.
+func NormalizeMethod(method string) string {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case "GET":
+		return "GET"
+	case "POST":
+		return "POST"
+	case "PUT":
+		return "PUT"
+	case "DELETE":
+		return "DELETE"
+	case "PATCH":
+		return "PATCH"
+	case "HEAD":
+		return "HEAD"
+	case "OPTIONS":
+		return "OPTIONS"
+	default:
+		return "OTHER"
+	}
+}

@@ -191,3 +191,57 @@ func TestTelemetryRedactionAndZeroPIIInMetrics(t *testing.T) {
 		t.Fatalf("CRITICAL SECURITY VIOLATION: Guest token leaked in metrics output:\n%s", metrics)
 	}
 }
+
+func TestNormalizeMethod(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"GET", "GET"},
+		{"get", "GET"},
+		{"POST", "POST"},
+		{"post", "POST"},
+		{"PUT", "PUT"},
+		{"put", "PUT"},
+		{"DELETE", "DELETE"},
+		{"delete", "DELETE"},
+		{"PATCH", "PATCH"},
+		{"patch", "PATCH"},
+		{"HEAD", "HEAD"},
+		{"OPTIONS", "OPTIONS"},
+		{"options", "OPTIONS"},
+		{"PROPFIND", "OTHER"},
+		{"TRACK", "OTHER"},
+		{"CONNECT", "OTHER"},
+		{"BREW", "OTHER"},
+		{"", "OTHER"},
+		{"  post  ", "POST"},
+		{"attack-verb-with-arbitrary-string", "OTHER"},
+	}
+
+	for _, tc := range cases {
+		got := NormalizeMethod(tc.input)
+		if got != tc.expected {
+			t.Errorf("NormalizeMethod(%q) = %q; want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestHTTPMiddlewareMethodNormalization(t *testing.T) {
+	handler := HTTPMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Send an arbitrary HTTP method
+	req := httptest.NewRequest("ARBITRARY_METHOD", "/api/catalog", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	metrics := DefaultRegistry.Gather()
+	if !strings.Contains(metrics, `http_requests_total{method="OTHER",route="/api/catalog",status="200"}`) {
+		t.Fatalf("expected request metric with normalized method OTHER, got:\n%s", metrics)
+	}
+	if strings.Contains(metrics, `method="ARBITRARY_METHOD"`) {
+		t.Fatalf("un-normalized method leaked into metrics labels:\n%s", metrics)
+	}
+}

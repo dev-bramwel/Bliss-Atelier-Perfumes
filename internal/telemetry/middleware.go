@@ -39,9 +39,10 @@ func HTTPMiddleware(next http.Handler) http.Handler {
 		duration := time.Since(start).Seconds()
 
 		route := NormalizeRoute(r.URL.Path)
+		method := NormalizeMethod(r.Method)
 		statusStr := strconv.Itoa(sw.statusCode)
 
-		HTTPRequestsTotal.Inc(r.Method, route, statusStr)
-		HTTPRequestDuration.Observe(duration, r.Method, route)
+		HTTPRequestsTotal.Inc(method, route, statusStr)
+		HTTPRequestDuration.Observe(duration, method, route)
 	})
 }

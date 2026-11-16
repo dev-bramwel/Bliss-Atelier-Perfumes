@@ -11,14 +11,17 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -189,8 +192,16 @@ func main() {
 		err = checkProvider()
 	} else if len(os.Args) == 2 && os.Args[1] == "migrate" {
 		err = migrate()
+	} else if len(os.Args) >= 2 && os.Args[1] == "responder" {
+		addr := ":9099"
+		if len(os.Args) >= 3 && strings.TrimSpace(os.Args[2]) != "" {
+			addr = strings.TrimSpace(os.Args[2])
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		err = telemetry.RunResponder(ctx, addr)
 	} else {
-		err = errors.New("usage: devstack secrets DIRECTORY | migrate | provider-check | audit-image ARCHIVE DIRECTORY")
+		err = errors.New("usage: devstack secrets DIRECTORY | migrate | provider-check | audit-image ARCHIVE DIRECTORY | responder [ADDR]")
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
