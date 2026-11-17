@@ -6,7 +6,10 @@
     "test": "node --test catalog.test.cjs"
   },
   "devDependencies": {
-    "tailwindcss": "4.3.0",
-    "@tailwindcss/cli": "4.3.0"
+    "@tailwindcss/cli": "4.3.0",
+    "tailwindcss": "4.3.0"
+  },
+  "overrides": {
+    "@parcel/watcher": "2.0.7"
   }
 }

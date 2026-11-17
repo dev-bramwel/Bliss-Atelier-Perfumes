@@ -247,9 +247,10 @@
       headers: { ...tokenHeaders(), ...options?.headers },
     });
   }
-  async function refresh() {
+  async function refresh(full = false) {
     if (!active || polling || window.BlissConnection.offline) return;
     polling = true;
+    let nextDelay = 2500;
     const currentGeneration = generation;
     try {
       await shop.ready;
@@ -258,7 +259,7 @@
           status: 401,
         });
       const [data, nextStatus] = await Promise.all([
-        call(""),
+        !order || full ? call("") : Promise.resolve({ order }),
         call("/payment-status"),
       ]);
       if (generation !== currentGeneration) return;
@@ -286,6 +287,7 @@
       blocked = false;
       renderOrder();
     } catch (error) {
+      if (error.status === 429) nextDelay = error.retryAfter || 60000;
       if (error.status === 401 || error.status === 403) blocked = true;
       message(error.message);
       syncControls();
@@ -307,7 +309,7 @@
           (status?.paymentStatus === "FAILED" ||
             attempt()?.status === "failed");
         if (!failed || (delivery() && !payable()))
-          timer = setTimeout(refresh, 2500);
+          timer = setTimeout(refresh, nextDelay);
       }
     }
   }
@@ -401,7 +403,11 @@
         });
       } catch (error) {
         // A received validation response is definitive; transport/5xx/in-progress outcomes retain the key and exact body.
-        if ([400, 404, 422].includes(error.status))
+        if (
+          [400, 404, 422].includes(error.status) ||
+          (error.status === 409 &&
+            ["insufficient_stock", "product_unopened"].includes(error.code))
+        )
           localStorage.removeItem("bliss_pending_order");
         throw error;
       }
@@ -428,7 +434,7 @@
           "Your order is saved. Keep this browser to resume securely.",
       );
       renderOrder();
-      await refresh();
+      await refresh(true);
     });
   });
   $("acceptQuote").addEventListener("click", () =>
@@ -438,7 +444,7 @@
         method: "POST",
         body: JSON.stringify({ version: quote.version }),
       });
-      await refresh();
+      await refresh(true);
     }),
   );
   $("rejectQuote").addEventListener("click", () =>
@@ -451,18 +457,18 @@
           reason: $("quoteReason").value,
         }),
       });
-      await refresh();
+      await refresh(true);
     }),
   );
   $("switchPickup").addEventListener("click", () =>
     mutate(async () => {
       await call("/pickup", { method: "POST", body: "{}" });
-      await refresh();
+      await refresh(true);
     }),
   );
   $("payOrder").addEventListener("click", () =>
     mutate(async () => {
-      await refresh();
+      await refresh(true);
       if (blocked || paid() || expired() || !payable() || ambiguous()) return;
       const key =
         retry || shop.read("bliss_retry_" + active.id)?.key || shop.uuid();
@@ -489,11 +495,11 @@
         }
         throw error;
       } finally {
-        await refresh();
+        await refresh(true);
       }
     }),
   );
-  $("refreshOrder").addEventListener("click", () => refresh());
+  $("refreshOrder").addEventListener("click", () => refresh(true));
   $("refreshAttempts").addEventListener("click", () =>
     mutate(async () => {
       const data = await call("/attempts");

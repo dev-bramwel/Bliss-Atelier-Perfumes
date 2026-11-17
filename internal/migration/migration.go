@@ -271,6 +271,29 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 			return Result{}, err
 		}
 	}
+	// Verify the result before committing any DDL or migration history.
+	if len(migrations) >= len(steps()) {
+		actual, inspectErr := inspect(ctx, tx)
+		if inspectErr != nil {
+			return Result{}, inspectErr
+		}
+		latest := map[string]json.RawMessage{}
+		if err = json.Unmarshal([]byte(read("schema-v11.json")), &latest); err != nil {
+			return Result{}, err
+		}
+		for name := range latest {
+			if name != "_prisma_migrations" {
+				if _, ok := actual[name]; !ok {
+					return Result{}, reject("post-migration schema mismatch; no changes applied")
+				}
+			}
+		}
+		for name, body := range actual {
+			if !sameJSON(body, latest[name]) {
+				return Result{}, reject("post-migration schema mismatch; no changes applied")
+			}
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return Result{}, err
 	}

@@ -95,6 +95,12 @@
             : data.error || "Could not complete this request.",
       );
       error.status = response.status;
+      error.code = data.code;
+      if (response.status === 429) {
+        const delay = Number(response.headers.get("Retry-After"));
+        error.retryAfter =
+          Number.isFinite(delay) && delay > 0 ? delay * 1000 : 60000;
+      }
       throw error;
     }
     return data;

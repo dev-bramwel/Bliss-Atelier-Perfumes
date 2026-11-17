@@ -39,6 +39,9 @@ async function fixture(browser, authenticated = false) {
     retries: [],
     mutations: [],
     polls: 0,
+    orderReads: 0,
+    throttleNext: false,
+    rejectStock: false,
     auth: authenticated,
     deny: false,
   };
@@ -57,11 +60,11 @@ async function fixture(browser, authenticated = false) {
     const req = route.request(),
       url = new URL(req.url()),
       endpoint = url.pathname;
-    const response = (data, status = 200) =>
+    const response = (data, status = 200, extraHeaders = {}) =>
       route.fulfill({
         status,
         contentType: "application/json",
-        headers: { date: new Date().toUTCString() },
+        headers: { date: new Date().toUTCString(), ...extraHeaders },
         body: JSON.stringify(data),
       });
     if (endpoint === "/api/health/live") return response({ status: "alive" });
@@ -116,6 +119,13 @@ async function fixture(browser, authenticated = false) {
       assert.equal(payload.customer.phone, "254712345678");
       assert.deepEqual(payload.items, [{ id: "p1", qty: 1 }]);
       state.option = payload.customer.delivery;
+      if (state.rejectStock) {
+        state.rejectStock = false;
+        return response(
+          { error: "Insufficient stock", code: "insufficient_stock" },
+          409,
+        );
+      }
       if (state.loseCreate) {
         state.loseCreate = false;
         return route.abort("failed");
@@ -139,6 +149,12 @@ async function fixture(browser, authenticated = false) {
         assert.equal(req.headers()["x-guest-token"], "gt_fixture");
       if (endpoint.endsWith("/payment-status")) {
         state.polls++;
+        if (state.throttleNext) {
+          state.throttleNext = false;
+          return response({ error: "Too many requests; please wait" }, 429, {
+            "Retry-After": "2",
+          });
+        }
         return response({
           paymentStatus: state.payment,
           latestAttempt: state.attempt,
@@ -190,6 +206,7 @@ async function fixture(browser, authenticated = false) {
         }
         return response({ attempt: state.attempt }, 201);
       }
+      state.orderReads++;
       return response({ order });
     }
     return response({ error: "unhandled fixture endpoint " + endpoint }, 404);
@@ -284,6 +301,27 @@ async function offered(f) {
         f.state.retries.length,
         1,
         "reconnection must not send another STK",
+      );
+      const orderReads = f.state.orderReads;
+      await f.page.waitForTimeout(2800);
+      assert.equal(
+        f.state.orderReads,
+        orderReads,
+        "steady polling must only read payment status, not the order again",
+      );
+      f.state.throttleNext = true;
+      await f.page.click("#refreshOrder");
+      await f.page.waitForFunction(() =>
+        document
+          .getElementById("checkoutMessage")
+          .textContent.includes("Too many requests"),
+      );
+      const throttledPolls = f.state.polls;
+      await f.page.waitForTimeout(700);
+      assert.equal(
+        f.state.polls,
+        throttledPolls,
+        "honor Retry-After before the next poll",
       );
       f.state.attempt = {
         ...f.state.attempt,
@@ -409,6 +447,29 @@ async function offered(f) {
       );
       assert.deepEqual(g.errors, []);
       await g.context.close();
+      const h = await fixture(browser);
+      await fill(h.page);
+      h.state.rejectStock = true;
+      await h.page.click("#placeOrder");
+      await h.page.waitForFunction(() =>
+        document
+          .getElementById("checkoutMessage")
+          .textContent.includes("Insufficient stock"),
+      );
+      assert.equal(
+        await h.page.evaluate(() =>
+          localStorage.getItem("bliss_pending_order"),
+        ),
+        null,
+        "definitive stock rejection must release the saved payload",
+      );
+      await h.page.fill("#customerNotes", "Edited after stock conflict");
+      await h.page.click("#placeOrder");
+      await h.page.waitForURL("**/order/ord-fixture");
+      assert.notEqual(h.state.creates[0].key, h.state.creates[1].key);
+      assert.match(h.state.creates[1].body, /Edited after stock conflict/);
+      assert.deepEqual(h.errors, []);
+      await h.context.close();
       console.log("PASS shopper browser:", engine);
     } catch (error) {
       if (lastPage && !lastPage.isClosed()) {

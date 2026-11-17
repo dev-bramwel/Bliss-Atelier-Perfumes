@@ -12,6 +12,8 @@ Delivery orders do not create an STK attempt before quote acceptance. Pickup cre
 
 Payment reads use a non-overlapping 2.5-second loop. PAID/FAILED stop polling, pending requests resume after verified reconnection, and ambiguous attempts prevent new prompts. Payment retries keep their UUID after transport errors and use a new UUID only after a definitive result. A successful payment removes the purchased cart quantities while preserving products added later. Reservation countdowns use server response time and never extend offline holds.
 
+Steady polling reads only payment status, keeping it within the shared lookup budget; order details reload on entry and explicit refresh or mutations. HTTP 429 responses honor `Retry-After`. Definitive insufficient-stock/unopened-product conflicts release the rejected pending payload so the cart can be edited; ambiguous in-progress responses retain the recovery key.
+
 The shared modal preserves DOM drafts, locks writes, checks `/api/health/live` every three seconds and restores controls after confirmation. A local WebM has an SVG fallback and reduced-motion support. Restoring a connection refreshes reads; no order, quote or payment write is automatically replayed.
 
 Catalog responses now include unreserved stock counts. Redis catalog cache v2 avoids serving an older projection without stock. Browsing uses In Stock, low-stock and Sold Out badges and bounds cart quantities against fresh catalog stock.
@@ -19,3 +21,5 @@ Catalog responses now include unreserved stock counts. Redis catalog cache v2 av
 Run `node web/shopper.browser.cjs` against the compiled web process at `127.0.0.1:8086` (override with `BLISS_WEB_URL`). It runs Chromium, Firefox and WebKit by default. `BLISS_BROWSER_ENGINES` can select a subset. WebKit provides Safari-engine coverage; this is not a claim of testing the actual Safari application on Apple hardware. Browser fixtures verify client behavior; backend HTTP and disposable PostgreSQL tests verify ownership, CSRF, payment guarding and same-order pickup. Docker Core CI executes both suites and retains screenshots, logs and generated CSS.
 
 Apply schema migrations before deploying the updated runtime. This change builds on R19 / PR #83 and schema v10; it adds schema v11 without rewriting historical migrations. Existing guest orders remain accessible through their tokens.
+
+The frontend build pins `@parcel/watcher` to 2.0.7 to avoid the vulnerable `picomatch` dependency chain reported by the required audit. The one-shot Tailwind build and dependency audit are verified in CI; no advisory is suppressed.

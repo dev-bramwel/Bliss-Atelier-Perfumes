@@ -464,9 +464,9 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				case errors.Is(err, orders.ErrCatalogUnavailable):
 					respond(w, 503, map[string]string{"error": "catalog unavailable"})
 				case errors.Is(err, orders.ErrInsufficientStock):
-					respond(w, 409, map[string]string{"error": err.Error()})
+					respond(w, 409, map[string]string{"error": err.Error(), "code": "insufficient_stock"})
 				case errors.Is(err, orders.ErrProductUnopened):
-					respond(w, 409, map[string]string{"error": err.Error()})
+					respond(w, 409, map[string]string{"error": err.Error(), "code": "product_unopened"})
 				case errors.Is(err, orders.ErrProductNotFound):
 					respond(w, 404, map[string]string{"error": err.Error()})
 				case errors.Is(err, orders.ErrInvalidCustomer),
