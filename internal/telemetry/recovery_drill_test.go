@@ -224,10 +224,10 @@ type fixtureDelivery struct {
 	onAck       func()
 }
 
-func (d *fixtureDelivery) MessageID() string       { return d.msgID }
-func (d *fixtureDelivery) RoutingKey() string      { return d.routingKey }
-func (d *fixtureDelivery) Body() []byte            { return d.body }
-func (d *fixtureDelivery) Redelivered() bool       { return d.redelivered }
+func (d *fixtureDelivery) MessageID() string  { return d.msgID }
+func (d *fixtureDelivery) RoutingKey() string { return d.routingKey }
+func (d *fixtureDelivery) Body() []byte       { return d.body }
+func (d *fixtureDelivery) Redelivered() bool  { return d.redelivered }
 func (d *fixtureDelivery) Ack() error {
 	d.acked = true
 	if d.onAck != nil {
