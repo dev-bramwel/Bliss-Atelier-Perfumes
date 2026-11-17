@@ -26,7 +26,11 @@ import (
 )
 
 func secrets(directory string) error {
-	names := []string{"admin_password", "migrator_password", "runtime_password", "catalog_password", "migrator_url", "runtime_url", "catalog_url", "drill_responder_token"}
+	names := []string{
+		"admin_password", "migrator_password", "runtime_password", "catalog_password",
+		"migrator_url", "runtime_url", "catalog_url", "drill_responder_token",
+		"rabbitmq_password", "rabbitmq_url",
+	}
 	existing := 0
 	for _, name := range names {
 		if info, err := os.Stat(filepath.Join(directory, name)); err == nil && !info.IsDir() {
@@ -35,6 +39,14 @@ func secrets(directory string) error {
 	}
 	if existing == len(names) {
 		return nil
+	}
+
+	legacy8Names := []string{"admin_password", "migrator_password", "runtime_password", "catalog_password", "migrator_url", "runtime_url", "catalog_url", "drill_responder_token"}
+	legacy8Count := 0
+	for _, name := range legacy8Names {
+		if info, err := os.Stat(filepath.Join(directory, name)); err == nil && !info.IsDir() {
+			legacy8Count++
+		}
 	}
 
 	legacy7Names := []string{"admin_password", "migrator_password", "runtime_password", "catalog_password", "migrator_url", "runtime_url", "catalog_url"}
@@ -54,7 +66,7 @@ func secrets(directory string) error {
 	}
 
 	// Refuse overwriting partial credentials, unless upgrading a complete legacy credential directory.
-	if existing != 0 && legacy7Count != len(legacy7Names) && legacy5Count != len(legacy5Names) {
+	if existing != 0 && legacy8Count != len(legacy8Names) && legacy7Count != len(legacy7Names) && legacy5Count != len(legacy5Names) {
 		return errors.New("partial local credentials exist; restore the matching set without overwriting a database's credentials")
 	}
 	if err := os.MkdirAll(directory, 0700); err != nil {
@@ -91,6 +103,16 @@ func secrets(directory string) error {
 			return err
 		}
 		values["drill_responder_token"] = hex.EncodeToString(b)
+	}
+	if _, ok := values["rabbitmq_password"]; !ok {
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		values["rabbitmq_password"] = hex.EncodeToString(b)
+	}
+	if _, ok := values["rabbitmq_url"]; !ok {
+		values["rabbitmq_url"] = "amqp://bliss:" + values["rabbitmq_password"] + "@rabbitmq:5672/"
 	}
 	for _, name := range names {
 		targetPath := filepath.Join(directory, name)

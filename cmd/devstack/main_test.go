@@ -28,8 +28,20 @@ func TestSetupPreservesExistingCredentials(t *testing.T) {
 	if err != nil || len(drillToken) != 64 {
 		t.Fatal("invalid generated drill responder token")
 	}
+	rabbitPass, err := os.ReadFile(filepath.Join(directory, "rabbitmq_password"))
+	if err != nil || len(rabbitPass) != 64 {
+		t.Fatal("invalid generated rabbitmq password")
+	}
+	rabbitURL, err := os.ReadFile(filepath.Join(directory, "rabbitmq_url"))
+	if err != nil || !strings.Contains(string(rabbitURL), "amqp://bliss:"+string(rabbitPass)+"@rabbitmq:5672/") {
+		t.Fatal("invalid generated rabbitmq url")
+	}
 	if err = secrets(directory); err != nil {
 		t.Fatal(err)
+	}
+	afterRabbitPass, err := os.ReadFile(filepath.Join(directory, "rabbitmq_password"))
+	if err != nil || string(rabbitPass) != string(afterRabbitPass) {
+		t.Fatal("setup rotated existing rabbitmq password")
 	}
 	afterDrillToken, err := os.ReadFile(filepath.Join(directory, "drill_responder_token"))
 	if err != nil || string(drillToken) != string(afterDrillToken) {
@@ -97,6 +109,14 @@ func TestSetupUpgradesLegacyCredentialsPreservingPasswords(t *testing.T) {
 	drillToken, err := os.ReadFile(filepath.Join(directory, "drill_responder_token"))
 	if err != nil || len(drillToken) != 64 {
 		t.Fatalf("invalid drill_responder_token after upgrade: %v, len=%d", err, len(drillToken))
+	}
+	rabbitPass, err := os.ReadFile(filepath.Join(directory, "rabbitmq_password"))
+	if err != nil || len(rabbitPass) != 64 {
+		t.Fatalf("invalid rabbitmq_password after upgrade: %v, len=%d", err, len(rabbitPass))
+	}
+	rabbitURL, err := os.ReadFile(filepath.Join(directory, "rabbitmq_url"))
+	if err != nil || !strings.Contains(string(rabbitURL), "amqp://bliss:"+string(rabbitPass)+"@rabbitmq:5672/") {
+		t.Fatalf("invalid rabbitmq_url after upgrade: %v, url=%s", err, string(rabbitURL))
 	}
 }
 
