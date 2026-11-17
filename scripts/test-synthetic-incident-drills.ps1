@@ -257,6 +257,62 @@ if ($dockerAvailable) {
         } finally {
             docker compose --profile observability stop drill-responder alertmanager | Out-Null
         }
+
+        # ----------------------------------------------------------------------
+        # Live Containerized RabbitMQ & Shovel Plugin Verification
+        # ----------------------------------------------------------------------
+        Write-Host "`n  [4c] Verifying Live Containerized RabbitMQ Broker & Shovel Plugin..." -ForegroundColor Yellow
+        Write-Host "    Starting rabbitmq container..." -ForegroundColor Gray
+        docker compose --profile observability up -d rabbitmq | Out-Null
+        try {
+            $rabbitReady = $false
+            $prevPref = $ErrorActionPreference
+            for ($r = 0; $r -lt 45; $r++) {
+                $ErrorActionPreference = 'Continue'
+                $diag = docker compose --profile observability exec -T rabbitmq rabbitmq-diagnostics -q check_running 2>&1
+                $code = $LASTEXITCODE
+                $ErrorActionPreference = $prevPref
+                if ($code -eq 0) {
+                    $rabbitReady = $true
+                    break
+                }
+                Start-Sleep -Seconds 2
+            }
+            if (-not $rabbitReady) {
+                throw "RabbitMQ container failed to become ready within timeout"
+            }
+            Write-Host "    ✓ RabbitMQ broker fully booted and healthy on private network" -ForegroundColor Green
+
+            # Verify rabbitmq_shovel plugin is enabled
+            $prevPref = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $shovelEnabled = docker compose --profile observability exec -T rabbitmq rabbitmq-plugins is_enabled rabbitmq_shovel 2>&1
+            $code = $LASTEXITCODE
+            $ErrorActionPreference = $prevPref
+            if ($code -ne 0) {
+                throw "rabbitmq_shovel plugin is not enabled: $shovelEnabled"
+            }
+            Write-Host "    ✓ rabbitmq_shovel plugin is enabled out-of-the-box" -ForegroundColor Green
+
+            # Verify dynamic shovel replay parameter can be declared
+            $shovelJson = '{\"src-uri\": \"amqp://\", \"src-queue\": \"bliss.notifications.v1.dead\", \"dest-uri\": \"amqp://\", \"dest-exchange\": \"bliss.events.v1\", \"delete-after\": \"queue-length\"}'
+            $prevPref = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $shovelRes = docker compose --profile observability exec -T rabbitmq rabbitmqctl set_parameter shovel drill-test-shovel $shovelJson 2>&1
+            $code = $LASTEXITCODE
+            $ErrorActionPreference = $prevPref
+            if ($code -ne 0) {
+                throw "Failed to set test shovel parameter: $shovelRes"
+            }
+            # Clean up the test parameter
+            $prevPref = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $null = docker compose --profile observability exec -T rabbitmq rabbitmqctl clear_parameter shovel drill-test-shovel 2>&1
+            $ErrorActionPreference = $prevPref
+            Write-Host "    ✓ Supported dynamic shovel parameter validated for DLQ replay" -ForegroundColor Green
+        } finally {
+            docker compose --profile observability stop rabbitmq | Out-Null
+        }
     } finally {
         Pop-Location
     }

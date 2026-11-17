@@ -142,9 +142,9 @@ services:
     user: "100:101"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    pids_limit: 128
-    mem_limit: 256m
-    cpus: 0.5
+    pids_limit: 1024
+    mem_limit: 512m
+    cpus: 1.0
     networks: [private]
     environment:
       RABBITMQ_DEFAULT_USER: bliss
@@ -154,9 +154,9 @@ services:
       - ./infra/observability/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
-      interval: 3s
+      interval: 5s
       timeout: 5s
-      retries: 20
+      retries: 24
 
   worker:
     <<: *app
