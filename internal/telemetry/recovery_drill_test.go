@@ -126,13 +126,15 @@ type quarantinedDeadLetter struct {
 }
 
 type controlledDLQFixture struct {
+	*worker.MemoryInboxStore
 	mu         sync.Mutex
 	quarantine map[string]*quarantinedDeadLetter
 }
 
 func newControlledDLQFixture() *controlledDLQFixture {
 	f := &controlledDLQFixture{
-		quarantine: make(map[string]*quarantinedDeadLetter),
+		MemoryInboxStore: worker.NewMemoryInboxStore(),
+		quarantine:       make(map[string]*quarantinedDeadLetter),
 	}
 	telemetry.RabbitMQDLQMessagesGauge.Set(0, "dead_letter")
 	return f
@@ -155,6 +157,32 @@ func (f *controlledDLQFixture) syncMetric() {
 	telemetry.RabbitMQDLQMessagesGauge.Set(float64(depth), "dead_letter")
 }
 
+func (f *controlledDLQFixture) RecordDeadLetter(ctx context.Context, msgID, consumerName string, payload []byte, reason string) error {
+	f.mu.Lock()
+	f.quarantine[msgID] = &quarantinedDeadLetter{
+		ID:        msgID,
+		Queue:     "dead_letter",
+		Payload:   payload,
+		Reason:    reason,
+		CreatedAt: time.Now(),
+	}
+	f.mu.Unlock()
+	err := f.MemoryInboxStore.RecordDeadLetter(ctx, msgID, consumerName, payload, reason)
+	f.syncMetric()
+	return err
+}
+
+func (f *controlledDLQFixture) RecordProcessed(ctx context.Context, msgID, consumerName string, payload []byte) error {
+	f.mu.Lock()
+	if m, ok := f.quarantine[msgID]; ok {
+		m.Replayed = true
+	}
+	f.mu.Unlock()
+	err := f.MemoryInboxStore.RecordProcessed(ctx, msgID, consumerName, payload)
+	f.syncMetric()
+	return err
+}
+
 func (f *controlledDLQFixture) NewPoisonDelivery(msgID, routingKey string, body []byte) *fixtureDelivery {
 	return &fixtureDelivery{
 		msgID:      msgID,
@@ -162,12 +190,14 @@ func (f *controlledDLQFixture) NewPoisonDelivery(msgID, routingKey string, body 
 		body:       body,
 		onRejectDLQ: func() {
 			f.mu.Lock()
-			f.quarantine[msgID] = &quarantinedDeadLetter{
-				ID:        msgID,
-				Queue:     "dead_letter",
-				Payload:   body,
-				Reason:    "unmarshal failed: invalid character in json",
-				CreatedAt: time.Now(),
+			if _, exists := f.quarantine[msgID]; !exists {
+				f.quarantine[msgID] = &quarantinedDeadLetter{
+					ID:        msgID,
+					Queue:     "dead_letter",
+					Payload:   body,
+					Reason:    "unmarshal failed: invalid character in json",
+					CreatedAt: time.Now(),
+				}
 			}
 			f.mu.Unlock()
 			f.syncMetric()
@@ -428,9 +458,9 @@ func TestRunbookDiagnosisAndRecovery_Drill(t *testing.T) {
 		// Initialize controlled DLQ queue and store fixture
 		fixture := newControlledDLQFixture()
 
-		// Construct notification consumer with logger
-		consumer := worker.NewNotificationConsumer(
-			nil, // in-memory test mode without live PostgreSQL pool
+		// Construct notification consumer with the controlled persistent inbox store
+		consumer := worker.NewNotificationConsumerWithInbox(
+			fixture,
 			nil, // consumer interface not invoked during direct ProcessDelivery test
 			slog.New(slog.NewTextHandler(io.Discard, nil)),
 		)
@@ -527,6 +557,24 @@ func TestRunbookDiagnosisAndRecovery_Drill(t *testing.T) {
 		}
 		if len(handledEventIDs) != 1 || handledEventIDs[0] != "evt-dlq-recovered-01" {
 			t.Fatalf("expected worker event handler execution for evt-dlq-recovered-01, got: %v", handledEventIDs)
+		}
+
+		// Action 3.3: Verify deduplication invariant on redelivered message
+		duplicateDelivery := &fixtureDelivery{
+			msgID:       "msg-poison-001",
+			routingKey:  "notifications.order.created",
+			body:        repairedBytes,
+			redelivered: true,
+		}
+		err = consumer.ProcessDelivery(ctx, duplicateDelivery)
+		if err != nil {
+			t.Fatalf("unexpected error processing duplicate delivery: %v", err)
+		}
+		if !duplicateDelivery.acked {
+			t.Fatalf("expected duplicate delivery to be positively ACKed")
+		}
+		if len(handledEventIDs) != 1 {
+			t.Fatalf("expected handler not to re-execute on duplicate delivery, got calls: %v", handledEventIDs)
 		}
 
 		// Step 4: Recovery Verification - DLQ queue drained, metric reflects recovery signal from queue state
