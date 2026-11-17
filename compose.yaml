@@ -74,7 +74,6 @@ services:
       GO_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32"
       GO_MANAGER_SECRET: "bliss_manager_dev_secret"
       GO_REDIS_URL: "redis://redis:6379/0"
-      GO_RABBITMQ_URL: ${GO_RABBITMQ_URL:-amqp://bliss:bliss_dev_secret@rabbitmq:5672/}
       GO_GOOGLE_CLIENT_ID: ${GO_GOOGLE_CLIENT_ID:-mock}
       GO_GOOGLE_CLIENT_SECRET: ${GO_GOOGLE_CLIENT_SECRET:-}
       GO_GOOGLE_REDIRECT_URL: ${GO_GOOGLE_REDIRECT_URL:-http://localhost:8080/api/auth/google/callback}
@@ -140,6 +139,8 @@ services:
     image: rabbitmq:3-alpine
     profiles: ["observability"]
     user: "100:101"
+    entrypoint: ["/bin/sh", "/usr/local/bin/bliss-rabbitmq-entrypoint.sh"]
+    command: ["rabbitmq-server"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 1024
@@ -148,15 +149,17 @@ services:
     networks: [private]
     environment:
       RABBITMQ_DEFAULT_USER: bliss
-      RABBITMQ_DEFAULT_PASS: bliss_dev_secret
+    secrets: [rabbitmq_password]
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ./infra/observability/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./infra/observability/rabbitmq/entrypoint.sh:/usr/local/bin/bliss-rabbitmq-entrypoint.sh:ro
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
-      timeout: 5s
+      timeout: 10s
       retries: 24
+      start_period: 10s
 
   worker:
     <<: *app
@@ -169,8 +172,8 @@ services:
       GO_IO_TIMEOUT: 15s
       GO_DB_MAX_CONNECTIONS: "4"
       GO_REDIS_URL: "redis://redis:6379/0"
-      GO_RABBITMQ_URL: ${GO_RABBITMQ_URL:-amqp://bliss:bliss_dev_secret@rabbitmq:5672/}
-    secrets: [runtime_url]
+      GO_RABBITMQ_URL_FILE: /run/secrets/rabbitmq_url
+    secrets: [runtime_url, rabbitmq_url]
     depends_on:
       migrate: { condition: service_completed_successfully }
       fake-provider: { condition: service_healthy }
@@ -289,3 +292,7 @@ secrets:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/catalog_url
   drill_responder_token:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/drill_responder_token
+  rabbitmq_password:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/rabbitmq_password
+  rabbitmq_url:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/rabbitmq_url
