@@ -258,6 +258,11 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 				"exceptions_raised", summary.ExceptionsRaised,
 			)
 		}
+		if pool != nil {
+			if _, err := worker.SyncDLQGauge(ctx, pool); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("dlq_gauge_sync_failed", "error", err.Error())
+			}
+		}
 
 		for {
 			select {
@@ -292,6 +297,11 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 						"pending", summary.Pending,
 						"exceptions_raised", summary.ExceptionsRaised,
 					)
+				}
+				if pool != nil {
+					if _, err := worker.SyncDLQGauge(sweepCtx, pool); err != nil && !errors.Is(err, context.Canceled) {
+						logger.Error("dlq_gauge_sync_failed", "error", err.Error())
+					}
 				}
 				cancel()
 			}

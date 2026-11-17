@@ -231,3 +231,22 @@ func TestNotificationConsumer_PoisonPayloadQuarantined(t *testing.T) {
 		t.Error("message with unparseable payload should not be requeued")
 	}
 }
+
+func TestSyncDLQGauge_NilPool(t *testing.T) {
+	count, err := SyncDLQGauge(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("expected nil error on nil pool SyncDLQGauge, got %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 count on nil pool SyncDLQGauge, got %d", count)
+	}
+
+	consumer := NewNotificationConsumer(nil, nil, slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	cCount, cErr := consumer.SyncDLQGauge(context.Background())
+	if cErr != nil {
+		t.Fatalf("expected nil error on consumer SyncDLQGauge, got %v", cErr)
+	}
+	if cCount != 0 {
+		t.Fatalf("expected 0 count on consumer SyncDLQGauge, got %d", cCount)
+	}
+}

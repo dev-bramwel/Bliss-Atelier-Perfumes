@@ -85,7 +85,11 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 		// Deliveries without message IDs are treated as poison
 		c.logger.Error("consumer_missing_message_id", "routing_key", d.RoutingKey())
 		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
-		telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+		if c.pool != nil {
+			_, _ = c.SyncDLQGauge(ctx)
+		} else {
+			telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+		}
 		_ = d.RejectToDLQ()
 		return errors.New("delivery missing message ID")
 	}
@@ -96,7 +100,9 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 		c.logger.ErrorContext(ctx, "consumer_poison_message_unmarshal_failed", "msg_id", msgID, "error", err.Error())
 		c.recordDeadLetter(ctx, msgID, d.Body(), "unmarshal failed: "+err.Error())
 		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
-		telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+		if c.pool == nil {
+			telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+		}
 		_ = d.RejectToDLQ()
 		return nil
 	}
@@ -109,7 +115,9 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 		c.logger.ErrorContext(ctx, "consumer_poison_message_validation_failed", "msg_id", msgID, "error", err.Error())
 		c.recordDeadLetter(ctx, msgID, d.Body(), "validation failed: "+err.Error())
 		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
-		telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+		if c.pool == nil {
+			telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+		}
 		_ = d.RejectToDLQ()
 		return nil
 	}
@@ -142,7 +150,9 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 				c.logger.ErrorContext(ctx, "consumer_poison_payload_quarantined", "msg_id", msgID, "event_id", env.EventID, "error", err.Error())
 				c.recordDeadLetter(ctx, msgID, d.Body(), "payload rejected: "+err.Error())
 				telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
-				telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+				if c.pool == nil {
+					telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+				}
 				_ = d.RejectToDLQ()
 				return nil
 			}
@@ -243,6 +253,9 @@ func (c *NotificationConsumer) recordProcessed(ctx context.Context, msgID string
 		ON CONFLICT (id, consumer_name) DO UPDATE
 		SET status = $3, processed_at = now()
 	`, msgID, ConsumerName, InboxProcessed, payload)
+	if err == nil {
+		_, _ = c.SyncDLQGauge(ctx)
+	}
 	return err
 }
 
@@ -258,6 +271,30 @@ func (c *NotificationConsumer) recordDeadLetter(ctx context.Context, msgID strin
 		ON CONFLICT (id, consumer_name) DO UPDATE
 		SET status = $3, error_message = $5, processed_at = now()
 	`, msgID, ConsumerName, InboxDeadLettered, payload, reason)
+	_, _ = c.SyncDLQGauge(ctx)
+}
+
+// SyncDLQGauge queries public.inbox_message for active dead_lettered records
+// and synchronizes rabbitmq_dlq_messages_gauge to the true queue depth.
+func SyncDLQGauge(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	if pool == nil {
+		return 0, nil
+	}
+	var count int64
+	err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM public.inbox_message
+		WHERE status = $1 AND consumer_name = $2
+	`, InboxDeadLettered, ConsumerName).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	telemetry.RabbitMQDLQMessagesGauge.Set(float64(count), "dead_letter")
+	return count, nil
+}
+
+// SyncDLQGauge updates the dead_letter queue gauge based on persistent state in inbox_message.
+func (c *NotificationConsumer) SyncDLQGauge(ctx context.Context) (int64, error) {
+	return SyncDLQGauge(ctx, c.pool)
 }
 
 // Default Handlers
