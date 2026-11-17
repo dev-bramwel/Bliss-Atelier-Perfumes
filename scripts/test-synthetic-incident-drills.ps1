@@ -294,17 +294,25 @@ if ($dockerAvailable) {
             }
             Write-Host "    ✓ rabbitmq_shovel plugin is enabled out-of-the-box" -ForegroundColor Green
 
-            # Verify dynamic shovel replay parameter can be declared
-            $shovelJson = '{\"src-uri\": \"amqp://\", \"src-queue\": \"bliss.notifications.v1.dead\", \"dest-uri\": \"amqp://\", \"dest-exchange\": \"bliss.events.v1\", \"delete-after\": \"queue-length\"}'
+            # Verify dynamic shovel replay parameter can be declared with valid JSON
+            $shovelObj = [ordered]@{
+                "src-uri" = "amqp://"
+                "src-queue" = "bliss.notifications.v1.dead"
+                "dest-uri" = "amqp://"
+                "dest-exchange" = "bliss.events.v1"
+                "delete-after" = "queue-length"
+            }
+            $shovelJson = $shovelObj | ConvertTo-Json -Compress
+            $argJson = if ($PSVersionTable.PSVersion.Major -le 5) { $shovelJson.Replace('"', '\"') } else { $shovelJson }
             $prevPref = $ErrorActionPreference
             $ErrorActionPreference = 'Continue'
-            $shovelRes = docker compose --profile observability exec -T rabbitmq rabbitmqctl set_parameter shovel drill-test-shovel $shovelJson 2>&1
+            $shovelRes = docker compose --profile observability exec -T rabbitmq rabbitmqctl set_parameter shovel drill-test-shovel $argJson 2>&1
             $code = $LASTEXITCODE
             $ErrorActionPreference = $prevPref
             if ($code -ne 0) {
                 throw "Failed to set test shovel parameter: $shovelRes"
             }
-            # Clean up the test parameter
+            # Clean up the test parameter if still active
             $prevPref = $ErrorActionPreference
             $ErrorActionPreference = 'Continue'
             $null = docker compose --profile observability exec -T rabbitmq rabbitmqctl clear_parameter shovel drill-test-shovel 2>&1
