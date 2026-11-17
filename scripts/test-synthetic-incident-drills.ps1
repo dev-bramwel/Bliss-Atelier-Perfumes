@@ -299,8 +299,8 @@ if ($dockerAvailable) {
                 "src-uri" = "amqp://"
                 "src-queue" = "bliss.notifications.v1.dead"
                 "dest-uri" = "amqp://"
-                "dest-exchange" = "bliss.events.v1"
-                "delete-after" = "queue-length"
+                "dest-queue" = "bliss.notifications.v1"
+                "src-delete-after" = "queue-length"
             }
             $shovelJson = $shovelObj | ConvertTo-Json -Compress
             $argJson = if ($PSVersionTable.PSVersion.Major -le 5) { $shovelJson.Replace('"', '\"') } else { $shovelJson }

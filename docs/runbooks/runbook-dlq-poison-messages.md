@@ -64,12 +64,14 @@ docker compose --profile observability logs worker --tail=100 | grep -E "consume
    - If code / schema bug: deploy the application fix or execute the missing database migration.
    - If corrupt payload: patch data at the source.
 3. Replay the quarantined message:
-   - **Supported Dynamic Shovel Replay (Recommended):** Use RabbitMQ Dynamic Shovel to move quarantined messages from the dead-letter queue back to the main exchange for reprocessing. The `rabbitmq_shovel` plugin is pre-configured and enabled in the observability profile:
+   - **Supported Dynamic Shovel Replay (Recommended):** Use RabbitMQ Dynamic Shovel to move quarantined messages from the dead-letter queue back to the notifications queue for reprocessing. The `rabbitmq_shovel` plugin is pre-configured and enabled in the observability profile:
      ```bash
-     # Move quarantined dead letters from DLQ back to notifications exchange
+     # Move quarantined dead letters directly from DLQ back to notifications queue
      docker compose --profile observability exec rabbitmq rabbitmqctl set_parameter shovel dlq-recovery \
-       '{"src-uri": "amqp://", "src-queue": "bliss.notifications.v1.dead", "dest-uri": "amqp://", "dest-exchange": "bliss.events.v1", "delete-after": "queue-length"}'
+       '{"src-uri": "amqp://", "src-queue": "bliss.notifications.v1.dead", "dest-uri": "amqp://", "dest-queue": "bliss.notifications.v1", "src-delete-after": "queue-length"}'
      ```
+     > [!NOTE]
+     > Directing replay to `dest-queue: "bliss.notifications.v1"` bypasses the `bliss.events.v1` topic exchange, avoiding the `dead.*` routing key binding that would otherwise loop `dead.notifications` straight back into the DLQ. Setting `src-delete-after: "queue-length"` instructs RabbitMQ to shovel all currently quarantined messages and then automatically delete the shovel definition once drained.
    - **Inspect Shovel Progress:**
      Verify that the shovel has drained the dead-letter queue:
      ```bash
