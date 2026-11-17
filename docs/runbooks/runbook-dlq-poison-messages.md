@@ -38,7 +38,7 @@ docker compose exec db psql -U bliss_admin -d bliss_dev -c \
 
 ### Step 3: Check Worker Container Logs
 ```bash
-docker compose logs worker --tail=100 | grep -E "consumer_poison|outbox"
+docker compose --profile observability logs worker --tail=100 | grep -E "consumer_poison|outbox"
 ```
 
 ---
@@ -48,11 +48,11 @@ docker compose logs worker --tail=100 | grep -E "consumer_poison|outbox"
 ### Scenario A: Outbox Backlog Growing (`OutboxBacklogGrowing`)
 1. Check if the RabbitMQ broker is unreachable or outbox worker is stopped:
    ```bash
-   docker compose ps
+   docker compose --profile observability ps
    ```
 2. If RabbitMQ is down, restart the broker:
    ```bash
-   docker compose restart rabbitmq
+   docker compose --profile observability restart rabbitmq
    ```
 3. Once broker connectivity is restored, the outbox dispatcher automatically drains pending rows with publisher confirms.
 
@@ -64,10 +64,16 @@ docker compose logs worker --tail=100 | grep -E "consumer_poison|outbox"
    - If code / schema bug: deploy the application fix or execute the missing database migration.
    - If corrupt payload: patch data at the source.
 3. Replay the quarantined message:
-   - **Supported Shovel Replay (Recommended):** Use RabbitMQ Shovel to move the message from the dead-letter queue back to the main exchange for reprocessing:
+   - **Supported Dynamic Shovel Replay (Recommended):** Use RabbitMQ Dynamic Shovel to move quarantined messages from the dead-letter queue back to the main exchange for reprocessing. The `rabbitmq_shovel` plugin is pre-configured and enabled in the observability profile:
      ```bash
      # Move quarantined dead letters from DLQ back to notifications exchange
-     docker compose exec rabbitmq rabbitmqctl shovel --move-messages-from-queue=bliss.notifications.v1.dead --to-exchange=bliss.events.v1
+     docker compose --profile observability exec rabbitmq rabbitmqctl set_parameter shovel dlq-recovery \
+       '{"src-uri": "amqp://", "src-queue": "bliss.notifications.v1.dead", "dest-uri": "amqp://", "dest-exchange": "bliss.events.v1", "delete-after": "queue-length"}'
+     ```
+   - **Inspect Shovel Progress:**
+     Verify that the shovel has drained the dead-letter queue:
+     ```bash
+     docker compose --profile observability exec rabbitmq rabbitmqctl shovel_status
      ```
    - **Replay Execution & Invariant Preservation:**
      When the replayed message arrives, the worker's `claimMessage` detects that the message was quarantined (`status = 'dead_lettered'`). It atomically transitions the inbox state back to `processing`, executes the event handler, and upon handler success updates the inbox to `processed`.
