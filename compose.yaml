@@ -74,6 +74,7 @@ services:
       GO_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32"
       GO_MANAGER_SECRET: "bliss_manager_dev_secret"
       GO_REDIS_URL: "redis://redis:6379/0"
+      GO_RABBITMQ_URL: ${GO_RABBITMQ_URL:-amqp://bliss:bliss_dev_secret@rabbitmq:5672/}
       GO_GOOGLE_CLIENT_ID: ${GO_GOOGLE_CLIENT_ID:-mock}
       GO_GOOGLE_CLIENT_SECRET: ${GO_GOOGLE_CLIENT_SECRET:-}
       GO_GOOGLE_REDIRECT_URL: ${GO_GOOGLE_REDIRECT_URL:-http://localhost:8080/api/auth/google/callback}
@@ -135,6 +136,28 @@ services:
       timeout: 4s
       retries: 15
 
+  rabbitmq:
+    image: rabbitmq:3-alpine
+    profiles: ["observability"]
+    user: "100:101"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    networks: [private]
+    environment:
+      RABBITMQ_DEFAULT_USER: bliss
+      RABBITMQ_DEFAULT_PASS: bliss_dev_secret
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./infra/observability/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
   worker:
     <<: *app
     profiles: ["observability"]
@@ -146,10 +169,12 @@ services:
       GO_IO_TIMEOUT: 15s
       GO_DB_MAX_CONNECTIONS: "4"
       GO_REDIS_URL: "redis://redis:6379/0"
+      GO_RABBITMQ_URL: ${GO_RABBITMQ_URL:-amqp://bliss:bliss_dev_secret@rabbitmq:5672/}
     secrets: [runtime_url]
     depends_on:
       migrate: { condition: service_completed_successfully }
       fake-provider: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
     healthcheck:
       test: [CMD, /app/probe, "http://127.0.0.1:5002/health/live"]
       interval: 3s
@@ -246,6 +271,7 @@ volumes:
   prometheus_data: {}
   alertmanager_data: {}
   grafana_data: {}
+  rabbitmq_data: {}
 secrets:
   admin_password:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/admin_password
