@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -133,7 +134,19 @@ func (r *RateLimiter) AllowDetailed(ctx context.Context, key string) (allowed bo
 	res, runErr := r.script.Run(opCtx, r.client.rdb, []string{redisKey}, nowMs, windowMs, r.maxReqs, member).Int()
 	if runErr != nil {
 		slog.Warn("rate_limiter_redis_fallback", "key", redisKey, "error", runErr.Error())
-		return r.fallback.Allow(key, now), true, runErr
+		allowed = r.fallback.Allow(key, now)
+		if allowed {
+			telemetry.RateLimitEventsTotal.Inc(r.prefix, "allowed")
+		} else {
+			telemetry.RateLimitEventsTotal.Inc(r.prefix, "exceeded")
+		}
+		return allowed, true, runErr
 	}
-	return res == 1, false, nil
+	allowed = res == 1
+	if allowed {
+		telemetry.RateLimitEventsTotal.Inc(r.prefix, "allowed")
+	} else {
+		telemetry.RateLimitEventsTotal.Inc(r.prefix, "exceeded")
+	}
+	return allowed, false, nil
 }

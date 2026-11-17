@@ -15,6 +15,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // RecordPaymentException records an actionable payment exception into the durable payment_exception ledger.
@@ -637,7 +638,7 @@ func (s *Store) RecordManualSettlement(ctx context.Context, req ManualSettlement
 	`, "Resolved via authorized manual settlement", req.AuthorizedBy, req.Evidence, req.OrderID, req.ReceiptNumber)
 
 	// 12. Enqueue transactional outbox event
-	evt, err := events.NewEvent(events.TypeOrderPaid, req.OrderID, 2, "", events.OrderPaidPayload{
+	evt, err := events.NewEvent(events.TypeOrderPaid, req.OrderID, 2, telemetry.FromContext(ctx), events.OrderPaidPayload{
 		OrderID:       req.OrderID,
 		ReceiptNumber: req.ReceiptNumber,
 		AmountKes:     req.AmountKes,

@@ -1,0 +1,155 @@
+rule_files:
+  - "/etc/prometheus/alerts.yml"
+
+evaluation_interval: 10s
+
+tests:
+  # Test 1: ApiHigh5xxRate
+  - interval: 10s
+    input_series:
+      - series: 'http_requests_total{method="POST",route="/api/orders",status="500"}'
+        values: '0+10x10' # 0 10 20 30 40 50 60 70 80 90 100
+      - series: 'http_requests_total{method="POST",route="/api/orders",status="200"}'
+        values: '0+10x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ApiHigh5xxRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "High API 5xx Error Rate"
+              description: "HTTP 5xx error rate is exceeding 5% over the last minute."
+              runbook_url: "docs/runbooks/runbook-api-error-surge.md"
+
+  # Test 2: ApiHighLatency
+  - interval: 10s
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{le="0.05"}'
+        values: '0+1x10'
+      - series: 'http_request_duration_seconds_bucket{le="0.1"}'
+        values: '0+1x10'
+      - series: 'http_request_duration_seconds_bucket{le="0.25"}'
+        values: '0+1x10'
+      - series: 'http_request_duration_seconds_bucket{le="0.5"}'
+        values: '0+1x10'
+      - series: 'http_request_duration_seconds_bucket{le="1"}'
+        values: '0+1x10'
+      - series: 'http_request_duration_seconds_bucket{le="2.5"}'
+        values: '0+10x10'
+      - series: 'http_request_duration_seconds_bucket{le="5"}'
+        values: '0+10x10'
+      - series: 'http_request_duration_seconds_bucket{le="+Inf"}'
+        values: '0+10x10'
+    alert_rule_test:
+      - eval_time: 50s
+        alertname: ApiHighLatency
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "High API p95 Latency"
+              description: "p95 API response duration exceeds 1.0s threshold."
+              runbook_url: "docs/runbooks/runbook-api-error-surge.md"
+
+  # Test 3: DbPoolSaturation
+  - interval: 10s
+    input_series:
+      - series: 'db_pool_connections{state="acquired"}'
+        values: '90+0x10'
+      - series: 'db_pool_max_connections'
+        values: '100+0x10'
+    alert_rule_test:
+      - eval_time: 40s
+        alertname: DbPoolSaturation
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Database Connection Pool Saturation"
+              description: "Acquired database connections exceed 85% of configured maximum."
+              runbook_url: "docs/runbooks/runbook-database-pool-exhaustion.md"
+
+  # Test 4: UnresolvedPaymentSpike
+  - interval: 10s
+    input_series:
+      - series: 'unresolved_payments_gauge'
+        values: '5+0x10'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: UnresolvedPaymentSpike
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "Unresolved Payment Attempts Spike"
+              description: "Unresolved payment attempts count is high, requiring automated or operator reconciliation."
+              runbook_url: "docs/runbooks/runbook-payment-reconciliation-failure.md"
+
+  # Test 5: PaymentExceptionDetected
+  - interval: 10s
+    input_series:
+      - series: 'payment_exceptions_total{type="AMOUNT_MISMATCH"}'
+        values: '0+1x10'
+    alert_rule_test:
+      - eval_time: 20s
+        alertname: PaymentExceptionDetected
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              type: AMOUNT_MISMATCH
+            exp_annotations:
+              summary: "Payment Exception Raised"
+              description: "Payment reconciliation exception detected (amount mismatch, unmapped tx, or duplicate receipt)."
+              runbook_url: "docs/runbooks/runbook-payment-reconciliation-failure.md"
+
+  # Test 6: DlqPoisonMessagesDetected
+  - interval: 10s
+    input_series:
+      - series: 'rabbitmq_dlq_messages_gauge{queue="dead_letter"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: DlqPoisonMessagesDetected
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              queue: dead_letter
+            exp_annotations:
+              summary: "Poison Messages Quarantined in DLQ"
+              description: "One or more unprocessable messages rejected to Dead Letter Queue."
+              runbook_url: "docs/runbooks/runbook-dlq-poison-messages.md"
+
+  # Test 7: OutboxBacklogGrowing
+  - interval: 10s
+    input_series:
+      - series: 'outbox_pending_events_gauge'
+        values: '25+0x10'
+    alert_rule_test:
+      - eval_time: 40s
+        alertname: OutboxBacklogGrowing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Transactional Outbox Backlog Growing"
+              description: "Outbox dispatcher pending queue depth exceeds 20 events."
+              runbook_url: "docs/runbooks/runbook-dlq-poison-messages.md"
+
+  # Test 8: RedisOutageFallbackActive
+  - interval: 10s
+    input_series:
+      - series: 'redis_cache_operations_total{cache="catalog",operation="error"}'
+        values: '0+2x10'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: RedisOutageFallbackActive
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              cache: catalog
+              operation: error
+            exp_annotations:
+              summary: "Redis Cache Outage Active"
+              description: "Redis operations encountering errors; application running on database fallback."
+              runbook_url: "docs/runbooks/runbook-cache-and-rate-limit-outage.md"

@@ -20,6 +20,7 @@ import (
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // CreateCallbackSignature generates an HMAC-SHA256 hexadecimal signature for an order ID.
@@ -225,6 +226,7 @@ func newPaymentCallbackHandlers(
 			)
 			txID := payload.TransID
 			mob := payload.GetMobile()
+			telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionUnmappedTransaction)
 			_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
 				ExceptionType:         orders.ExceptionUnmappedTransaction,
 				Provider:              "ncba",
@@ -276,6 +278,7 @@ func newPaymentCallbackHandlers(
 			txID := payload.TransID
 			mob := payload.GetMobile()
 			expAmt := attempt.AmountKes
+			telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionAmountMismatch)
 			_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
 				OrderID:               &order.ID,
 				AttemptID:             &attempt.ID,
@@ -322,6 +325,7 @@ func newPaymentCallbackHandlers(
 					"DUPLICATE_RECEIPT: receipt already used on order "+existingOrderID)
 				txID := payload.TransID
 				mob := payload.GetMobile()
+				telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionDuplicateReceipt)
 				_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
 					OrderID:               &order.ID,
 					AttemptID:             &attempt.ID,
@@ -369,6 +373,7 @@ func newPaymentCallbackHandlers(
 
 		_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptSucceeded, payload.TransID, payload.FTRef, "")
 
+		telemetry.PaymentAttemptsTotal.Inc("ncba", "success")
 		slog.Info("ncba_ipn_payment_confirmed",
 			"order_id", order.ID,
 			"attempt_id", attempt.ID,
@@ -480,6 +485,7 @@ func newPaymentCallbackHandlers(
 
 		// Handle Customer Cancellation or Late Failure
 		if stk.ResultCode != 0 {
+			telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 			slog.Info("mpesa_callback_failure_reported",
 				"order_id", order.ID,
 				"result_code", stk.ResultCode,
@@ -516,6 +522,7 @@ func newPaymentCallbackHandlers(
 				fmt.Sprintf("AMOUNT_MISMATCH: received %d KES, expected %d KES", amount, attempt.AmountKes))
 			txID := stk.CheckoutRequestID
 			expAmt := attempt.AmountKes
+			telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionAmountMismatch)
 			_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
 				OrderID:               &order.ID,
 				AttemptID:             &attempt.ID,
@@ -553,6 +560,7 @@ func newPaymentCallbackHandlers(
 				_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, stk.CheckoutRequestID, stk.MerchantRequestID,
 					"DUPLICATE_RECEIPT: receipt already used on order "+existingOrderID)
 				txID := stk.CheckoutRequestID
+				telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionDuplicateReceipt)
 				_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
 					OrderID:               &order.ID,
 					AttemptID:             &attempt.ID,
@@ -597,6 +605,7 @@ func newPaymentCallbackHandlers(
 			_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptSucceeded, receipt, stk.MerchantRequestID, "")
 		}
 
+		telemetry.PaymentAttemptsTotal.Inc("mpesa", "success")
 		slog.Info("mpesa_callback_payment_confirmed",
 			"order_id", order.ID,
 			"receipt", receipt,

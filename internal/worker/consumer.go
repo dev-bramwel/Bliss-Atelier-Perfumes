@@ -15,6 +15,7 @@ import (
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // ConsumerName identifying this background worker in public.inbox_message.
@@ -30,6 +31,16 @@ const (
 // ErrPoisonPayload indicates a deterministic unrecoverable payload error that should route directly to DLQ.
 var ErrPoisonPayload = errors.New("poison payload")
 
+// InboxStore abstracts persistent consumer inbox operations for deduplication,
+// claim locking, dead-letter tracking, and queue depth sampling.
+type InboxStore interface {
+	ClaimMessage(ctx context.Context, msgID, consumerName string, payload []byte) (claimed bool, isDuplicate bool, err error)
+	ReleaseProcessingClaim(ctx context.Context, msgID, consumerName string) error
+	RecordProcessed(ctx context.Context, msgID, consumerName string, payload []byte) error
+	RecordDeadLetter(ctx context.Context, msgID, consumerName string, payload []byte, reason string) error
+	DeadLetterCount(ctx context.Context, consumerName string) (int64, error)
+}
+
 // HandlerFunc processes a validated event envelope.
 type HandlerFunc func(ctx context.Context, env events.Envelope) error
 
@@ -37,6 +48,7 @@ type HandlerFunc func(ctx context.Context, env events.Envelope) error
 // and routes poison messages to the dead letter queue.
 type NotificationConsumer struct {
 	pool     *pgxpool.Pool
+	inbox    InboxStore
 	consumer messaging.Consumer
 	handlers map[string]HandlerFunc
 	logger   *slog.Logger
@@ -45,12 +57,23 @@ type NotificationConsumer struct {
 
 // NewNotificationConsumer initializes the consumer with default event handlers.
 func NewNotificationConsumer(pool *pgxpool.Pool, consumer messaging.Consumer, logger *slog.Logger) *NotificationConsumer {
+	var inbox InboxStore
+	if pool != nil {
+		inbox = NewPGInboxStore(pool)
+	}
+	nc := NewNotificationConsumerWithInbox(inbox, consumer, logger)
+	nc.pool = pool
+	return nc
+}
+
+// NewNotificationConsumerWithInbox initializes the consumer with a custom InboxStore.
+func NewNotificationConsumerWithInbox(inbox InboxStore, consumer messaging.Consumer, logger *slog.Logger) *NotificationConsumer {
 	if logger == nil {
 		logger = slog.Default()
 	}
 
 	nc := &NotificationConsumer{
-		pool:     pool,
+		inbox:    inbox,
 		consumer: consumer,
 		handlers: make(map[string]HandlerFunc),
 		logger:   logger,
@@ -83,6 +106,12 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	if msgID == "" {
 		// Deliveries without message IDs are treated as poison
 		c.logger.Error("consumer_missing_message_id", "routing_key", d.RoutingKey())
+		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
+		if c.inbox != nil {
+			_, _ = c.SyncDLQGauge(ctx)
+		} else {
+			telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+		}
 		_ = d.RejectToDLQ()
 		return errors.New("delivery missing message ID")
 	}
@@ -90,15 +119,27 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	// 1. Parse and Validate Envelope (Poison Message Detection)
 	var env events.Envelope
 	if err := json.Unmarshal(d.Body(), &env); err != nil {
-		c.logger.Error("consumer_poison_message_unmarshal_failed", "msg_id", msgID, "error", err.Error())
+		c.logger.ErrorContext(ctx, "consumer_poison_message_unmarshal_failed", "msg_id", msgID, "error", err.Error())
 		c.recordDeadLetter(ctx, msgID, d.Body(), "unmarshal failed: "+err.Error())
+		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
+		if c.inbox == nil {
+			telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+		}
 		_ = d.RejectToDLQ()
 		return nil
 	}
 
+	if env.CorrelationID != "" {
+		ctx = telemetry.WithCorrelationID(ctx, env.CorrelationID)
+	}
+
 	if err := env.Validate(); err != nil {
-		c.logger.Error("consumer_poison_message_validation_failed", "msg_id", msgID, "error", err.Error())
+		c.logger.ErrorContext(ctx, "consumer_poison_message_validation_failed", "msg_id", msgID, "error", err.Error())
 		c.recordDeadLetter(ctx, msgID, d.Body(), "validation failed: "+err.Error())
+		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
+		if c.inbox == nil {
+			telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+		}
 		_ = d.RejectToDLQ()
 		return nil
 	}
@@ -106,13 +147,13 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	// 2. Atomic Pre-Claim and Durable Deduplication
 	claimed, isDuplicate, err := c.claimMessage(ctx, msgID, d.Body())
 	if err != nil {
-		c.logger.Error("consumer_inbox_claim_failed", "msg_id", msgID, "error", err.Error())
+		c.logger.ErrorContext(ctx, "consumer_inbox_claim_failed", "msg_id", msgID, "error", err.Error())
 		_ = d.Nack(true)
 		return err
 	}
 	if !claimed {
 		if isDuplicate {
-			c.logger.Info("consumer_duplicate_delivery_ignored", "msg_id", msgID, "redelivered", d.Redelivered())
+			c.logger.InfoContext(ctx, "consumer_duplicate_delivery_ignored", "msg_id", msgID, "redelivered", d.Redelivered())
 			return d.Ack()
 		}
 		// Another worker is actively processing this message; requeue
@@ -128,44 +169,121 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	if exists && handler != nil {
 		if err := handler(ctx, env); err != nil {
 			if errors.Is(err, ErrPoisonPayload) {
-				c.logger.Error("consumer_poison_payload_quarantined", "msg_id", msgID, "event_id", env.EventID, "error", err.Error())
+				c.logger.ErrorContext(ctx, "consumer_poison_payload_quarantined", "msg_id", msgID, "event_id", env.EventID, "error", err.Error())
 				c.recordDeadLetter(ctx, msgID, d.Body(), "payload rejected: "+err.Error())
+				telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
+				if c.inbox == nil {
+					telemetry.RabbitMQDLQMessagesGauge.Inc("dead_letter")
+				}
 				_ = d.RejectToDLQ()
 				return nil
 			}
 
-			c.logger.Warn("consumer_handler_failed", "event_id", env.EventID, "type", env.EventType, "error", err.Error())
+			c.logger.WarnContext(ctx, "consumer_handler_failed", "event_id", env.EventID, "type", env.EventType, "error", err.Error())
 			// Transient handler failure: release claim and requeue for retry
+			telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "nack")
 			c.releaseProcessingClaim(ctx, msgID)
 			_ = d.Nack(true)
 			return err
 		}
 	} else {
-		c.logger.Debug("consumer_unhandled_event_type", "type", env.EventType, "event_id", env.EventID)
+		c.logger.DebugContext(ctx, "consumer_unhandled_event_type", "type", env.EventType, "event_id", env.EventID)
 	}
 
 	// 4. Record Successful Processing in Inbox
 	if err := c.recordProcessed(ctx, msgID, d.Body()); err != nil {
-		c.logger.Error("consumer_record_inbox_failed", "event_id", env.EventID, "error", err.Error())
+		c.logger.ErrorContext(ctx, "consumer_record_inbox_failed", "event_id", env.EventID, "error", err.Error())
+		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "nack")
 		_ = d.Nack(true)
 		return err
 	}
 
 	// 5. Positive Acknowledgment
+	telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "ack")
 	return d.Ack()
 }
 
-// claimMessage atomically inserts a processing row into public.inbox_message.
 func (c *NotificationConsumer) claimMessage(ctx context.Context, msgID string, payload []byte) (claimed bool, isDuplicate bool, err error) {
-	if c.pool == nil {
+	if c.inbox == nil {
+		return true, false, nil
+	}
+	return c.inbox.ClaimMessage(ctx, msgID, ConsumerName, payload)
+}
+
+func (c *NotificationConsumer) releaseProcessingClaim(ctx context.Context, msgID string) {
+	if c.inbox == nil {
+		return
+	}
+	_ = c.inbox.ReleaseProcessingClaim(ctx, msgID, ConsumerName)
+}
+
+func (c *NotificationConsumer) recordProcessed(ctx context.Context, msgID string, payload []byte) error {
+	if c.inbox == nil {
+		return nil
+	}
+	err := c.inbox.RecordProcessed(ctx, msgID, ConsumerName, payload)
+	if err == nil {
+		_, _ = c.SyncDLQGauge(ctx)
+	}
+	return err
+}
+
+func (c *NotificationConsumer) recordDeadLetter(ctx context.Context, msgID string, payload []byte, reason string) {
+	if c.inbox == nil {
+		return
+	}
+	_ = c.inbox.RecordDeadLetter(ctx, msgID, ConsumerName, payload, reason)
+	_, _ = c.SyncDLQGauge(ctx)
+}
+
+// SyncDLQGauge updates the dead_letter queue gauge based on persistent state in inbox_message.
+func (c *NotificationConsumer) SyncDLQGauge(ctx context.Context) (int64, error) {
+	if c.inbox == nil {
+		return 0, nil
+	}
+	count, err := c.inbox.DeadLetterCount(ctx, ConsumerName)
+	if err != nil {
+		return 0, err
+	}
+	telemetry.RabbitMQDLQMessagesGauge.Set(float64(count), "dead_letter")
+	return count, nil
+}
+
+// SyncDLQGauge queries public.inbox_message for active dead_lettered records
+// and synchronizes rabbitmq_dlq_messages_gauge to the true queue depth.
+func SyncDLQGauge(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
+	if pool == nil {
+		return 0, nil
+	}
+	store := NewPGInboxStore(pool)
+	count, err := store.DeadLetterCount(ctx, ConsumerName)
+	if err != nil {
+		return 0, err
+	}
+	telemetry.RabbitMQDLQMessagesGauge.Set(float64(count), "dead_letter")
+	return count, nil
+}
+
+// PGInboxStore implements InboxStore backed by PostgreSQL public.inbox_message.
+type PGInboxStore struct {
+	pool *pgxpool.Pool
+}
+
+// NewPGInboxStore creates an InboxStore backed by pgxpool.Pool.
+func NewPGInboxStore(pool *pgxpool.Pool) *PGInboxStore {
+	return &PGInboxStore{pool: pool}
+}
+
+func (s *PGInboxStore) ClaimMessage(ctx context.Context, msgID, consumerName string, payload []byte) (claimed bool, isDuplicate bool, err error) {
+	if s.pool == nil {
 		return true, false, nil
 	}
 
-	tag, insertErr := c.pool.Exec(ctx, `
+	tag, insertErr := s.pool.Exec(ctx, `
 		INSERT INTO public.inbox_message (id, consumer_name, status, payload, created_at)
 		VALUES ($1, $2, $3, $4, now())
 		ON CONFLICT (id, consumer_name) DO NOTHING
-	`, msgID, ConsumerName, InboxProcessing, payload)
+	`, msgID, consumerName, InboxProcessing, payload)
 	if insertErr != nil {
 		return false, false, insertErr
 	}
@@ -177,25 +295,37 @@ func (c *NotificationConsumer) claimMessage(ctx context.Context, msgID string, p
 	// Row already exists: check its status
 	var status string
 	var createdAt time.Time
-	queryErr := c.pool.QueryRow(ctx, `
+	queryErr := s.pool.QueryRow(ctx, `
 		SELECT status, created_at FROM public.inbox_message
 		WHERE id = $1 AND consumer_name = $2
-	`, msgID, ConsumerName).Scan(&status, &createdAt)
+	`, msgID, consumerName).Scan(&status, &createdAt)
 	if queryErr != nil {
 		return false, false, queryErr
 	}
 
-	if status == InboxProcessed || status == InboxDeadLettered {
+	if status == InboxProcessed {
 		return false, true, nil
+	}
+
+	if status == InboxDeadLettered {
+		// Quarantined dead-letter is being replayed: transition status to processing and update payload
+		updateTag, updateErr := s.pool.Exec(ctx, `
+			UPDATE public.inbox_message
+			SET status = $1, payload = $2, error_message = NULL, created_at = now()
+			WHERE id = $3 AND consumer_name = $4 AND status = $5
+		`, InboxProcessing, payload, msgID, consumerName, InboxDeadLettered)
+		if updateErr == nil && updateTag.RowsAffected() == 1 {
+			return true, false, nil
+		}
 	}
 
 	// If processing status was set over 1 minute ago, reclaim abandoned lock
 	if status == InboxProcessing && time.Since(createdAt) > 1*time.Minute {
-		updateTag, updateErr := c.pool.Exec(ctx, `
+		updateTag, updateErr := s.pool.Exec(ctx, `
 			UPDATE public.inbox_message
 			SET created_at = now()
 			WHERE id = $1 AND consumer_name = $2 AND status = $3
-		`, msgID, ConsumerName, InboxProcessing)
+		`, msgID, consumerName, InboxProcessing)
 		if updateErr == nil && updateTag.RowsAffected() == 1 {
 			return true, false, nil
 		}
@@ -204,44 +334,182 @@ func (c *NotificationConsumer) claimMessage(ctx context.Context, msgID string, p
 	return false, false, nil
 }
 
-// releaseProcessingClaim removes the processing claim on transient handler failure so retries can proceed.
-func (c *NotificationConsumer) releaseProcessingClaim(ctx context.Context, msgID string) {
-	if c.pool == nil {
-		return
-	}
-	_, _ = c.pool.Exec(ctx, `
-		DELETE FROM public.inbox_message
-		WHERE id = $1 AND consumer_name = $2 AND status = $3
-	`, msgID, ConsumerName, InboxProcessing)
-}
-
-// recordProcessed persists the message in public.inbox_message as processed.
-func (c *NotificationConsumer) recordProcessed(ctx context.Context, msgID string, payload []byte) error {
-	if c.pool == nil {
+func (s *PGInboxStore) ReleaseProcessingClaim(ctx context.Context, msgID, consumerName string) error {
+	if s.pool == nil {
 		return nil
 	}
-
-	_, err := c.pool.Exec(ctx, `
-		INSERT INTO public.inbox_message (id, consumer_name, status, payload, created_at, processed_at)
-		VALUES ($1, $2, $3, $4, now(), now())
-		ON CONFLICT (id, consumer_name) DO UPDATE
-		SET status = $3, processed_at = now()
-	`, msgID, ConsumerName, InboxProcessed, payload)
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM public.inbox_message
+		WHERE id = $1 AND consumer_name = $2 AND status = $3
+	`, msgID, consumerName, InboxProcessing)
 	return err
 }
 
-// recordDeadLetter records a poison message in public.inbox_message as dead_lettered.
-func (c *NotificationConsumer) recordDeadLetter(ctx context.Context, msgID string, payload []byte, reason string) {
-	if c.pool == nil {
-		return
+func (s *PGInboxStore) RecordProcessed(ctx context.Context, msgID, consumerName string, payload []byte) error {
+	if s.pool == nil {
+		return nil
 	}
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO public.inbox_message (id, consumer_name, status, payload, created_at, processed_at)
+		VALUES ($1, $2, $3, $4, now(), now())
+		ON CONFLICT (id, consumer_name) DO UPDATE
+		SET status = $3, error_message = NULL, processed_at = now()
+	`, msgID, consumerName, InboxProcessed, payload)
+	return err
+}
 
-	_, _ = c.pool.Exec(ctx, `
+func (s *PGInboxStore) RecordDeadLetter(ctx context.Context, msgID, consumerName string, payload []byte, reason string) error {
+	if s.pool == nil {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
 		INSERT INTO public.inbox_message (id, consumer_name, status, payload, error_message, created_at, processed_at)
 		VALUES ($1, $2, $3, $4, $5, now(), now())
 		ON CONFLICT (id, consumer_name) DO UPDATE
 		SET status = $3, error_message = $5, processed_at = now()
-	`, msgID, ConsumerName, InboxDeadLettered, payload, reason)
+	`, msgID, consumerName, InboxDeadLettered, payload, reason)
+	return err
+}
+
+func (s *PGInboxStore) DeadLetterCount(ctx context.Context, consumerName string) (int64, error) {
+	if s.pool == nil {
+		return 0, nil
+	}
+	var count int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM public.inbox_message
+		WHERE status = $1 AND consumer_name = $2
+	`, InboxDeadLettered, consumerName).Scan(&count)
+	return count, err
+}
+
+// MemoryInboxRecord represents an in-memory inbox message record for testing.
+type MemoryInboxRecord struct {
+	ID           string
+	ConsumerName string
+	Status       string
+	Payload      []byte
+	ErrorMessage string
+	CreatedAt    time.Time
+	ProcessedAt  time.Time
+}
+
+// MemoryInboxStore implements InboxStore in-memory for testing, enforcing the identical
+// state machine, deduplication, and replay semantics as PGInboxStore.
+type MemoryInboxStore struct {
+	mu      sync.Mutex
+	records map[string]*MemoryInboxRecord
+}
+
+// NewMemoryInboxStore creates an in-memory InboxStore.
+func NewMemoryInboxStore() *MemoryInboxStore {
+	return &MemoryInboxStore{
+		records: make(map[string]*MemoryInboxRecord),
+	}
+}
+
+func (m *MemoryInboxStore) key(msgID, consumerName string) string {
+	return msgID + ":" + consumerName
+}
+
+func (m *MemoryInboxStore) ClaimMessage(ctx context.Context, msgID, consumerName string, payload []byte) (claimed bool, isDuplicate bool, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	k := m.key(msgID, consumerName)
+	existing, exists := m.records[k]
+	if !exists {
+		m.records[k] = &MemoryInboxRecord{
+			ID:           msgID,
+			ConsumerName: consumerName,
+			Status:       InboxProcessing,
+			Payload:      payload,
+			CreatedAt:    time.Now(),
+		}
+		return true, false, nil
+	}
+
+	if existing.Status == InboxProcessed {
+		return false, true, nil
+	}
+
+	if existing.Status == InboxDeadLettered {
+		// Quarantined dead-letter is being replayed: transition status to processing and update payload
+		existing.Status = InboxProcessing
+		existing.Payload = payload
+		existing.ErrorMessage = ""
+		existing.CreatedAt = time.Now()
+		return true, false, nil
+	}
+
+	if existing.Status == InboxProcessing && time.Since(existing.CreatedAt) > 1*time.Minute {
+		existing.CreatedAt = time.Now()
+		return true, false, nil
+	}
+
+	return false, false, nil
+}
+
+func (m *MemoryInboxStore) ReleaseProcessingClaim(ctx context.Context, msgID, consumerName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := m.key(msgID, consumerName)
+	if existing, exists := m.records[k]; exists && existing.Status == InboxProcessing {
+		delete(m.records, k)
+	}
+	return nil
+}
+
+func (m *MemoryInboxStore) RecordProcessed(ctx context.Context, msgID, consumerName string, payload []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := m.key(msgID, consumerName)
+	m.records[k] = &MemoryInboxRecord{
+		ID:           msgID,
+		ConsumerName: consumerName,
+		Status:       InboxProcessed,
+		Payload:      payload,
+		ProcessedAt:  time.Now(),
+	}
+	return nil
+}
+
+func (m *MemoryInboxStore) RecordDeadLetter(ctx context.Context, msgID, consumerName string, payload []byte, reason string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	k := m.key(msgID, consumerName)
+	m.records[k] = &MemoryInboxRecord{
+		ID:           msgID,
+		ConsumerName: consumerName,
+		Status:       InboxDeadLettered,
+		Payload:      payload,
+		ErrorMessage: reason,
+		ProcessedAt:  time.Now(),
+	}
+	return nil
+}
+
+func (m *MemoryInboxStore) DeadLetterCount(ctx context.Context, consumerName string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var count int64
+	for _, r := range m.records {
+		if r.ConsumerName == consumerName && r.Status == InboxDeadLettered {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *MemoryInboxStore) Get(msgID, consumerName string) (*MemoryInboxRecord, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, exists := m.records[m.key(msgID, consumerName)]
+	if !exists {
+		return nil, false
+	}
+	cp := *r
+	return &cp, true
 }
 
 // Default Handlers

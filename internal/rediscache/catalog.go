@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -89,19 +90,23 @@ func (c *CatalogCache) Get(ctx context.Context) ([]catalog.Product, error) {
 	val, err := c.client.rdb.Get(opCtx, c.key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
+			telemetry.RedisCacheOperationsTotal.Inc("catalog", "miss")
 			return nil, nil // Cache miss
 		}
+		telemetry.RedisCacheOperationsTotal.Inc("catalog", "error")
 		return nil, err // Outage / network error / timeout
 	}
 
 	var products []catalog.Product
 	if err := json.Unmarshal([]byte(val), &products); err != nil {
 		slog.Warn("catalog_cache_unmarshal_failed", "error", err.Error())
+		telemetry.RedisCacheOperationsTotal.Inc("catalog", "error")
 		return nil, err
 	}
 	if products == nil {
 		products = []catalog.Product{}
 	}
+	telemetry.RedisCacheOperationsTotal.Inc("catalog", "hit")
 	return products, nil
 }
 

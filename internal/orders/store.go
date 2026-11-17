@@ -19,6 +19,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // CatalogInvalidator purges cached catalog projections on stock/state mutations.
@@ -342,7 +343,7 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 	for i, it := range orderItems {
 		orderItemsPayload[i] = events.OrderItemPayload{ProductID: it.ProductID, Quantity: it.Quantity}
 	}
-	evt, err := events.NewEvent(events.TypeOrderCreated, orderID, 1, "", events.OrderCreatedPayload{
+	evt, err := events.NewEvent(events.TypeOrderCreated, orderID, 1, telemetry.FromContext(ctx), events.OrderCreatedPayload{
 		OrderID:          orderID,
 		CustomerName:     req.Customer.Name,
 		CustomerPhone:    req.Customer.Phone,
@@ -364,6 +365,7 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
 	}
 
+	telemetry.StockReservationsActiveGauge.Inc()
 	invalidateCatalogDetached(s.Invalidator)
 
 	return &Order{
@@ -474,6 +476,8 @@ func (s *Store) ReleaseExpired(ctx context.Context, now time.Time) (int, error) 
 		return 0, fmt.Errorf("failed to commit expired releases: %w", err)
 	}
 	if releasedCount > 0 {
+		telemetry.StockReservationsActiveGauge.Add(-float64(releasedCount))
+		telemetry.StockReservationsExpiredTotal.Add(float64(releasedCount))
 		invalidateCatalogDetached(s.Invalidator)
 	}
 	return releasedCount, nil
@@ -785,7 +789,7 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		}
 
 		// Transactional outbox event enqueue
-		evt, err := events.NewEvent(events.TypeOrderPaid, orderID, 2, "", events.OrderPaidPayload{
+		evt, err := events.NewEvent(events.TypeOrderPaid, orderID, 2, telemetry.FromContext(ctx), events.OrderPaidPayload{
 			OrderID:       orderID,
 			ReceiptNumber: receiptNumber,
 			AmountKes:     totalKes,
@@ -803,6 +807,7 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("failed to commit confirm payment transaction: %w", err)
 		}
+		telemetry.StockReservationsActiveGauge.Dec()
 		invalidateCatalogDetached(s.Invalidator)
 		return nil
 	}
@@ -812,6 +817,7 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 	if resStatus == ReservationActive {
 		_, _ = tx.Exec(ctx, `UPDATE public.stock_reservation SET status = $1, released_at = $2 WHERE id = $3`,
 			ReservationReleased, now, resID)
+		telemetry.StockReservationsActiveGauge.Dec()
 	}
 	_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2 WHERE id = $3`,
 		PaymentResolutionRequired, now, orderID)
