@@ -240,7 +240,12 @@ Five comprehensive runbooks delivered in [`docs/runbooks/`](file:///C:/Users/mut
 
 ### Database Schema Accounting
 - **Migrations Required:** **Zero (`0`)**.
-- **Schema Impact:** No database tables or schema modifications were required. The observability implementation reads live PostgreSQL stats via `pgxpool.Stat()` dynamic collectors and queries existing `public.outbox_event` and `public.dead_letter_message` tables without schema churn.
+- **Schema Impact:** No database tables or schema modifications were required. The observability implementation reads live PostgreSQL stats via `pgxpool.Stat()` dynamic collectors and queries existing `public.outbox_event` and `public.inbox_message` tables without schema churn.
+
+### Dynamic DLQ Metric Synchronization & Schema Alignment
+- The background worker (`internal/worker`) dynamically synchronizes `rabbitmq_dlq_messages_gauge` from active `dead_lettered` records in `public.inbox_message` upon poison rejection, repaired delivery processing, and during periodic 30-second sweeps.
+- When poison messages are repaired and processed or updated by operators, `rabbitmq_dlq_messages_gauge` automatically drops to 0, clearing `DlqPoisonMessagesDetected` without requiring worker container restarts.
+- Runbook [`docs/runbooks/runbook-dlq-poison-messages.md`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/runbook-dlq-poison-messages.md) reflects `public.inbox_message` schema queries and documents automated metric clearance.
 
 ### Configuration Accounting
 

@@ -12,7 +12,7 @@
 The Bliss messaging pipeline consists of:
 1. **Transactional Outbox (`public.outbox_event`)**: Stores events atomically within domain transactions.
 2. **Background Dispatcher (`internal/outbox`)**: Polls outbox and publishes with AMQP publisher confirms.
-3. **Background Worker (`internal/worker`)**: Consumes events, enforces PostgreSQL inbox deduplication, and routes poison messages to DLQ (`public.dead_letter_message`).
+3. **Background Worker (`internal/worker`)**: Consumes events, enforces PostgreSQL inbox deduplication, and routes poison messages to DLQ (`public.inbox_message` with `status = 'dead_lettered'`).
 
 > [!CRITICAL]
 > **Strict Operational Invariants:**
@@ -24,10 +24,10 @@ The Bliss messaging pipeline consists of:
 ## 2. Immediate Triage & Diagnosis
 
 ### Step 1: Inspect Quarantined Dead-Letter Messages
-Connect to PostgreSQL and inspect `public.dead_letter_message`:
+Connect to PostgreSQL and inspect `public.inbox_message`:
 ```bash
 docker compose exec db psql -U bliss_admin -d bliss_dev -c \
-  "SELECT id, message_id, reason, created_at, left(payload::text, 100) FROM public.dead_letter_message ORDER BY created_at DESC LIMIT 10;"
+  "SELECT id, consumer_name, status, error_message, created_at, left(payload::text, 100) FROM public.inbox_message WHERE status = 'dead_lettered' ORDER BY created_at DESC LIMIT 10;"
 ```
 
 ### Step 2: Check Outbox Backlog & Failures
@@ -57,22 +57,22 @@ docker compose logs worker --tail=100 | grep -E "consumer_poison|outbox"
 3. Once broker connectivity is restored, the outbox dispatcher automatically drains pending rows with publisher confirms.
 
 ### Scenario B: Poison Payload Quarantined in DLQ (`DlqPoisonMessagesDetected`)
-1. Review the quarantine `reason` in `public.dead_letter_message`:
+1. Review the quarantine `error_message` in `public.inbox_message`:
    - If `validation failed`: A schema migration or field format was omitted by producer.
    - If `unmarshal failed`: A publisher serialized invalid JSON.
 2. If the payload bug has been patched in code:
    - Replay the message by re-inserting into outbox or queue:
      ```sql
-     -- Example: Requeueing dead letter after fix
-     UPDATE public.dead_letter_message SET replayed_at = now() WHERE id = '<dead_letter_id>';
+     -- Example: Requeueing dead letter after fix or resolving after handling
+     UPDATE public.inbox_message SET status = 'processed', processed_at = now() WHERE id = '<message_id>' AND consumer_name = 'notifications';
      ```
 3. If the message was an irrecoverable test or malformed probe:
-   - Document reason and leave archived in `public.dead_letter_message` for audit trail.
+   - Document reason and leave archived in `public.inbox_message` for audit trail.
 
 ---
 
 ## 4. Verification & Recovery Confirmation
 
-1. Ensure `rabbitmq_dlq_messages_gauge` returns to 0.
+1. Ensure `rabbitmq_dlq_messages_gauge` returns to 0. (The worker automatically synchronizes `rabbitmq_dlq_messages_gauge` from active `dead_lettered` records in `public.inbox_message` on message processing and every periodic sweep).
 2. Confirm `outbox_pending_events_gauge` drops below 5.
 3. Alertmanager resolves `DlqPoisonMessagesDetected`.
