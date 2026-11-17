@@ -205,7 +205,7 @@ func TestDisposableMigrations(t *testing.T) {
 		fails(t, pool, "status", "checksum mismatch")
 	})
 	for name, sql := range map[string]string{
-		"unknown version":     "UPDATE public.bliss_schema_migrations SET version=version+9",
+		"unknown version":     "UPDATE public.bliss_schema_migrations SET version=(SELECT max(version)+1 FROM public.bliss_schema_migrations) WHERE version=(SELECT max(version) FROM public.bliss_schema_migrations)",
 		"wrong origin":        "UPDATE public.bliss_schema_migrations SET origin='prisma'",
 		"empty ledger":        "DELETE FROM public.bliss_schema_migrations",
 		"ledger schema drift": "ALTER TABLE public.bliss_schema_migrations ADD COLUMN surprise text",
