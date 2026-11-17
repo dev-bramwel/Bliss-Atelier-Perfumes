@@ -117,6 +117,19 @@ func noLedger(t *testing.T, pool *pgxpool.Pool) {
 
 func TestDisposableMigrations(t *testing.T) {
 	pool := testPool(t)
+	t.Run("upgrade v10 without requiring the new column beforehand", func(t *testing.T) {
+		reset(t, pool)
+		if _, err := execute(context.Background(), pool, "init", steps()[:10]); err != nil {
+			t.Fatal(err)
+		}
+		if got := run(t, pool, "status"); got.State != "pending" {
+			t.Fatal(got)
+		}
+		run(t, pool, "up")
+		if got := run(t, pool, "status"); got.State != "current" {
+			t.Fatal(got)
+		}
+	})
 	t.Run("empty requires explicit initialization", func(t *testing.T) {
 		reset(t, pool)
 		if got := run(t, pool, "status"); got.State != "empty" {

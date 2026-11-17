@@ -135,15 +135,8 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 	if err != nil {
 		return Result{}, err
 	}
-	expected := map[string]json.RawMessage{}
-	if err = json.Unmarshal([]byte(read("schema-v11.json")), &expected); err != nil {
-		return Result{}, err
-	}
-	for name, actual := range tables {
-		if !sameJSON(actual, expected[name]) {
-			return Result{}, reject("schema mismatch; no changes applied")
-		}
-	}
+	// Validate against the verified ledger version below. Comparing older tables
+	// with the latest snapshot here would reject legitimate ALTER TABLE upgrades.
 	_, orders := tables["Order"]
 	_, payments := tables["MpesaTransaction"]
 	_, prisma := tables["_prisma_migrations"]
