@@ -382,9 +382,21 @@
       }
       let data;
       try {
+        let checkoutToken = localStorage.getItem("bliss_checkout_token");
+        if (!/^ct_[a-f0-9]{64}$/.test(checkoutToken || "")) {
+          checkoutToken =
+            "ct_" +
+            Array.from(crypto.getRandomValues(new Uint8Array(32)), (value) =>
+              value.toString(16).padStart(2, "0"),
+            ).join("");
+          localStorage.setItem("bliss_checkout_token", checkoutToken);
+        }
         data = await shop.request("/orders", {
           method: "POST",
-          headers: { "Idempotency-Key": pending.key },
+          headers: {
+            "Idempotency-Key": pending.key,
+            "X-Checkout-Token": checkoutToken,
+          },
           body: pending.body,
         });
       } catch (error) {

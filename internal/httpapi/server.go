@@ -390,7 +390,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			if idempotencyKey == "" {
 				idempotencyKey = "auto_" + orders.CanonicalRequestHash([]byte(ip+":"+string(bodyBytes)))
 			}
-			callerScope := "guest:" + ip
+			callerScope := checkoutScope(r.Header.Get("X-Checkout-Token"), ip)
 			if authService != nil {
 				if _, cookieErr := r.Cookie("bliss_session"); cookieErr == nil {
 					user, ses, authErr := AuthenticateRequest(ctx, r, authService, proxyChecker)
