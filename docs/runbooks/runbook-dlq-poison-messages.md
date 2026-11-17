@@ -27,7 +27,7 @@ The Bliss messaging pipeline consists of:
 Connect to PostgreSQL and inspect `public.inbox_message`:
 ```bash
 docker compose exec db psql -U bliss_admin -d bliss_dev -c \
-  "SELECT id, consumer_name, status, error_message, created_at, left(payload::text, 100) FROM public.inbox_message WHERE status = 'dead_lettered' ORDER BY created_at DESC LIMIT 10;"
+  "SELECT id, consumer_name, status, error_message, created_at, left(payload::text, 100) FROM public.inbox_message WHERE status = 'dead_lettered' AND consumer_name = 'bliss-notification-worker' ORDER BY created_at DESC LIMIT 10;"
 ```
 
 ### Step 2: Check Outbox Backlog & Failures
@@ -60,13 +60,21 @@ docker compose logs worker --tail=100 | grep -E "consumer_poison|outbox"
 1. Review the quarantine `error_message` in `public.inbox_message`:
    - If `validation failed`: A schema migration or field format was omitted by producer.
    - If `unmarshal failed`: A publisher serialized invalid JSON.
-2. If the payload bug has been patched in code:
-   - Replay the message by re-inserting into outbox or queue:
-     ```sql
-     -- Example: Requeueing dead letter after fix or resolving after handling
-     UPDATE public.inbox_message SET status = 'processed', processed_at = now() WHERE id = '<message_id>' AND consumer_name = 'notifications';
+2. Resolve the underlying root cause:
+   - If code / schema bug: deploy the application fix or execute the missing database migration.
+   - If corrupt payload: patch data at the source.
+3. Replay the quarantined message:
+   - **Supported Shovel Replay (Recommended):** Use RabbitMQ Shovel to move the message from the dead-letter queue back to the main exchange for reprocessing:
+     ```bash
+     # Move quarantined dead letters from DLQ back to notifications exchange
+     docker compose exec rabbitmq rabbitmqctl shovel --move-messages-from-queue=bliss.notifications.v1.dead --to-exchange=bliss.events.v1
      ```
-3. If the message was an irrecoverable test or malformed probe:
+   - **Replay Execution & Invariant Preservation:**
+     When the replayed message arrives, the worker's `claimMessage` detects that the message was quarantined (`status = 'dead_lettered'`). It atomically transitions the inbox state back to `processing`, executes the event handler, and upon handler success updates the inbox to `processed`.
+   - **Warning on Manual SQL Overwrites:**
+     > [!WARNING]
+     > DO NOT manually execute `UPDATE public.inbox_message SET status = 'processed'`! Manually changing status to `processed` bypasses domain event execution, leaving side effects unhandled while falsely marking the message completed.
+4. If the message was an irrecoverable test or malformed probe:
    - Document reason and leave archived in `public.inbox_message` for audit trail.
 
 ---
