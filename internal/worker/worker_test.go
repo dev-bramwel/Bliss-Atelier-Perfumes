@@ -250,3 +250,130 @@ func TestSyncDLQGauge_NilPool(t *testing.T) {
 		t.Fatalf("expected 0 count on consumer SyncDLQGauge, got %d", cCount)
 	}
 }
+
+func TestNotificationConsumer_PersistentInboxReplayAndDeduplication(t *testing.T) {
+	inbox := NewMemoryInboxStore()
+	fakeMessaging := messaging.NewFakeMessaging()
+	defer fakeMessaging.Close()
+
+	consumer := NewNotificationConsumerWithInbox(
+		inbox,
+		fakeMessaging,
+		slog.New(slog.NewTextHandler(os.Stdout, nil)),
+	)
+
+	var handlerCalls int32
+	var lastHandledOrderID string
+	consumer.RegisterHandler(events.TypeOrderCreated, func(ctx context.Context, env events.Envelope) error {
+		atomic.AddInt32(&handlerCalls, 1)
+		var p events.OrderCreatedPayload
+		if err := json.Unmarshal(env.Payload, &p); err != nil {
+			return err
+		}
+		lastHandledOrderID = p.OrderID
+		return nil
+	})
+
+	ctx := context.Background()
+	msgID := "msg-replay-test-001"
+
+	// 1. Initial delivery is a poison message (corrupted JSON)
+	poisonDelivery := &mockDelivery{
+		msgID:      msgID,
+		routingKey: "order.created",
+		body:       []byte("{corrupt-json-payload"),
+	}
+
+	err := consumer.ProcessDelivery(ctx, poisonDelivery)
+	if err != nil {
+		t.Fatalf("unexpected error processing poison delivery: %v", err)
+	}
+	if !poisonDelivery.dlq {
+		t.Fatalf("expected poison message to be routed to DLQ")
+	}
+
+	// Verify persistent inbox recorded dead_lettered status and gauge reflects DLQ depth 1
+	rec, exists := inbox.Get(msgID, ConsumerName)
+	if !exists {
+		t.Fatalf("expected record in inbox for %s", msgID)
+	}
+	if rec.Status != InboxDeadLettered {
+		t.Fatalf("expected status %s, got %s", InboxDeadLettered, rec.Status)
+	}
+	dlqCount, err := consumer.SyncDLQGauge(ctx)
+	if err != nil || dlqCount != 1 {
+		t.Fatalf("expected DLQ count 1, got %d (err: %v)", dlqCount, err)
+	}
+
+	// 2. Operator repairs payload and replays message with same message ID
+	repairedPayload, _ := json.Marshal(events.OrderCreatedPayload{
+		OrderID:  "ord-repaired-001",
+		TotalKes: 4500,
+	})
+	repairedEnv := events.Envelope{
+		EventID:          "evt-repaired-001",
+		EventType:        events.TypeOrderCreated,
+		SchemaVersion:    1,
+		OccurredAt:       time.Now().UTC(),
+		AggregateID:      "ord-repaired-001",
+		AggregateVersion: 1,
+		Payload:          repairedPayload,
+	}
+	repairedBytes, _ := json.Marshal(repairedEnv)
+
+	replayedDelivery := &mockDelivery{
+		msgID:      msgID,
+		routingKey: "order.created",
+		body:       repairedBytes,
+	}
+
+	err = consumer.ProcessDelivery(ctx, replayedDelivery)
+	if err != nil {
+		t.Fatalf("unexpected error processing replayed delivery: %v", err)
+	}
+	if !replayedDelivery.acked {
+		t.Fatalf("expected replayed delivery to be positively ACKed")
+	}
+
+	// Verify event handler ACTUALLY executed during replay
+	if atomic.LoadInt32(&handlerCalls) != 1 {
+		t.Fatalf("expected 1 handler call after replay, got %d", atomic.LoadInt32(&handlerCalls))
+	}
+	if lastHandledOrderID != "ord-repaired-001" {
+		t.Fatalf("expected order ID ord-repaired-001, got %s", lastHandledOrderID)
+	}
+
+	// Verify persistent inbox status transitioned to processed and DLQ depth cleared to 0
+	recAfterReplay, exists := inbox.Get(msgID, ConsumerName)
+	if !exists {
+		t.Fatalf("expected record in inbox after replay")
+	}
+	if recAfterReplay.Status != InboxProcessed {
+		t.Fatalf("expected status %s after replay, got %s", InboxProcessed, recAfterReplay.Status)
+	}
+	dlqCountAfterReplay, err := consumer.SyncDLQGauge(ctx)
+	if err != nil || dlqCountAfterReplay != 0 {
+		t.Fatalf("expected DLQ count 0 after replay, got %d (err: %v)", dlqCountAfterReplay, err)
+	}
+
+	// 3. Duplicate delivery of the already processed message arrives
+	duplicateDelivery := &mockDelivery{
+		msgID:       msgID,
+		routingKey:  "order.created",
+		body:        repairedBytes,
+		redelivered: true,
+	}
+
+	err = consumer.ProcessDelivery(ctx, duplicateDelivery)
+	if err != nil {
+		t.Fatalf("unexpected error processing duplicate delivery: %v", err)
+	}
+	if !duplicateDelivery.acked {
+		t.Fatalf("expected duplicate delivery to be ACKed")
+	}
+
+	// Verify deduplication invariant: handler was NOT called again
+	if atomic.LoadInt32(&handlerCalls) != 1 {
+		t.Fatalf("expected handler calls to remain 1 after duplicate delivery, got %d", atomic.LoadInt32(&handlerCalls))
+	}
+}
