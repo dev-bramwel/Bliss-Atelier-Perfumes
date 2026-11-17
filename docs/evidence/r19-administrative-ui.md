@@ -49,3 +49,22 @@ settlement, production Google authentication, or deployment readiness.
 
 See [administrative operations](../admin-operations.md) for permissions, payloads,
 upgrade instructions and operator behavior.
+
+## PR verification follow-up (17 November 2026)
+
+- Re-ran `go test -p 1 ./...`, `go vet -p 1 ./...`, the web build and
+  `node --test web/catalog.test.cjs`: passed. Service-dependent tests retain
+  their environment-based skips.
+- `node tools/ci/contracts.mjs api/openapi.json`: passed. The explicit input
+  avoids the existing Windows URL pathname limitation in the default argument.
+- Re-ran `node web/admin.browser.cjs` with the pinned Playwright 1.64.1 and
+  its Chromium: owner, manager, employee and customer journeys all passed.
+- Workflow YAML parsing, the new CI step's Bash syntax, JavaScript syntax and
+  `git diff --check`: passed.
+- Added the administrative browser journeys to Docker core CI, including
+  Chromium installation, bounded web-server readiness, process cleanup and
+  screenshots/server logs in the existing retained CI evidence artifact.
+- Retried `scripts/test-integration.ps1`: blocked before database startup because
+  Docker's Linux engine pipe was unavailable. Starting the installed Docker
+  Desktop did not establish a usable engine. PostgreSQL 17/Redis integration,
+  the restore drill and Docker Core acceptance remain pending CI verification.

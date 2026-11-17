@@ -46,6 +46,24 @@ jobs:
           go test -race ./...
           go build ./cmd/...
 
+      - name: Verify administrative browser journeys
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --prefix tools/ci
+          (cd tools/ci && npx playwright install --with-deps chromium)
+          mkdir -p .local/ci-build/admin-browser
+          go build -o .local/ci-build/admin-web ./cmd/web
+          GO_HTTP_ADDR=127.0.0.1:8086 .local/ci-build/admin-web > .local/ci-build/admin-browser/server.log 2>&1 &
+          web_pid=$!
+          trap 'kill "$web_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8086/health/live > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:8086/health/live > /dev/null
+          BLISS_BROWSER_ARTIFACTS=.local/ci-build/admin-browser node web/admin.browser.cjs
+
       - name: Check frontend CSS reproducibility and dependencies
         shell: bash
         run: |
