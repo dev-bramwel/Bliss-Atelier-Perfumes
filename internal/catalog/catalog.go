@@ -31,6 +31,7 @@ type Product struct {
 	Images       []string `json:"images"`
 	PriceKes     int      `json:"priceKes"`
 	Available    bool     `json:"available"`
+	Stock        int      `json:"stock"`
 }
 
 type Store struct {
@@ -47,8 +48,10 @@ func (s *Store) Products(ctx context.Context) ([]Product, error) {
 	var hasResTable bool
 	_ = s.Pool.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasResTable)
 
+	stockExpr := `p.stock`
 	availExpr := `(i.authority='replacement' AND coalesce(i.reconciled_until>now(),false) AND p.opened AND p.stock>0)`
 	if hasResTable {
+		stockExpr = `(p.stock - coalesce((SELECT sum(ri.quantity) FROM public.stock_reservation_item ri JOIN public.stock_reservation r ON r.id=ri.reservation_id WHERE ri.product_id=p.id AND r.status='active' AND r.expires_at>now()),0))`
 		availExpr = `(i.authority='replacement' AND coalesce(i.reconciled_until>now(),false) AND p.opened AND (p.stock - coalesce((
 			SELECT sum(ri.quantity)
 			FROM public.stock_reservation_item ri
@@ -59,8 +62,8 @@ func (s *Store) Products(ctx context.Context) ([]Product, error) {
 
 	query := fmt.Sprintf(`SELECT p.id,p.slug,p.name,p.category,p.category_slug,p.gender,p.size,p.notes,p.description,p.images,
  coalesce(p.price_override_kes,c.common_price_kes),
- %s
- FROM public.catalog_product p CROSS JOIN public.catalog_settings c CROSS JOIN public.stock_control i ORDER BY length(p.id),p.id`, availExpr)
+ %s, greatest(%s,0)
+ FROM public.catalog_product p CROSS JOIN public.catalog_settings c CROSS JOIN public.stock_control i ORDER BY length(p.id),p.id`, availExpr, stockExpr)
 
 	rows, err := s.Pool.Query(ctx, query)
 	if err != nil {
@@ -70,7 +73,7 @@ func (s *Store) Products(ctx context.Context) ([]Product, error) {
 	products := []Product{}
 	for rows.Next() {
 		var p Product
-		if rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Category, &p.CategorySlug, &p.Gender, &p.Size, &p.Notes, &p.Description, &p.Images, &p.PriceKes, &p.Available) != nil {
+		if rows.Scan(&p.ID, &p.Slug, &p.Name, &p.Category, &p.CategorySlug, &p.Gender, &p.Size, &p.Notes, &p.Description, &p.Images, &p.PriceKes, &p.Available, &p.Stock) != nil {
 			return nil, errors.New("catalog unavailable")
 		}
 		products = append(products, p)

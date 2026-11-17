@@ -46,12 +46,12 @@ jobs:
           go test -race ./...
           go build ./cmd/...
 
-      - name: Verify administrative browser journeys
+      - name: Verify administrative and shopper browser journeys
         shell: bash
         run: |
           set -euo pipefail
           npm ci --ignore-scripts --prefix tools/ci
-          (cd tools/ci && npx playwright install --with-deps chromium)
+          (cd tools/ci && npx playwright install --with-deps chromium firefox webkit)
           mkdir -p .local/ci-build/admin-browser
           go build -o .local/ci-build/admin-web ./cmd/web
           GO_HTTP_ADDR=127.0.0.1:8086 .local/ci-build/admin-web > .local/ci-build/admin-browser/server.log 2>&1 &
@@ -63,6 +63,7 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:8086/health/live > /dev/null
           BLISS_BROWSER_ARTIFACTS=.local/ci-build/admin-browser node web/admin.browser.cjs
+          BLISS_BROWSER_ARTIFACTS=.local/ci-build/shopper-browser node web/shopper.browser.cjs
 
       - name: Check frontend CSS reproducibility and dependencies
         shell: bash

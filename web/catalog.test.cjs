@@ -359,10 +359,9 @@ test("page scripts (app.js, cart.js, checkout.js) execute cleanly after shared.j
   );
 
   const bareContext3 = makeContext();
-  assert.throws(
+  assert.doesNotThrow(
     () => vm.runInContext(checkoutCode, bareContext3),
-    /ReferenceError/,
-    "checkout.js must throw ReferenceError if shared.js is missing",
+    "checkout.js should defer when the shopper context is unavailable",
   );
 
   const bareContext4 = makeContext();

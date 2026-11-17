@@ -41,6 +41,8 @@ window.BlissConnection = (() => {
       if (description && admin)
         description.textContent =
           "Atelier management connection dropped. Active dashboard inputs and drafts are held safely in memory.";
+      else if (description)
+        description.textContent = "Your connection to the atelier dropped. Your cart and typed details are preserved. Reservation time continues while offline.";
       const badge = document.getElementById("offlineBadge");
       if (badge) badge.textContent = "Connection retrying...";
       if (typeof overlay.showModal === "function" && !overlay.open)
@@ -72,7 +74,7 @@ window.BlissConnection = (() => {
         if (typeof overlay.close === "function") overlay.close();
         overlay.hidden = true;
         if (previousFocus?.isConnected) previousFocus.focus();
-      }, 900);
+      }, 800);
     } catch {
       /* The next bounded heartbeat will retry; form DOM stays intact. */
     } finally {
@@ -90,6 +92,11 @@ window.BlissConnection = (() => {
     video.hidden = false;
     const fallback = document.getElementById("offlineAtomizer");
     if (fallback) fallback.hidden = true;
+  });
+  video?.addEventListener("error", () => {
+    video.hidden = true;
+    const fallback = document.getElementById("offlineAtomizer");
+    if (fallback) fallback.hidden = false;
   });
   if (typeof navigator !== "undefined" && navigator.onLine === false) dropped();
   setInterval(heartbeat, 3000);
@@ -122,7 +129,7 @@ function cartAvailable() {
     catalogFresh() &&
     Object.entries(cart).every(
       ([id, qty]) =>
-        Number.isInteger(qty) && qty > 0 && getProduct(id)?.available === true,
+        Number.isInteger(qty) && qty > 0 && qty <= 100 && getProduct(id)?.available === true && (!Number.isInteger(getProduct(id)?.stock) || qty <= getProduct(id).stock),
     )
   );
 }
@@ -136,6 +143,7 @@ function escapeHTML(value) {
   );
 }
 async function loadCatalog() {
+  if (window.BlissConnection.offline) return;
   if (PRODUCTS.length === 0) {
     catalogState = "loading";
   }
@@ -144,7 +152,10 @@ async function loadCatalog() {
       cache: "no-store",
       signal: AbortSignal.timeout(15000),
     });
-    if (!response.ok) throw new Error("Catalog unavailable");
+    if (!response.ok) {
+      if (response.status >= 500) window.BlissConnection.dropped();
+      throw new Error("Catalog unavailable");
+    }
     const data = await response.json();
     if (!Array.isArray(data.products) || !data.products.length)
       throw new Error("Invalid catalog");
@@ -185,7 +196,8 @@ async function loadCatalog() {
     PRODUCTS = safe;
     catalogState = "ready";
     catalogLoadedAt = Date.now();
-  } catch {
+  } catch (error) {
+    if (error instanceof TypeError || error.name === "TimeoutError") window.BlissConnection.dropped();
     if (PRODUCTS.length > 0) {
       catalogState = "stale";
     } else {
@@ -213,13 +225,18 @@ initEmbeddedCatalog();
 setTimeout(loadCatalog, 0);
 setInterval(loadCatalog, 30000);
 window.addEventListener("online", loadCatalog);
+window.addEventListener("bliss:connection", () => {
+  if (!window.BlissConnection.offline) loadCatalog();
+});
 
 // --------------------
 // PERSISTENCE
 // --------------------
 function loadCart() {
   try {
-    return JSON.parse(localStorage.getItem("cart") || "{}");
+    const saved = JSON.parse(localStorage.getItem("cart") || "{}");
+    if (!saved || Array.isArray(saved) || typeof saved !== "object") return {};
+    return Object.fromEntries(Object.entries(saved).filter(([id, qty]) => /^p[0-9]+$/.test(id) && Number.isInteger(qty) && qty > 0 && qty <= 100));
   } catch {
     return {};
   }
@@ -308,6 +325,7 @@ function showCartToast(productName) {
 
 function addToCart(id) {
   if (!catalogFresh() || getProduct(id)?.available !== true) return;
+  if ((cart[id] || 0) >= Math.min(getProduct(id).stock ?? 100, 100)) return;
   cart[id] = (cart[id] || 0) + 1;
   saveCart(cart);
   document.dispatchEvent(new Event("cartUpdated"));
@@ -316,6 +334,7 @@ function addToCart(id) {
 }
 
 function setQty(id, qty) {
+  if (qty > Math.min(getProduct(id)?.stock ?? 100, 100)) return;
   if (
     qty > (cart[id] || 0) &&
     (!catalogFresh() || getProduct(id)?.available !== true)

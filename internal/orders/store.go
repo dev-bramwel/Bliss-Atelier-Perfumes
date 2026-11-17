@@ -308,33 +308,37 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		return nil, fmt.Errorf("failed to generate guest token: %w", err)
 	}
 	tokenExpiresAt := now.Add(30 * 24 * time.Hour)
-	_, err = tx.Exec(ctx, `INSERT INTO public.guest_order_access (order_id, token_hash, created_at, expires_at)
-		VALUES ($1, $2, $3, $4)`,
-		orderID, tokenHash, now, tokenExpiresAt)
+	_, err = tx.Exec(ctx, `INSERT INTO public.guest_order_access (order_id, token_hash, created_at, expires_at, user_id)
+		VALUES ($1, $2, $3, $4, NULLIF($5,''))`,
+		orderID, tokenHash, now, tokenExpiresAt, req.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert guest order access: %w", err)
 	}
 
 	// Insert initial payment_attempt row (attempt #1, status created)
-	var initialAttempt PaymentAttempt
-	err = tx.QueryRow(ctx, `
+	var initialAttempt *PaymentAttempt
+	if req.Customer.Delivery == "pickup" || req.Customer.Delivery == "showroom_pickup" {
+		initialAttempt = &PaymentAttempt{}
+		err = tx.QueryRow(ctx, `
 		INSERT INTO public.payment_attempt (
 			order_id, attempt_number, amount_kes, phone, status, provider, created_at, updated_at
 		) VALUES ($1, 1, $2, $3, $4, 'mpesa_stk', $5, $5)
 		RETURNING id, order_id, attempt_number, amount_kes, phone, status, provider, created_at, updated_at
 	`, orderID, totalKes, req.Customer.Phone, AttemptCreated, now).Scan(
-		&initialAttempt.ID,
-		&initialAttempt.OrderID,
-		&initialAttempt.AttemptNumber,
-		&initialAttempt.AmountKes,
-		&initialAttempt.Phone,
-		&initialAttempt.Status,
-		&initialAttempt.Provider,
-		&initialAttempt.CreatedAt,
-		&initialAttempt.UpdatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert initial payment attempt: %w", err)
+			&initialAttempt.ID,
+			&initialAttempt.OrderID,
+			&initialAttempt.AttemptNumber,
+			&initialAttempt.AmountKes,
+			&initialAttempt.Phone,
+			&initialAttempt.Status,
+			&initialAttempt.Provider,
+			&initialAttempt.CreatedAt,
+			&initialAttempt.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert initial payment attempt: %w", err)
+		}
+
 	}
 
 	// Transactional outbox event enqueue
@@ -388,7 +392,8 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 			CreatedAt: now,
 		},
 		GuestToken:    rawGuestToken,
-		LatestAttempt: &initialAttempt,
+		HoldExpiresAt: &expiresAt,
+		LatestAttempt: initialAttempt,
 	}, nil
 }
 

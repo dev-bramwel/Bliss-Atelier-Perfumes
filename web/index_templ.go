@@ -210,74 +210,106 @@ func ProductCard(p catalog.Product) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</p></div><div class=\"text-right shrink-0\"><div class=\"font-semibold text-lg text-[var(--gold-soft)]\">KES ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</p><p class=\"stock-badge\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var13 string
-		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(formatPriceKes(p.PriceKes))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 85, Col: 38}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</div></div></div><div class=\"mt-5 flex flex-col sm:flex-row gap-2\">")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		if p.Available {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<button class=\"w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm\" data-add=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
+		if !p.Available {
+			if p.Stock == 0 {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "Sold Out")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "Currently unavailable")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
-			var templ_7745c5c3_Var14 string
-			templ_7745c5c3_Var14, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.ID).Resolve(ctx)
+		} else if p.Stock <= 5 {
+			var templ_7745c5c3_Var13 string
+			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("Only %d left in stock", p.Stock))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 91, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 90, Col: 54}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var14)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\">Add to cart</button> ")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<button class=\"w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm\" data-add=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "In Stock")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</p></div><div class=\"text-right shrink-0\"><div class=\"font-semibold text-lg text-[var(--gold-soft)]\">KES ")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var14 string
+		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(formatPriceKes(p.PriceKes))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 98, Col: 38}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</div></div></div><div class=\"mt-5 flex flex-col sm:flex-row gap-2\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if p.Available {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<button class=\"w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm\" data-add=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.ID).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 95, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 104, Col: 89}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var15)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\" disabled>Currently unavailable</button> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\">Add to cart</button> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		} else {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<button class=\"w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm\" data-add=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var16 string
+			templ_7745c5c3_Var16, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.ID).Resolve(ctx)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 108, Col: 89}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "\" disabled>Currently unavailable</button> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<a class=\"w-full sm:w-auto py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 text-center hover:bg-white/10\" href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<a class=\"w-full sm:w-auto py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 text-center hover:bg-white/10\" href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var16 string
-		templ_7745c5c3_Var16, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(whatsAppOrderURL(p))).ResolveURL(ctx)
+		var templ_7745c5c3_Var17 string
+		templ_7745c5c3_Var17, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(whatsAppOrderURL(p))).ResolveURL(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 101, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/index.templ`, Line: 114, Col: 46}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\" target=\"_blank\" rel=\"noreferrer\">WhatsApp</a></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\" target=\"_blank\" rel=\"noreferrer\">WhatsApp</a></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -302,7 +334,7 @@ func ProductModal() templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<div id=\"productModal\" class=\"product-modal-overlay\" role=\"dialog\" aria-modal=\"true\" style=\"display: none;\"><div class=\"product-modal-panel\"><button class=\"product-modal-close\" id=\"modalClose\" aria-label=\"Close\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"currentColor\"><path d=\"M5.28 4.22a.75.75 0 0 0-1.06 1.06L10.94 12l-6.72 6.72a.75.75 0 1 0 1.06 1.06L12 13.06l6.72 6.72a.75.75 0 1 0 1.06-1.06L13.06 12l6.72-6.72a.75.75 0 0 0-1.06-1.06L12 10.94 5.28 4.22Z\"></path></svg></button><div class=\"product-modal-inner\"><div class=\"product-modal-images\"><div class=\"product-modal-main-img-wrap\" id=\"modalImgWrap\"><img id=\"modalMainImg\" src=\"\" alt=\"\" class=\"product-modal-main-img\"><div class=\"product-modal-img-placeholder\"><span id=\"modalImgInitial\"></span></div><button class=\"modal-nav-btn modal-nav-prev\" id=\"modalPrev\" aria-label=\"Previous image\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"currentColor\"><path d=\"M14.47 5.47a.75.75 0 0 1 0 1.06L8.81 12l5.66 5.47a.75.75 0 1 1-1.04 1.08l-6.25-6a.75.75 0 0 1 0-1.08l6.25-6a.75.75 0 0 1 1.04.02Z\"></path></svg></button> <button class=\"modal-nav-btn modal-nav-next\" id=\"modalNext\" aria-label=\"Next image\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"currentColor\"><path d=\"M9.53 5.47a.75.75 0 0 0 0 1.06L15.19 12l-5.66 5.47a.75.75 0 1 0 1.04 1.08l6.25-6a.75.75 0 0 0 0-1.08l-6.25-6a.75.75 0 0 0-1.04.02Z\"></path></svg></button></div><div id=\"modalThumbs\" class=\"product-modal-thumbs\"></div></div><div class=\"product-modal-details\"><div class=\"product-modal-badge\" id=\"modalBadge\"></div><h2 class=\"product-modal-name\" id=\"modalName\"></h2><div class=\"product-modal-price\" id=\"modalPrice\"></div><div class=\"product-modal-meta\" id=\"modalMeta\"></div><p class=\"product-modal-description\" id=\"modalDescription\"></p><div class=\"product-modal-actions\"><button id=\"modalAddToCart\" class=\"gold-btn py-3 rounded-2xl font-medium text-sm w-full\">Add to Cart</button> <a id=\"modalWhatsApp\" href=\"#\" target=\"_blank\" rel=\"noreferrer\" class=\"gold-outline-btn py-3 rounded-2xl text-sm font-semibold text-center w-full block\">WhatsApp Order</a></div></div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<div id=\"productModal\" class=\"product-modal-overlay\" role=\"dialog\" aria-modal=\"true\" style=\"display: none;\"><div class=\"product-modal-panel\"><button class=\"product-modal-close\" id=\"modalClose\" aria-label=\"Close\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"currentColor\"><path d=\"M5.28 4.22a.75.75 0 0 0-1.06 1.06L10.94 12l-6.72 6.72a.75.75 0 1 0 1.06 1.06L12 13.06l6.72 6.72a.75.75 0 1 0 1.06-1.06L13.06 12l6.72-6.72a.75.75 0 0 0-1.06-1.06L12 10.94 5.28 4.22Z\"></path></svg></button><div class=\"product-modal-inner\"><div class=\"product-modal-images\"><div class=\"product-modal-main-img-wrap\" id=\"modalImgWrap\"><img id=\"modalMainImg\" src=\"\" alt=\"\" class=\"product-modal-main-img\"><div class=\"product-modal-img-placeholder\"><span id=\"modalImgInitial\"></span></div><button class=\"modal-nav-btn modal-nav-prev\" id=\"modalPrev\" aria-label=\"Previous image\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"currentColor\"><path d=\"M14.47 5.47a.75.75 0 0 1 0 1.06L8.81 12l5.66 5.47a.75.75 0 1 1-1.04 1.08l-6.25-6a.75.75 0 0 1 0-1.08l6.25-6a.75.75 0 0 1 1.04.02Z\"></path></svg></button> <button class=\"modal-nav-btn modal-nav-next\" id=\"modalNext\" aria-label=\"Next image\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"currentColor\"><path d=\"M9.53 5.47a.75.75 0 0 0 0 1.06L15.19 12l-5.66 5.47a.75.75 0 1 0 1.04 1.08l6.25-6a.75.75 0 0 0 0-1.08l-6.25-6a.75.75 0 0 0-1.04.02Z\"></path></svg></button></div><div id=\"modalThumbs\" class=\"product-modal-thumbs\"></div></div><div class=\"product-modal-details\"><div class=\"product-modal-badge\" id=\"modalBadge\"></div><h2 class=\"product-modal-name\" id=\"modalName\"></h2><div class=\"product-modal-price\" id=\"modalPrice\"></div><div class=\"product-modal-meta\" id=\"modalMeta\"></div><p class=\"product-modal-description\" id=\"modalDescription\"></p><div class=\"product-modal-actions\"><button id=\"modalAddToCart\" class=\"gold-btn py-3 rounded-2xl font-medium text-sm w-full\">Add to Cart</button> <a id=\"modalWhatsApp\" href=\"#\" target=\"_blank\" rel=\"noreferrer\" class=\"gold-outline-btn py-3 rounded-2xl text-sm font-semibold text-center w-full block\">WhatsApp Order</a></div></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
