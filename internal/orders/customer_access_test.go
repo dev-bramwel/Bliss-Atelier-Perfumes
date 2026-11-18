@@ -42,6 +42,10 @@ func TestCustomerOrderOwnershipAndPickup(t *testing.T) {
 	if owns, err := store.CustomerOwnsOrder(ctx, order.ID, "someone-else"); err != nil || owns {
 		t.Fatal("cross-customer ownership leaked", err)
 	}
+	beforePickup, err := store.GetOrder(ctx, order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err = store.SwitchToPickup(ctx, order.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +53,7 @@ func TestCustomerOrderOwnershipAndPickup(t *testing.T) {
 	if err != nil || current.DeliveryOption != "pickup" {
 		t.Fatal("pickup change failed", err)
 	}
-	if !current.Reservation.ExpiresAt.Equal(order.Reservation.ExpiresAt) {
+	if !current.Reservation.ExpiresAt.Equal(beforePickup.Reservation.ExpiresAt) {
 		t.Fatal("pickup renewed reservation")
 	}
 	attempt, err := store.CreatePaymentAttempt(ctx, order.ID, "254712345678", 2500, "mpesa_stk")
