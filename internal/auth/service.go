@@ -396,7 +396,7 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 	}
 
 	// Downward Isolation: manager cannot alter status of owner or manager
-	if !CanManageRole(actor.Role, targetUser.Role) {
+	if !CanManageUserStatus(actor.Role, targetUser.Role) {
 		return ErrPermissionDenied
 	}
 

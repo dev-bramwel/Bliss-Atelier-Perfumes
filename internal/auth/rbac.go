@@ -44,21 +44,32 @@ func HasRole(actorRole string, requiredRole string) bool {
 	return actorRank >= requiredRank
 }
 
-// CanManageRole enforces Downward Isolation and Upward Visibility for user administration:
-// - Upward Visibility: High-tier administrators can view and manage subordinate roles.
-// - Downward Isolation: Subordinate roles cannot promote, demote, or modify superiors or peers.
+// CanManageRole enforces that only the 'owner' (apex administrator) has authority to
+// create, promote, or demote roles (including managers and employees).
+// Subordinate roles ('manager', 'employee', 'customer') have zero role management authority.
 //
 // Rules:
-// 1. Only an 'owner' can create, promote, or demote another 'owner' or 'manager'.
-// 2. A 'manager' can manage 'employee' and 'customer' roles, but can NEVER modify 'manager' or 'owner'.
-// 3. 'employee' and 'customer' have zero administrative role management privileges.
+// 1. Only an 'owner' (admin) can create, promote, or demote any role (owner, manager, employee, customer).
+// 2. 'manager', 'employee', and 'customer' have zero role assignment or demotion privileges.
 func CanManageRole(actorRole string, targetRole string) bool {
 	switch actorRole {
 	case RoleOwner:
-		// Owner has full apex authority over all roles
+		// Owner has exclusive apex authority over all role management and demotions
+		return IsValidRole(targetRole)
+	default:
+		return false
+	}
+}
+
+// CanManageUserStatus enforces Downward Isolation for user account activation and deactivation:
+// - 'owner' can activate or deactivate accounts across all roles.
+// - 'manager' can activate or deactivate subordinate accounts ('employee' and 'customer').
+// - 'employee' and 'customer' have zero status management privileges.
+func CanManageUserStatus(actorRole string, targetRole string) bool {
+	switch actorRole {
+	case RoleOwner:
 		return IsValidRole(targetRole)
 	case RoleManager:
-		// Manager can manage operational tiers only; strictly isolated downwards from owner/manager tiers
 		return targetRole == RoleEmployee || targetRole == RoleCustomer
 	default:
 		return false

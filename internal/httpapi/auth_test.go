@@ -459,6 +459,17 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 		t.Fatalf("expected 403 Forbidden when manager attempts to promote to owner, got %d: %s", promoteRR.Code, promoteRR.Body.String())
 	}
 
+	// 4b. Downward Isolation: Manager attempting to demote employee to customer must be 403 Forbidden
+	mgrDemotePayload := strings.NewReader(`{"role":"customer"}`)
+	mgrDemoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+empUser.ID+"/role", mgrDemotePayload)
+	mgrDemoteReq.AddCookie(mgrCookie)
+	mgrDemoteReq.Header.Set("X-CSRF-Token", mgrCSRF)
+	mgrDemoteRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(mgrDemoteRR, mgrDemoteReq)
+	if mgrDemoteRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when manager attempts to demote employee, got %d: %s", mgrDemoteRR.Code, mgrDemoteRR.Body.String())
+	}
+
 	// 5. Owner can promote employee to manager
 	ownerPromotePayload := strings.NewReader(`{"role":"manager"}`)
 	ownerPromoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+empUser.ID+"/role", ownerPromotePayload)
@@ -513,6 +524,28 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 	}
 	if !strings.Contains(mgrInvWithCSRFRR.Header().Get("Set-Cookie"), "bliss_session") {
 		t.Fatalf("expected sliding session cookie refresh in response Set-Cookie")
+	}
+
+	// 10. Exclusive Owner Authority: Owner can demote manager to employee
+	ownerDemoteMgrPayload := strings.NewReader(`{"role":"employee"}`)
+	ownerDemoteMgrReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+mgrUser.ID+"/role", ownerDemoteMgrPayload)
+	ownerDemoteMgrReq.AddCookie(ownerCookie)
+	ownerDemoteMgrReq.Header.Set("X-CSRF-Token", ownerCSRF)
+	ownerDemoteMgrRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(ownerDemoteMgrRR, ownerDemoteMgrReq)
+	if ownerDemoteMgrRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when owner demotes manager to employee, got %d: %s", ownerDemoteMgrRR.Code, ownerDemoteMgrRR.Body.String())
+	}
+
+	// 10b. Exclusive Owner Authority: Owner can demote employee to customer
+	ownerDemoteEmpPayload := strings.NewReader(`{"role":"customer"}`)
+	ownerDemoteEmpReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+empUser.ID+"/role", ownerDemoteEmpPayload)
+	ownerDemoteEmpReq.AddCookie(ownerCookie)
+	ownerDemoteEmpReq.Header.Set("X-CSRF-Token", ownerCSRF)
+	ownerDemoteEmpRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(ownerDemoteEmpRR, ownerDemoteEmpReq)
+	if ownerDemoteEmpRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when owner demotes employee to customer, got %d: %s", ownerDemoteEmpRR.Code, ownerDemoteEmpRR.Body.String())
 	}
 
 	// 10. Manager with empty display name still succeeds via user ID identity fallback
