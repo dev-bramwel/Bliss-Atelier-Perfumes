@@ -16,10 +16,10 @@ Bliss defines four principal roles: `owner`, `manager`, `employee`, and `custome
 
 1. **`owner` (Executive Apex)**:
    - **Upward Visibility**: Complete visibility over all operational branches, subordinate staff (`manager`, `employee`), shoppers (`customer`), audit logs, manual settlements, catalog pricing, and inventory batch approvals.
-   - **Exclusive Authority**: Can assign/promote roles, approve inventory opening balances, alter base catalog pricing algorithms, and inspect full administrative audit records.
+   - **Exclusive Authority**: Exclusive authority to assign, promote, or demote roles (including managers and employees), approve inventory opening balances, alter base catalog pricing algorithms, and inspect full administrative audit records.
 2. **`manager` (Operational Command)**:
-   - **Downward Isolation from Owner**: Cannot assign or promote anyone to `owner`, cannot demote an `owner`, cannot approve inventory opening balances, cannot modify base catalog pricing formulas, and cannot inspect owner-confidential audit events.
-   - **Upward Visibility over Subordinates**: Full operational oversight over orders, delivery fulfillments, customer exception reviews, manual payment settlements with evidence, and employee operational performance. Can manage retail counter staff assignments.
+   - **Downward Isolation from Owner**: Zero role-management authority (cannot assign, promote, or demote any role; role changes are owner-exclusive), cannot approve inventory opening balances, cannot modify base catalog pricing formulas, and cannot inspect owner-confidential audit events.
+   - **Upward Visibility over Subordinates**: Full operational oversight over orders, delivery fulfillments, customer exception reviews, manual payment settlements with evidence, and employee operational performance. Can activate/deactivate subordinate employee accounts and manage retail counter staff assignments.
 3. **`employee` (Retail Counter Operator)**:
    - **Downward Isolation from Manager & Owner**: Cannot access user administration (`/api/admin/users/*`), cannot mutate catalog pricing, cannot approve stock batches, cannot perform unassisted payment reconciliations, and cannot inspect management audit logs.
    - **Lateral Isolation from Peers**: Isolated to physical sales and counter shifts recorded by themselves (`recorded_by == employee.id`) or orders specifically assigned to them for fulfillment. Cannot view or alter peer employees' sales transactions.
