@@ -14,7 +14,33 @@ type contextKey struct{}
 
 var correlationContextKey = contextKey{}
 
-var validCorrelationRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{8,64}$`)
+var (
+	validCorrelationRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{8,64}$`)
+	digitOnlyRegex        = regexp.MustCompile(`^\d+$`)
+	longDigitSeqRegex     = regexp.MustCompile(`\d{9,}`)
+	phonePatternRegex     = regexp.MustCompile(`(?i)(?:^|[^0-9])(?:254|\+254|0)[17]\d{8}(?:[^0-9]|$)`)
+)
+
+// isSafeCorrelationID verifies that an incoming correlation ID matches structural requirements
+// and does NOT contain caller-supplied PII such as phone numbers, pure numeric sequences, or emails.
+func isSafeCorrelationID(id string) bool {
+	if !validCorrelationRegex.MatchString(id) {
+		return false
+	}
+	if digitOnlyRegex.MatchString(id) {
+		return false
+	}
+	if longDigitSeqRegex.MatchString(id) {
+		return false
+	}
+	if phonePatternRegex.MatchString(id) {
+		return false
+	}
+	if strings.Contains(id, "@") {
+		return false
+	}
+	return true
+}
 
 // NewCorrelationID generates a cryptographically random correlation identifier.
 func NewCorrelationID() string {
@@ -53,7 +79,7 @@ func EnsureCorrelationID(r *http.Request) (string, *http.Request) {
 		id = strings.TrimSpace(r.Header.Get("X-Request-ID"))
 	}
 
-	if id == "" || !validCorrelationRegex.MatchString(id) {
+	if id == "" || !isSafeCorrelationID(id) {
 		id = NewCorrelationID()
 	}
 
