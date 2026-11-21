@@ -7,9 +7,12 @@ groups:
         for: 10s
         labels:
           severity: critical
+          team: platform-sre
         annotations:
           summary: "High API 5xx Error Rate"
           description: "HTTP 5xx error rate is exceeding 5% over the last minute."
+          owner: "Platform SRE Team"
+          escalation: "platform-oncall"
           runbook_url: "docs/runbooks/runbook-api-error-surge.md"
 
       # 2. API Latency Degradation
@@ -18,9 +21,12 @@ groups:
         for: 30s
         labels:
           severity: warning
+          team: platform-sre
         annotations:
           summary: "High API p95 Latency"
           description: "p95 API response duration exceeds 1.0s threshold."
+          owner: "Platform SRE Team"
+          escalation: "platform-oncall"
           runbook_url: "docs/runbooks/runbook-api-error-surge.md"
 
       # 3. PostgreSQL Connection Pool Saturation
@@ -29,9 +35,12 @@ groups:
         for: 30s
         labels:
           severity: critical
+          team: platform-sre
         annotations:
           summary: "Database Connection Pool Saturation"
           description: "Acquired database connections exceed 85% of configured maximum."
+          owner: "Database & SRE Team"
+          escalation: "platform-oncall"
           runbook_url: "docs/runbooks/runbook-database-pool-exhaustion.md"
 
       # 4. Unresolved Payment Spikes
@@ -40,9 +49,12 @@ groups:
         for: 15s
         labels:
           severity: critical
+          team: finance-ops
         annotations:
           summary: "Unresolved Payment Attempts Spike"
           description: "Unresolved payment attempts count is high, requiring automated or operator reconciliation."
+          owner: "Finance Operations Lead"
+          escalation: "finance-oncall"
           runbook_url: "docs/runbooks/runbook-payment-reconciliation-failure.md"
 
       # 5. Payment Exceptions Detected
@@ -51,9 +63,12 @@ groups:
         for: 0s
         labels:
           severity: critical
+          team: finance-ops
         annotations:
           summary: "Payment Exception Raised"
           description: "Payment reconciliation exception detected (amount mismatch, unmapped tx, or duplicate receipt)."
+          owner: "Finance Operations Lead"
+          escalation: "finance-oncall"
           runbook_url: "docs/runbooks/runbook-payment-reconciliation-failure.md"
 
       # 6. Dead-Letter Queue Poison Messages
@@ -62,9 +77,12 @@ groups:
         for: 0s
         labels:
           severity: critical
+          team: platform-sre
         annotations:
           summary: "Poison Messages Quarantined in DLQ"
           description: "One or more unprocessable messages rejected to Dead Letter Queue."
+          owner: "Platform SRE Team"
+          escalation: "platform-oncall"
           runbook_url: "docs/runbooks/runbook-dlq-poison-messages.md"
 
       # 7. Outbox Backlog Growing
@@ -73,10 +91,13 @@ groups:
         for: 30s
         labels:
           severity: warning
+          team: platform-sre
         annotations:
           summary: "Transactional Outbox Backlog Growing"
           description: "Outbox dispatcher pending queue depth exceeds 20 events."
-          runbook_url: "docs/runbooks/runbook-dlq-poison-messages.md"
+          owner: "Platform SRE Team"
+          escalation: "platform-oncall"
+          runbook_url: "docs/runbooks/runbook-outbox-backlog.md"
 
       # 8. Redis Outage Fallback Active
       - alert: RedisOutageFallbackActive
@@ -84,7 +105,10 @@ groups:
         for: 15s
         labels:
           severity: warning
+          team: platform-sre
         annotations:
           summary: "Redis Cache Outage Active"
           description: "Redis operations encountering errors; application running on database fallback."
+          owner: "Platform SRE Team"
+          escalation: "platform-oncall"
           runbook_url: "docs/runbooks/runbook-cache-and-rate-limit-outage.md"
