@@ -150,7 +150,7 @@ func TestCorrelationID_RejectsPIIAndPhoneNumbers(t *testing.T) {
 		"phone_254712345678", // String embedding phone number
 		"customer@test.com",  // Email
 		"user-0712-345-678",  // Kenyan phone with hyphen separators
-		"254-712-345-678",   // Kenyan phone with country code and hyphens
+		"254-712-345-678",    // Kenyan phone with country code and hyphens
 		"corr_0712.345.678",  // Phone with dot separators
 		"user-0112-345-678",  // 01... phone with hyphens
 		"123-456-7890",       // Segmented numeric phone sequence
