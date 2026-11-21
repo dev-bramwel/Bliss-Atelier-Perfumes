@@ -149,6 +149,11 @@ func TestCorrelationID_RejectsPIIAndPhoneNumbers(t *testing.T) {
 		"123456789012",       // Pure numeric sequence
 		"phone_254712345678", // String embedding phone number
 		"customer@test.com",  // Email
+		"user-0712-345-678",  // Kenyan phone with hyphen separators
+		"254-712-345-678",   // Kenyan phone with country code and hyphens
+		"corr_0712.345.678",  // Phone with dot separators
+		"user-0112-345-678",  // 01... phone with hyphens
+		"123-456-7890",       // Segmented numeric phone sequence
 	}
 
 	for _, input := range piiInputs {
@@ -160,6 +165,21 @@ func TestCorrelationID_RejectsPIIAndPhoneNumbers(t *testing.T) {
 		}
 		if !strings.HasPrefix(id, "c_") {
 			t.Errorf("expected safe generated ID starting with c_, got %s", id)
+		}
+	}
+
+	validInputs := []string{
+		"custom-trace-uuid-12345",
+		"req_valid_transaction_abc",
+		"550e8400-e29b-41d4-a716-446655440000",
+		"trace-order-checkout-v1",
+	}
+	for _, input := range validInputs {
+		req := httptest.NewRequest("GET", "/api/catalog", nil)
+		req.Header.Set("X-Correlation-ID", input)
+		id, _ := EnsureCorrelationID(req)
+		if id != input {
+			t.Errorf("expected valid correlation ID %q to be preserved, got %q", input, id)
 		}
 	}
 }
