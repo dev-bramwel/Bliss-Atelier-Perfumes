@@ -18,6 +18,7 @@ templ Layout(title string, pageScript string, products []catalog.Product, childr
             />
             <link rel="stylesheet" href="/static/tailwind.css" />
             <link rel="stylesheet" href="/static/style.css" />
+            <link rel="stylesheet" href="/static/shopper.css" />
             <link rel="stylesheet" href="/static/admin.css" />
         </head>
         <body class="relative min-h-screen text-gray-100 overflow-x-hidden">
@@ -36,6 +37,14 @@ templ Layout(title string, pageScript string, products []catalog.Product, childr
                 @AdminHeader()
             } else {
                 @Header()
+            <div id="shopperProfile" class="shopper-profile" aria-live="polite">
+                <a id="shopperSignIn" href="/api/auth/google?return_url=/checkout">Sign in with Google</a>
+                <img id="shopperAvatar" width="28" height="28" alt="" hidden/>
+                <span id="shopperName" hidden></span>
+                <button id="shopperLogout" type="button" data-mutation hidden>Sign out</button>
+                <a id="resumeOrder" href="/checkout" hidden>Resume order</a>
+                <span id="shopperAuthMessage" role="status"></span>
+            </div>
             }
             for _, child := range children {
                 @child
@@ -58,6 +67,7 @@ templ Layout(title string, pageScript string, products []catalog.Product, childr
                 @templ.Raw("<script id=\"catalogData\" type=\"application/json\">" + catalogJSON(products) + "</script>")
             }
             <script src="/static/shared.js"></script>
+            <script src="/static/shopper.js"></script>
             if pageScript != "" {
                 <script src={ pageScript }></script>
             }

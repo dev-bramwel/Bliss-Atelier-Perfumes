@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	DefaultCatalogKey = "bliss:catalog:products:v1"
+	DefaultCatalogKey = "bliss:catalog:products:v2"
 	DefaultCatalogTTL = 5 * time.Minute
 	CatalogOpTimeout  = 150 * time.Millisecond
 )

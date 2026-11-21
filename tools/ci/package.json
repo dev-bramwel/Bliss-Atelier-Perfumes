@@ -6,6 +6,7 @@
     "contracts": "node contracts.mjs",
     "browser": "node browser.mjs",
     "admin-browser": "node ../../web/admin.browser.cjs",
+    "shopper-browser": "node ../../web/shopper.browser.cjs",
     "test": "node --test issue-dependencies.test.mjs"
   },
   "devDependencies": {

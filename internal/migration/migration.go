@@ -56,6 +56,7 @@ func steps() []step {
 		{8, normalized(read("sql/0008_payment_reconciliation_exceptions.sql"))},
 		{9, normalized(read("sql/0009_admin_identity_sessions_audit.sql"))},
 		{10, normalized(read("sql/0010_order_assignment.sql"))},
+		{11, normalized(read("sql/0011_customer_order_access.sql"))},
 	}
 }
 
@@ -134,15 +135,8 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 	if err != nil {
 		return Result{}, err
 	}
-	expected := map[string]json.RawMessage{}
-	if err = json.Unmarshal([]byte(read("schema-v10.json")), &expected); err != nil {
-		return Result{}, err
-	}
-	for name, actual := range tables {
-		if !sameJSON(actual, expected[name]) {
-			return Result{}, reject("schema mismatch; no changes applied")
-		}
-	}
+	// Validate against the verified ledger version below. Comparing older tables
+	// with the latest snapshot here would reject legitimate ALTER TABLE upgrades.
 	_, orders := tables["Order"]
 	_, payments := tables["MpesaTransaction"]
 	_, prisma := tables["_prisma_migrations"]
@@ -212,8 +206,10 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 		contract = "schema-v8.json"
 	} else if applied == 9 {
 		contract = "schema-v9.json"
-	} else if applied >= 10 {
+	} else if applied == 10 {
 		contract = "schema-v10.json"
+	} else if applied >= 11 {
+		contract = "schema-v11.json"
 	}
 	versionSchema := map[string]json.RawMessage{}
 	if err = json.Unmarshal([]byte(read(contract)), &versionSchema); err != nil {
@@ -273,6 +269,29 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 		}
 		if _, err = tx.Exec(ctx, "INSERT INTO public.bliss_schema_migrations(version,checksum,origin) VALUES ($1,$2,$3)", migration.version, checksum(migration.sql), origin); err != nil {
 			return Result{}, err
+		}
+	}
+	// Verify the result before committing any DDL or migration history.
+	if len(migrations) >= len(steps()) {
+		actual, inspectErr := inspect(ctx, tx)
+		if inspectErr != nil {
+			return Result{}, inspectErr
+		}
+		latest := map[string]json.RawMessage{}
+		if err = json.Unmarshal([]byte(read("schema-v11.json")), &latest); err != nil {
+			return Result{}, err
+		}
+		for name := range latest {
+			if name != "_prisma_migrations" {
+				if _, ok := actual[name]; !ok {
+					return Result{}, reject("post-migration schema mismatch; no changes applied")
+				}
+			}
+		}
+		for name, body := range actual {
+			if !sameJSON(body, latest[name]) {
+				return Result{}, reject("post-migration schema mismatch; no changes applied")
+			}
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {

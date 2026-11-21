@@ -79,6 +79,19 @@ templ ProductCard(p catalog.Product) {
 					</div>
 					<h3 class="text-xl font-semibold text-white">{ p.Name }</h3>
 					<p class="text-sm text-gray-400">{ p.Size } &bull; { p.Notes }</p>
+					<p class="stock-badge">
+						if !p.Available {
+							if p.Stock == 0 {
+								Sold Out
+							} else {
+								Currently unavailable
+							}
+						} else if p.Stock <= 5 {
+							{ fmt.Sprintf("Only %d left in stock", p.Stock) }
+						} else {
+							In Stock
+						}
+					</p>
 				</div>
 				<div class="text-right shrink-0">
 					<div class="font-semibold text-lg text-[var(--gold-soft)]">

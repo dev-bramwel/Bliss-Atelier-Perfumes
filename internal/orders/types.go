@@ -106,6 +106,7 @@ type ItemInput struct {
 }
 
 type CreateOrderRequest struct {
+	UserID   string        `json:"-"` // Bound only from the authoritative server session.
 	Customer CustomerInput `json:"customer"`
 	Items    []ItemInput   `json:"items"`
 }
@@ -183,6 +184,7 @@ type Order struct {
 	TotalKes          int               `json:"totalKes"`
 	Items             []OrderItem       `json:"items"`
 	Reservation       *StockReservation `json:"reservation,omitempty"`
+	HoldExpiresAt     *time.Time        `json:"hold_expires_at,omitempty"`
 	GuestToken        string            `json:"guestToken,omitempty"`
 	LatestAttempt     *PaymentAttempt   `json:"latestAttempt,omitempty"`
 }

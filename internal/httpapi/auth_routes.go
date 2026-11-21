@@ -257,6 +257,7 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 
 	// 3. GET /auth/me & /api/auth/me - Current user profile and fresh CSRF token
 	handleMe := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
 		if err != nil {
 			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)

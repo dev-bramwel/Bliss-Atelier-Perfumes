@@ -45,6 +45,7 @@ type PublicOrder struct {
 	DeliveryQuote     *delivery.PublicQuote      `json:"delivery_quote,omitempty"`
 	PayableBreakdown  *delivery.PayableBreakdown `json:"payable_breakdown,omitempty"`
 	LatestAttempt     *orders.PaymentAttempt     `json:"latest_attempt,omitempty"`
+	HoldExpiresAt     *time.Time                 `json:"hold_expires_at,omitempty"`
 }
 
 // PublicOrderItem represents an order item in the sanitized public order view.
@@ -211,6 +212,15 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				if user.Role == auth.RoleEmployee && operationsStore != nil {
 					return operationsStore.CanAccess(ctx, id, user.ID)
 				}
+				if user.Role == auth.RoleCustomer {
+					if store, ok := orderStore.(interface {
+						CustomerOwnsOrder(context.Context, string, string) (bool, error)
+					}); ok {
+						if owns, err := store.CustomerOwnsOrder(ctx, id, user.ID); owns || err != nil {
+							return owns, err
+						}
+					}
+				}
 				// Downward Isolation: Employees and Customers do not have blanket access to arbitrary orders.
 				// Customer and guest access requires possession of the order's guest token.
 			}
@@ -309,6 +319,37 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	mux.HandleFunc("POST /api/catalog/invalidate", handleInvalidateCatalog)
 
 	if orderStore != nil {
+		handlePickup := func(w http.ResponseWriter, r *http.Request) {
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			id := r.PathValue("id")
+			ok, err := authorizeOrder(ctx, r, id, w)
+			if err != nil {
+				respond(w, 500, map[string]string{"error": "Could not check order access"})
+				return
+			}
+			if !ok {
+				respond(w, 401, map[string]string{"error": "Order access required"})
+				return
+			}
+			if !requireCSRFIfSession(w, r) {
+				return
+			}
+			store, ok := orderStore.(interface {
+				SwitchToPickup(context.Context, string) error
+			})
+			if !ok {
+				respond(w, 503, map[string]string{"error": "Pickup change unavailable"})
+				return
+			}
+			if err = store.SwitchToPickup(ctx, id); err != nil {
+				respond(w, 409, map[string]string{"error": "Cannot change delivery while payment is pending or already completed. Check payment status first."})
+				return
+			}
+			respond(w, 200, map[string]string{"delivery_option": "pickup"})
+		}
+		mux.HandleFunc("POST /orders/{id}/pickup", handlePickup)
+		mux.HandleFunc("POST /api/orders/{id}/pickup", handlePickup)
 		handleCreateOrder := func(w http.ResponseWriter, r *http.Request) {
 			if a.draining.Load() {
 				respond(w, 503, map[string]string{"error": "service draining"})
@@ -349,8 +390,22 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			if idempotencyKey == "" {
 				idempotencyKey = "auto_" + orders.CanonicalRequestHash([]byte(ip+":"+string(bodyBytes)))
 			}
-			callerScope := "guest:" + ip
-			if mgr := extractManager(r); mgr != "" {
+			callerScope := checkoutScope(r.Header.Get("X-Checkout-Token"), ip)
+			if authService != nil {
+				if _, cookieErr := r.Cookie("bliss_session"); cookieErr == nil {
+					user, ses, authErr := AuthenticateRequest(ctx, r, authService, proxyChecker)
+					if authErr != nil || user == nil {
+						respond(w, 401, map[string]string{"error": "Please sign in again"})
+						return
+					}
+					if !RequireCSRF(r, ses) {
+						respond(w, 403, map[string]string{"error": "invalid csrf token"})
+						return
+					}
+					req.UserID = user.ID
+					callerScope = "user:" + user.ID
+				}
+			} else if mgr := extractManager(r); mgr != "" {
 				callerScope = "manager:" + mgr
 			}
 
@@ -409,9 +464,9 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				case errors.Is(err, orders.ErrCatalogUnavailable):
 					respond(w, 503, map[string]string{"error": "catalog unavailable"})
 				case errors.Is(err, orders.ErrInsufficientStock):
-					respond(w, 409, map[string]string{"error": err.Error()})
+					respond(w, 409, map[string]string{"error": err.Error(), "code": "insufficient_stock"})
 				case errors.Is(err, orders.ErrProductUnopened):
-					respond(w, 409, map[string]string{"error": err.Error()})
+					respond(w, 409, map[string]string{"error": err.Error(), "code": "product_unopened"})
 				case errors.Is(err, orders.ErrProductNotFound):
 					respond(w, 404, map[string]string{"error": err.Error()})
 				case errors.Is(err, orders.ErrInvalidCustomer),
@@ -434,7 +489,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			var stkPushData any
 			var orderWarning string
 
-			if order.PaymentMethod == "mpesa" && paymentProv != nil && order.LatestAttempt != nil {
+			isPickup := order.DeliveryOption == "pickup" || order.DeliveryOption == "showroom_pickup"
+			if (order.PaymentMethod == "pay_now" || order.PaymentMethod == "mpesa") && isPickup && paymentProv != nil && order.LatestAttempt != nil {
 				stkResp, stkErr := paymentProv.InitiateSTK(ctx, provider.STKInitiateRequest{
 					OrderID:   order.ID,
 					AttemptID: order.LatestAttempt.ID,
@@ -455,19 +511,26 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptUnknown, "", "", "provider initiation timed out")
 					order.LatestAttempt.Status = orders.AttemptUnknown
 					order.LatestAttempt.ErrorMessage = "provider initiation timed out"
-					orderWarning = "M-Pesa accepted the payment request. The callback will recover its transaction mapping."
+					orderWarning = "Payment confirmation is pending. Check this order before trying again."
 				} else if stkErr != nil {
 					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptFailed, "", "", stkErr.Error())
 					order.LatestAttempt.Status = orders.AttemptFailed
 					order.LatestAttempt.ErrorMessage = stkErr.Error()
-					orderWarning = "Order saved but M-Pesa STK initiation failed. Check your Daraja credentials."
+					orderWarning = "Your order is saved, but the M-Pesa prompt could not be sent."
 				}
+			}
+			if isPickup && paymentProv == nil && order.LatestAttempt != nil {
+				_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptFailed, "", "", "Payment service is temporarily unavailable")
+				order.LatestAttempt.Status = orders.AttemptFailed
+				order.LatestAttempt.ErrorMessage = "Payment service is temporarily unavailable"
+				orderWarning = "Your order is saved. Payment service is temporarily unavailable."
 			}
 
 			respData := map[string]any{
-				"order":       order,
-				"guest_token": order.GuestToken,
-				"stkPush":     stkPushData,
+				"order":          order,
+				"quote_required": !isPickup,
+				"guest_token":    order.GuestToken,
+				"stkPush":        stkPushData,
 			}
 			if orderWarning != "" {
 				respData["warning"] = orderWarning
@@ -483,9 +546,10 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			cachedOrder := *order
 			cachedOrder.GuestToken = ""
 			cachedRespData := map[string]any{
-				"order":       cachedOrder,
-				"guest_token": "",
-				"stkPush":     stkPushData,
+				"order":          cachedOrder,
+				"quote_required": !isPickup,
+				"guest_token":    "",
+				"stkPush":        stkPushData,
 			}
 			if orderWarning != "" {
 				cachedRespData["warning"] = orderWarning
@@ -647,8 +711,13 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				}
 			}
 
+			var holdExpiresAt *time.Time
+			if order.Reservation != nil {
+				holdExpiresAt = &order.Reservation.ExpiresAt
+			}
 			respond(w, 200, map[string]any{
 				"order": PublicOrder{
+					HoldExpiresAt:     holdExpiresAt,
 					ID:                order.ID,
 					PaymentStatus:     order.PaymentStatus,
 					FulfillmentStatus: order.FulfillmentStatus,
@@ -863,13 +932,20 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptUnknown, "", "", "provider initiation timed out")
 					attempt.Status = orders.AttemptUnknown
 					attempt.ErrorMessage = "provider initiation timed out"
-					retryWarning = "M-Pesa accepted the payment request. The callback will recover its transaction mapping."
+					retryWarning = "Payment confirmation is pending. Check this order before trying again."
 				} else if stkErr != nil {
 					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, "", "", stkErr.Error())
 					attempt.Status = orders.AttemptFailed
 					attempt.ErrorMessage = stkErr.Error()
 					retryWarning = "Payment retry saved but STK initiation failed."
 				}
+			}
+
+			if paymentProv == nil {
+				_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, "", "", "Payment service is temporarily unavailable")
+				attempt.Status = orders.AttemptFailed
+				attempt.ErrorMessage = "Payment service is temporarily unavailable"
+				retryWarning = "Payment service is temporarily unavailable. Your order is saved."
 			}
 
 			respData := map[string]any{
