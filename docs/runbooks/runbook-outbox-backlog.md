@@ -9,7 +9,7 @@
 
 ## 1. Problem Overview & Invariants
 
-The transactional outbox pattern guarantees reliable at-least-once message delivery from PostgreSQL (`public.transactional_outbox`) to the RabbitMQ event broker.
+The transactional outbox pattern guarantees reliable at-least-once message delivery from PostgreSQL (`public.outbox_event`) to the RabbitMQ event broker.
 
 When `outbox_pending_events_gauge` exceeds 20 events for more than 30 seconds:
 - Outbox event dispatcher latency is increasing or dispatcher processing has stalled.
@@ -36,9 +36,9 @@ Check the **Messaging & Event SRE** dashboard:
 Inspect the outbox backlog directly in PostgreSQL:
 ```bash
 docker compose exec db psql -U bliss_admin -d bliss_dev -c "
-SELECT id, event_type, status, retry_count, last_error, now() - created_at AS age
-FROM public.transactional_outbox
-WHERE status IN ('pending', 'processing')
+SELECT id, event_type, status, retry_count, error_message, now() - created_at AS age
+FROM public.outbox_event
+WHERE status IN ('pending', 'publishing')
 ORDER BY created_at ASC
 LIMIT 15;
 "
@@ -52,7 +52,7 @@ docker compose logs --tail=100 worker
 Look for connection timeouts, channel errors, or RabbitMQ connection resets:
 - `amqp091: connection reset by peer`
 - `broker unavailable: connection refused`
-- `database lock timeout on transactional_outbox`
+- `database lock timeout on outbox_event`
 
 ---
 
@@ -78,26 +78,29 @@ If PostgreSQL and RabbitMQ are healthy but `outbox_pending_events_gauge` is flat
    ```
 2. Monitor outbox gauge drainage:
    ```bash
-   docker compose exec api curl -s http://localhost:9090/metrics | grep outbox_pending_events_gauge
+   # Query API metrics directly on port 5001:
+   docker compose exec api /app/probe http://127.0.0.1:5001/metrics | grep outbox_pending_events_gauge
+   # Or query Prometheus TSDB on port 9090:
+   curl -s "http://localhost:9090/api/v1/query?query=outbox_pending_events_gauge"
    ```
 3. Confirm gauge returns to `< 5`.
 
 ### Scenario C: Poison Outbox Record (Serialization or Schema Error)
-If a specific event fails repeatedly with `retry_count > 5`:
+If a specific event fails repeatedly with `retry_count >= 5`:
 1. Inspect the failing payload:
    ```bash
    docker compose exec db psql -U bliss_admin -d bliss_dev -c "
-   SELECT id, event_type, last_error, payload
-   FROM public.transactional_outbox
+   SELECT id, event_type, status, retry_count, error_message, payload
+   FROM public.outbox_event
    WHERE status = 'failed' OR retry_count >= 5
    LIMIT 1;
    "
    ```
-2. If corrupted, record the event ID and payload in an incident ticket, and transition status to `quarantined`:
+2. If corrupted or unprocessable, transition status to `'failed'` with quarantine reason (satisfying the `CHECK (status IN ('pending', 'publishing', 'published', 'failed'))` table constraint) so the publisher skips it:
    ```bash
    docker compose exec db psql -U bliss_admin -d bliss_dev -c "
-   UPDATE public.transactional_outbox
-   SET status = 'quarantined', updated_at = now()
+   UPDATE public.outbox_event
+   SET status = 'failed', error_message = 'operator quarantine: payload serialization failure', updated_at = now()
    WHERE id = '<CORRUPTED_ID>';
    "
    ```
