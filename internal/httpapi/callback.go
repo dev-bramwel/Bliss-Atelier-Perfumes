@@ -154,7 +154,7 @@ func newPaymentCallbackHandlers(
 
 		// 2. Authenticate credentials and verify hash signature
 		if !provider.VerifyNCBAIPN(ncbaCfg, payload) {
-			slog.Warn("ncba_ipn_authentication_failed",
+			slog.WarnContext(ctx, "ncba_ipn_authentication_failed",
 				"username", payload.Username,
 				"trans_id", payload.TransID,
 			)
@@ -218,7 +218,7 @@ func newPaymentCallbackHandlers(
 
 		// If completely unmapped, return HTTP 503 so NCBA will redeliver
 		if order == nil || attempt == nil {
-			slog.Warn("ncba_ipn_unmapped_transaction",
+			slog.WarnContext(ctx, "ncba_ipn_unmapped_transaction",
 				"trans_id", payload.TransID,
 				"amount", paidAmount,
 				"mobile", payload.GetMobile(),
@@ -253,7 +253,7 @@ func newPaymentCallbackHandlers(
 
 		// 4. Settled success never regresses
 		if order.PaymentStatus == orders.PaymentPaid {
-			slog.Info("ncba_ipn_duplicate_settled_order",
+			slog.InfoContext(ctx, "ncba_ipn_duplicate_settled_order",
 				"order_id", order.ID,
 				"trans_id", payload.TransID,
 			)
@@ -267,7 +267,7 @@ func newPaymentCallbackHandlers(
 
 		// 5. Amount & Currency Verification
 		if paidAmount != attempt.AmountKes {
-			slog.Error("ncba_ipn_amount_mismatch",
+			slog.ErrorContext(ctx, "ncba_ipn_amount_mismatch",
 				"order_id", order.ID,
 				"attempt_id", attempt.ID,
 				"received_amount", paidAmount,
@@ -307,7 +307,7 @@ func newPaymentCallbackHandlers(
 		if payload.TransID != "" {
 			existingOrderID, err := orderStore.FindReceiptOrder(ctx, payload.TransID)
 			if err != nil {
-				slog.Error("ncba_ipn_find_receipt_failed", "trans_id", payload.TransID, "reason", err.Error())
+				slog.ErrorContext(ctx, "ncba_ipn_find_receipt_failed", "trans_id", payload.TransID, "reason", err.Error())
 				w.WriteHeader(http.StatusInternalServerError)
 				_ = json.NewEncoder(w).Encode(map[string]string{
 					"ResultCode": "1",
@@ -316,7 +316,7 @@ func newPaymentCallbackHandlers(
 				return
 			}
 			if existingOrderID != "" && existingOrderID != order.ID {
-				slog.Error("ncba_ipn_duplicate_receipt_replayed",
+				slog.ErrorContext(ctx, "ncba_ipn_duplicate_receipt_replayed",
 					"order_id", order.ID,
 					"trans_id", payload.TransID,
 					"existing_order_id", existingOrderID,
@@ -351,7 +351,7 @@ func newPaymentCallbackHandlers(
 
 		// 7. Transactional State Transition
 		if err := orderStore.ConfirmPayment(ctx, order.ID, payload.TransID, paidAmount); err != nil {
-			slog.Error("ncba_ipn_confirm_payment_failed",
+			slog.ErrorContext(ctx, "ncba_ipn_confirm_payment_failed",
 				"order_id", order.ID,
 				"reason", err.Error(),
 			)
@@ -374,7 +374,7 @@ func newPaymentCallbackHandlers(
 		_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptSucceeded, payload.TransID, payload.FTRef, "")
 
 		telemetry.PaymentAttemptsTotal.Inc("ncba", "success")
-		slog.Info("ncba_ipn_payment_confirmed",
+		slog.InfoContext(ctx, "ncba_ipn_payment_confirmed",
 			"order_id", order.ID,
 			"attempt_id", attempt.ID,
 			"trans_id", payload.TransID,
@@ -420,7 +420,7 @@ func newPaymentCallbackHandlers(
 		hasLegacyToken := token != "" && callbackSecret != "" && subtle.ConstantTimeCompare([]byte(token), []byte(callbackSecret)) == 1
 
 		if callbackSecret == "" || (!hasSignedOrderID && !hasLegacyToken) {
-			slog.Warn("mpesa_callback_unauthorized", "order_id", orderID)
+			slog.WarnContext(ctx, "mpesa_callback_unauthorized", "order_id", orderID)
 			respond(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized callback."})
 			return
 		}
@@ -466,14 +466,14 @@ func newPaymentCallbackHandlers(
 		}
 
 		if order == nil {
-			slog.Warn("mpesa_callback_unmapped_checkout_id", "checkout_request_id", stk.CheckoutRequestID)
+			slog.WarnContext(ctx, "mpesa_callback_unmapped_checkout_id", "checkout_request_id", stk.CheckoutRequestID)
 			respond(w, http.StatusServiceUnavailable, map[string]string{"error": "Transaction is not available yet."})
 			return
 		}
 
 		// Settled success never regresses
 		if order.PaymentStatus == orders.PaymentPaid {
-			slog.Info("mpesa_callback_settled_order_noop", "order_id", order.ID, "result_code", stk.ResultCode)
+			slog.InfoContext(ctx, "mpesa_callback_settled_order_noop", "order_id", order.ID, "result_code", stk.ResultCode)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -486,7 +486,7 @@ func newPaymentCallbackHandlers(
 		// Handle Customer Cancellation or Late Failure
 		if stk.ResultCode != 0 {
 			telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
-			slog.Info("mpesa_callback_failure_reported",
+			slog.InfoContext(ctx, "mpesa_callback_failure_reported",
 				"order_id", order.ID,
 				"result_code", stk.ResultCode,
 				"result_desc", stk.ResultDesc,
@@ -506,14 +506,14 @@ func newPaymentCallbackHandlers(
 		// Handle Success (ResultCode == 0)
 		amount, receipt, phone, _ := cb.ExtractMetadata()
 		if receipt == "" || amount <= 0 {
-			slog.Error("mpesa_callback_missing_metadata", "order_id", order.ID)
+			slog.ErrorContext(ctx, "mpesa_callback_missing_metadata", "order_id", order.ID)
 			respond(w, http.StatusBadRequest, map[string]string{"error": "Missing callback payment metadata."})
 			return
 		}
 
 		// Amount & Currency Verification
 		if attempt != nil && amount != attempt.AmountKes {
-			slog.Error("mpesa_callback_amount_mismatch",
+			slog.ErrorContext(ctx, "mpesa_callback_amount_mismatch",
 				"order_id", order.ID,
 				"received_amount", amount,
 				"expected_amount", attempt.AmountKes,
@@ -546,12 +546,12 @@ func newPaymentCallbackHandlers(
 		// Receipt Deduplication
 		existingOrderID, err := orderStore.FindReceiptOrder(ctx, receipt)
 		if err != nil {
-			slog.Error("mpesa_callback_find_receipt_failed", "order_id", order.ID, "receipt", receipt, "reason", err.Error())
+			slog.ErrorContext(ctx, "mpesa_callback_find_receipt_failed", "order_id", order.ID, "receipt", receipt, "reason", err.Error())
 			respond(w, http.StatusInternalServerError, map[string]string{"error": "Failed to verify receipt uniqueness."})
 			return
 		}
 		if existingOrderID != "" && existingOrderID != order.ID {
-			slog.Error("mpesa_callback_duplicate_receipt",
+			slog.ErrorContext(ctx, "mpesa_callback_duplicate_receipt",
 				"order_id", order.ID,
 				"receipt", receipt,
 				"existing_order_id", existingOrderID,
@@ -587,7 +587,7 @@ func newPaymentCallbackHandlers(
 
 		// Execute State Transition
 		if err := orderStore.ConfirmPayment(ctx, order.ID, receipt, amount); err != nil {
-			slog.Error("mpesa_callback_confirm_payment_failed", "order_id", order.ID, "reason", err.Error())
+			slog.ErrorContext(ctx, "mpesa_callback_confirm_payment_failed", "order_id", order.ID, "reason", err.Error())
 			if errors.Is(err, orders.ErrOrderAlreadyPaid) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
@@ -606,7 +606,7 @@ func newPaymentCallbackHandlers(
 		}
 
 		telemetry.PaymentAttemptsTotal.Inc("mpesa", "success")
-		slog.Info("mpesa_callback_payment_confirmed",
+		slog.InfoContext(ctx, "mpesa_callback_payment_confirmed",
 			"order_id", order.ID,
 			"receipt", receipt,
 			"amount_kes", amount,
