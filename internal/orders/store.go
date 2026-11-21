@@ -483,6 +483,26 @@ func (s *Store) ReleaseExpired(ctx context.Context, now time.Time) (int, error) 
 	return releasedCount, nil
 }
 
+// InitializeActiveReservationsTelemetry queries the database for currently active,
+// unexpired stock reservations and seeds the StockReservationsActiveGauge to prevent
+// underreporting after process restarts.
+func (s *Store) InitializeActiveReservationsTelemetry(ctx context.Context) error {
+	if s == nil || s.Pool == nil {
+		return nil
+	}
+	var count int
+	err := s.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM public.stock_reservation
+		WHERE status = $1 AND expires_at > $2
+	`, ReservationActive, time.Now().UTC()).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to query active reservations for telemetry: %w", err)
+	}
+	telemetry.StockReservationsActiveGauge.Set(float64(count))
+	return nil
+}
+
 // CancelOrder manually cancels a pending order and releases its active reservation.
 func (s *Store) CancelOrder(ctx context.Context, orderID string) error {
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
