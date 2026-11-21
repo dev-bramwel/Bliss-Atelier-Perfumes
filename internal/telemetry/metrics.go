@@ -123,6 +123,18 @@ func (c *Counter) Add(val float64, labelValues ...string) {
 	c.mu.Unlock()
 }
 
+// Set explicitly sets the counter value, required for cumulative subsystem stats
+// (e.g. pgxpool.Stat AcquireDuration).
+func (c *Counter) Set(val float64, labelValues ...string) {
+	if val < 0 {
+		return
+	}
+	key := encodeLabels(c.labelKeys, labelValues)
+	c.mu.Lock()
+	c.values[key] = val
+	c.mu.Unlock()
+}
+
 func (c *Counter) WritePrometheus(buf *strings.Builder) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
