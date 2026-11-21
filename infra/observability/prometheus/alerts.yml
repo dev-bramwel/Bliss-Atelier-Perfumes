@@ -112,3 +112,17 @@ groups:
           owner: "Platform SRE Team"
           escalation: "platform-oncall"
           runbook_url: "docs/runbooks/runbook-cache-and-rate-limit-outage.md"
+
+      # 9. Scrape Target Down
+      - alert: ServiceTargetDown
+        expr: up == 0
+        for: 15s
+        labels:
+          severity: critical
+          team: platform-sre
+        annotations:
+          summary: "Monitored Service Instance Down"
+          description: "Service scrape target is unreachable (up == 0)."
+          owner: "Platform SRE Team"
+          escalation: "platform-oncall"
+          runbook_url: "docs/runbooks/runbook-api-error-surge.md"
