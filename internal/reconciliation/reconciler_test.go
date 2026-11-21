@@ -3,12 +3,15 @@ package reconciliation
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 type mockStore struct {
@@ -19,6 +22,7 @@ type mockStore struct {
 	updatedAtts  map[string]orders.PaymentAttempt
 	schedQueries map[string]time.Time
 	confirmed    map[string]string // orderID -> receiptNumber
+	countOverride int
 }
 
 func newMockStore() *mockStore {
@@ -34,6 +38,15 @@ func (m *mockStore) ListUnresolvedPaymentAttempts(ctx context.Context, staleThre
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.attempts, nil
+}
+
+func (m *mockStore) CountUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.countOverride > 0 {
+		return m.countOverride, nil
+	}
+	return len(m.attempts), nil
 }
 
 func (m *mockStore) UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error {
@@ -366,5 +379,31 @@ func TestReconciler_AmbiguousInitiationUnder15Minutes_ReschedulesToPreventQueueS
 	}
 	if schedTime.Before(time.Now().Add(30 * time.Second)) {
 		t.Errorf("expected schedule in future, got %v", schedTime)
+	}
+}
+
+func TestReconciler_UnresolvedPaymentsGaugeReflectsTotalCount(t *testing.T) {
+	store := newMockStore()
+	// Simulate a batch of 50 attempts returned due to pagination limit, but 85 total in DB
+	store.attempts = make([]orders.PaymentAttempt, 50)
+	for i := 0; i < 50; i++ {
+		store.attempts[i] = orders.PaymentAttempt{
+			ID:            fmt.Sprintf("att-%d", i),
+			OrderID:       fmt.Sprintf("ord-%d", i),
+			Status:        orders.AttemptUnknown,
+			CreatedAt:     time.Now().Add(-5 * time.Minute),
+		}
+	}
+	store.countOverride = 85
+
+	rec := New(store, nil, DefaultConfig(), nil)
+	_, err := rec.ReconcileStaleAttempts(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	out := telemetry.DefaultRegistry.Gather()
+	if !strings.Contains(out, "unresolved_payments_gauge 85") {
+		t.Errorf("expected unresolved_payments_gauge 85 in telemetry output, got:\n%s", out)
 	}
 }
