@@ -150,6 +150,26 @@ func (s *Store) FetchPending(ctx context.Context, batchSize int, destination str
 	return records, nil
 }
 
+// CountPending returns the total count of unresolved outbox events ('pending' or 'publishing') for destination.
+func (s *Store) CountPending(ctx context.Context, destination string) (int, error) {
+	if s.Pool == nil {
+		return 0, errors.New("outbox: database pool not initialized")
+	}
+	if destination == "" {
+		destination = DefaultDestination
+	}
+	var count int
+	err := s.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM public.outbox_event
+		WHERE destination = $1 AND status IN ('pending', 'publishing')
+	`, destination).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("outbox: failed to count pending events: %w", err)
+	}
+	return count, nil
+}
+
 // MarkPublished marks an outbox event as successfully confirmed and published.
 func (s *Store) MarkPublished(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
