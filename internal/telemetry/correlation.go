@@ -15,10 +15,15 @@ type contextKey struct{}
 var correlationContextKey = contextKey{}
 
 var (
-	validCorrelationRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{8,64}$`)
-	digitOnlyRegex        = regexp.MustCompile(`^\d+$`)
-	longDigitSeqRegex     = regexp.MustCompile(`\d{9,}`)
-	phonePatternRegex     = regexp.MustCompile(`(?i)(?:^|[^0-9])(?:254|\+254|0)[17]\d{8}(?:[^0-9]|$)`)
+	validCorrelationRegex   = regexp.MustCompile(`^[a-zA-Z0-9_\-\.]{8,64}$`)
+	digitOnlyRegex          = regexp.MustCompile(`^\d+$`)
+	longDigitSeqRegex       = regexp.MustCompile(`\d{9,}`)
+	phonePatternRegex       = regexp.MustCompile(`(?i)(?:^|[^0-9])(?:254|\+254|0)[17]\d{8}(?:[^0-9]|$)`)
+	separatedPhoneRegex     = regexp.MustCompile(`(?i)(?:^|[^0-9])(?:\+?254|0)?[-._\s]?[17]\d{2}[-._\s]?\d{3}[-._\s]?\d{3,4}(?:[^0-9]|$)`)
+	onlyDigitsAndSeparators = regexp.MustCompile(`^[\d\s\-_.]+$`)
+	nonDigitsRegex          = regexp.MustCompile(`\D+`)
+	normalizedKenyanPhone   = regexp.MustCompile(`(?:254[17]\d{8}|0[17]\d{8})`)
+	uuidRegex               = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
 
 // isSafeCorrelationID verifies that an incoming correlation ID matches structural requirements
@@ -27,16 +32,27 @@ func isSafeCorrelationID(id string) bool {
 	if !validCorrelationRegex.MatchString(id) {
 		return false
 	}
+	if strings.Contains(id, "@") {
+		return false
+	}
 	if digitOnlyRegex.MatchString(id) {
 		return false
 	}
-	if longDigitSeqRegex.MatchString(id) {
+	// Reject phone numbers embedded with or without separators
+	if phonePatternRegex.MatchString(id) || separatedPhoneRegex.MatchString(id) {
 		return false
 	}
-	if phonePatternRegex.MatchString(id) {
+	// Check if digits stripped of non-numeric separators form a Kenyan phone number
+	digits := nonDigitsRegex.ReplaceAllString(id, "")
+	if normalizedKenyanPhone.MatchString(digits) {
 		return false
 	}
-	if strings.Contains(id, "@") {
+	// Reject pure numeric/separator sequences (e.g. 123-456-7890)
+	if onlyDigitsAndSeparators.MatchString(id) && len(digits) >= 9 {
+		return false
+	}
+	// If not a standard formatted UUID, reject long contiguous digit sequences (9+ digits)
+	if !uuidRegex.MatchString(id) && longDigitSeqRegex.MatchString(id) {
 		return false
 	}
 	return true
