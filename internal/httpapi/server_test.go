@@ -157,6 +157,7 @@ type mockOrderService struct {
 	correctionFn     func(ctx context.Context, req orders.PaymentCorrectionRequest) (*orders.PaymentAuditRecord, error)
 	listAuditFn      func(ctx context.Context, orderID string) ([]orders.PaymentAuditRecord, error)
 	listUnresolvedFn func(ctx context.Context, staleThreshold time.Duration, limit int) ([]orders.PaymentAttempt, error)
+	countUnresolvedFn func(ctx context.Context, staleThreshold time.Duration) (int, error)
 	updateScheduleFn func(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error
 }
 
@@ -356,6 +357,13 @@ func (m *mockOrderService) ListUnresolvedPaymentAttempts(ctx context.Context, st
 		return m.listUnresolvedFn(ctx, staleThreshold, limit)
 	}
 	return nil, nil
+}
+
+func (m *mockOrderService) CountUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration) (int, error) {
+	if m.countUnresolvedFn != nil {
+		return m.countUnresolvedFn(ctx, staleThreshold)
+	}
+	return 0, nil
 }
 
 func (m *mockOrderService) UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error {
