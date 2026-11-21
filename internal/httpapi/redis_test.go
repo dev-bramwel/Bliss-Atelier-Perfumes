@@ -143,7 +143,7 @@ func TestCatalogInvalidation_Endpoint(t *testing.T) {
 	cache := &inMemoryMockCache{data: []catalog.Product{{ID: "p1"}}}
 	secCfg := SecurityConfig{ManagerSecret: "mgr-secret-key"}
 
-	api := New("127.0.0.1:0", 5*time.Second, func(context.Context) error { return nil }, catStore, cache, secCfg)
+	api, cookie, csrf := newSessionAPI(t, "127.0.0.1:0", 5*time.Second, func(context.Context) error { return nil }, catStore, cache, secCfg)
 	srv := httptest.NewServer(api.server.Handler)
 	defer srv.Close()
 
@@ -163,7 +163,7 @@ func TestCatalogInvalidation_Endpoint(t *testing.T) {
 
 	// 2. Valid manager secret -> 200 OK and cache invalidated
 	req2, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/catalog/invalidate", nil)
-	req2.Header.Set("X-Manager-Secret", "mgr-secret-key")
+	authorizeStaff(req2, cookie, csrf)
 	resp2, err := http.DefaultClient.Do(req2)
 	if err != nil {
 		t.Fatal(err)

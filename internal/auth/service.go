@@ -474,6 +474,9 @@ func (s *Service) InspectAuditLogs(ctx context.Context, actor *User, limit int, 
 	if actor == nil || (actor.Role != RoleOwner && actor.Role != RoleManager) {
 		return nil, ErrPermissionDenied
 	}
+	if p, ok := s.store.(pagedStore); ok {
+		return p.QueryAuditPage(ctx, actor.Role, limit, offset)
+	}
 
 	entries, err := s.store.QueryAuditLogs(ctx, limit, offset)
 	if err != nil {

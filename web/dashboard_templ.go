@@ -9,10 +9,32 @@ package web
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import (
-	"fmt"
-	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
-)
+import "github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
+
+func AdminHeader() templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<header class=\"admin-brandbar\"><a href=\"/admin\" class=\"lux-brand\">Bliss Atelier <span>Operations</span></a><a href=\"/\">View storefront ↗</a></header>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
 
 func DashboardPage(products []catalog.Product) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
@@ -31,238 +53,140 @@ func DashboardPage(products []catalog.Product) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<main class=\"max-w-6xl mx-auto px-4 py-8 space-y-8\"><!-- Header Banner --><section class=\"glass-panel p-6 sm:p-8\"><div class=\"flex flex-col md:flex-row md:items-center md:justify-between gap-4\"><div class=\"space-y-1.5\"><div class=\"flex items-center gap-2\"><span class=\"dash-badge dash-badge-khaki\">Atelier Operations</span> <span class=\"dash-badge dash-badge-espresso\">Mombasa, Kenya</span></div><h1 class=\"text-2xl sm:text-3xl font-display font-semibold text-[#faf7f2]\">Operations Dashboard</h1><p class=\"text-sm text-[rgba(247,243,235,0.68)] max-w-xl\">Live catalog overview, counter sale recording, and Mombasa delivery &amp; pickup pipeline.</p></div><div class=\"flex flex-wrap items-center gap-2\"><span class=\"dash-badge dash-badge-success\"><span class=\"w-2 h-2 rounded-full bg-[#c6b79b] animate-pulse\"></span> Catalog Live</span> <span class=\"dash-badge dash-badge-espresso\">Standard KES 2,500 Price</span> <span class=\"dash-badge dash-badge-khaki\">Pay Pre-Dispatch</span></div></div></section><!-- 4 Key Metric Cards --><section class=\"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4\"><div class=\"dash-metric-card\"><p class=\"text-xs uppercase tracking-[0.16em] text-[var(--gold-soft)] font-medium\">Catalog Fragrances</p><h3 class=\"text-2xl font-display font-semibold text-[#faf7f2] mt-1.5\"><span id=\"dashTotalScents\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<main id=\"adminApp\" class=\"admin-shell\" aria-labelledby=\"adminTitle\"><header class=\"admin-heading\"><div><p class=\"admin-eyebrow\">Bliss Atelier · Mombasa</p><h1 id=\"adminTitle\">Atelier operations</h1><p>Orders, stock and the people behind every scent.</p></div><div id=\"adminProfile\" aria-live=\"polite\"><span id=\"staffName\">Checking your session…</span><span id=\"staffEmail\"></span><strong id=\"staffRole\"></strong><button id=\"adminLogout\" type=\"button\" data-mutation hidden>Sign out</button></div></header><p id=\"adminMessage\" class=\"admin-message\" role=\"status\" aria-live=\"polite\" hidden></p><section id=\"adminSignIn\" class=\"admin-panel\" hidden><h2>Staff sign-in required</h2><p id=\"signInReason\">Use your approved Google account to manage the atelier.</p><a id=\"adminLogin\" class=\"admin-button\" href=\"/api/auth/google?return_url=/admin\">Sign in with Google</a><a href=\"/\">Return to the collection</a></section><div id=\"adminWorkspace\" hidden><nav class=\"admin-nav\" aria-label=\"Atelier administration\"><a href=\"/admin/orders\" data-section=\"orders\">Orders &amp; fulfillment</a> <a href=\"/admin/inventory\" data-section=\"inventory\">Catalog &amp; inventory</a> <a href=\"/admin/payments\" data-section=\"payments\" data-manager hidden>Payment exceptions</a> <a href=\"/admin/users\" data-section=\"users\" data-manager hidden>Users</a> <a href=\"/admin/audit-logs\" data-section=\"audit-logs\" data-manager hidden>Security audit</a></nav><section class=\"admin-metrics\" aria-label=\"Operational metrics\"><article><span>Catalog fragrances</span><strong id=\"metricCatalog\">—</strong></article><article><span>Common bottle price</span><strong id=\"metricPrice\">—</strong></article><article><span>Staged counter sales</span><strong id=\"metricStaged\">0</strong><small>Apply verified batches using the stock tool</small></article><article><span>Pending dispatch</span><strong id=\"metricDispatch\">—</strong></article></section><section id=\"panelOrders\" class=\"admin-panel\" data-panel=\"orders\" hidden><div class=\"admin-section-heading\"><div><h2>Orders &amp; fulfillment</h2><p id=\"orderScope\">Live orders from the authoritative database.</p></div><button type=\"button\" data-refresh=\"orders\">Refresh orders</button></div><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Orders, payment and delivery status</caption><thead><tr><th>Order</th><th>Customer / location</th><th>Total</th><th>Payment</th><th>Fulfillment</th><th>Delivery quote</th><th>Actions</th></tr></thead><tbody id=\"ordersRows\"></tbody></table></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var2 string
-		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", len(products)))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 41, Col: 66}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
+		templ_7745c5c3_Err = AdminPager("orders").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</span> <span class=\"text-sm font-sans font-normal text-[rgba(247,243,235,0.5)]\">Bottles</span></h3><p class=\"text-xs text-[rgba(247,243,235,0.55)] mt-1\">100ml Signature Eau de Parfum</p></div><div class=\"dash-metric-card\"><p class=\"text-xs uppercase tracking-[0.16em] text-[var(--gold-soft)] font-medium\">Common Bottle Price</p><h3 class=\"text-2xl font-display font-semibold text-[#faf7f2] mt-1.5\">KES 2,500</h3><p class=\"text-xs text-[rgba(247,243,235,0.55)] mt-1\">Approved Uniform Atelier Pricing</p></div><div class=\"dash-metric-card\"><p class=\"text-xs uppercase tracking-[0.16em] text-[var(--gold-soft)] font-medium\">Staged Counter Sales</p><h3 class=\"text-2xl font-display font-semibold text-[#faf7f2] mt-1.5\"><span id=\"dashSalesCount\">0</span> <span class=\"text-sm font-sans font-normal text-[rgba(247,243,235,0.5)]\">Sales</span></h3><p class=\"text-xs text-[rgba(247,243,235,0.55)] mt-1\">KES <span id=\"dashSalesTotal\">0</span> staged for stock apply</p></div><div class=\"dash-metric-card\"><p class=\"text-xs uppercase tracking-[0.16em] text-[var(--gold-soft)] font-medium\">Fulfillment Queue</p><h3 class=\"text-2xl font-display font-semibold text-[#faf7f2] mt-1.5\"><span id=\"dashOrdersCount\">0</span> <span class=\"text-sm font-sans font-normal text-[rgba(247,243,235,0.5)]\">Orders</span></h3><p class=\"text-xs text-[rgba(247,243,235,0.55)] mt-1\">Mombasa Delivery &amp; Pickup</p></div></section><!-- Dashboard Tabs --><section class=\"space-y-6\"><div class=\"flex items-center gap-2 overflow-x-auto pb-1 border-b border-[rgba(214,199,175,0.12)]\"><button class=\"dash-tab-btn active\" data-tab-target=\"fast-sale\"><svg xmlns=\"http://www.w3.org/2000/svg\" class=\"w-4 h-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M12 4v16m8-8H4\"></path></svg> Fast Sale Entry</button> <button class=\"dash-tab-btn\" data-tab-target=\"orders-queue\"><svg xmlns=\"http://www.w3.org/2000/svg\" class=\"w-4 h-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2\"></path></svg> Orders &amp; Sales Queue</button> <button class=\"dash-tab-btn\" data-tab-target=\"catalog-inventory\"><svg xmlns=\"http://www.w3.org/2000/svg\" class=\"w-4 h-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M4 6h16M4 10h16M4 14h16M4 18h16\"></path></svg> Catalog &amp; Stock</button> <button class=\"dash-tab-btn\" data-tab-target=\"policy-scope\"><svg xmlns=\"http://www.w3.org/2000/svg\" class=\"w-4 h-4\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z\"></path></svg> Operating Policies</button></div><!-- TAB 1: Fast Sale Entry --><div id=\"tab-fast-sale\" class=\"dash-tab-content space-y-6\"><div class=\"grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6 items-start\"><!-- Sale Recording Form --><div class=\"glass-panel p-6 sm:p-8 space-y-5\"><div><div class=\"flex items-center gap-2 flex-wrap\"><h3 class=\"text-xl font-display font-semibold text-[#faf7f2]\">Stage Verified Counter Sale</h3><span class=\"dash-badge dash-badge-khaki text-[10px]\">R09 Ledger Batch Staging</span></div><p class=\"text-xs text-[rgba(247,243,235,0.65)] mt-1\">Prepare verified shop sales into canonical <code class=\"text-[var(--gold-soft)]\">local_sale</code> batch payloads for authoritative ledger deduction (<code class=\"text-[var(--gold-soft)]\">cmd/stock apply</code>).</p></div><form id=\"fastSaleForm\" class=\"space-y-4\"><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-4\"><div><label class=\"text-xs block mb-1 text-[rgba(247,243,235,0.75)]\">Fragrance</label> <select id=\"saleFragranceSelect\" required class=\"w-full glass-field rounded-2xl px-3.5 py-2.5 text-sm\"><option value=\"\">Select Fragrance...</option> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</section><section id=\"panelInventory\" class=\"admin-panel\" data-panel=\"inventory\" hidden><div class=\"admin-section-heading\"><div><h2>Catalog &amp; inventory</h2><p>Ledger stock minus active checkout holds. Holds expire after 15 minutes.</p><p id=\"inventoryApproval\"></p></div><div><button type=\"button\" data-refresh=\"inventory\">Refresh stock</button><button id=\"invalidateCatalog\" type=\"button\" data-mutation data-manager hidden>Invalidate catalog cache</button></div></div><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Product prices and stock holds</caption><thead><tr><th>Product</th><th>Price</th><th>Ledger stock</th><th>Active holds</th><th>Unreserved</th><th>Opening count</th></tr></thead><tbody id=\"inventoryRows\"></tbody></table></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		for _, p := range products {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<option value=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var3 string
-			templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.ID).Resolve(ctx)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 127, Col: 31}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\" data-price=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var4 string
-			templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.NewAttributeExpression(fmt.Sprintf("%d", p.PriceKes)).Resolve(ctx)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 127, Col: 76}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var5 string
-			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(p.Name)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 128, Col: 20}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, " (")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var6 string
-			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(p.Size)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 128, Col: 32}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, " &bull; KES ")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var7 string
-			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(formatPriceKes(p.PriceKes))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 128, Col: 74}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, ")</option>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</select></div><div><label class=\"text-xs block mb-1 text-[rgba(247,243,235,0.75)]\">Bottle Quantity</label> <input id=\"saleQuantity\" type=\"number\" min=\"1\" max=\"20\" value=\"1\" required class=\"w-full glass-field rounded-2xl px-3.5 py-2.5 text-sm\"></div></div><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-4\"><div><label class=\"text-xs block mb-1 text-[rgba(247,243,235,0.75)]\">Shop Operator / Employee</label> <select id=\"saleOperator\" required class=\"w-full glass-field rounded-2xl px-3.5 py-2.5 text-sm\"><option value=\"Employee 1\">Shop Employee 1</option> <option value=\"Employee 2\">Shop Employee 2</option> <option value=\"Owner\">Atelier Owner</option></select></div><div><label class=\"text-xs block mb-1 text-[rgba(247,243,235,0.75)]\">Payment Verification</label> <select id=\"salePaymentType\" required class=\"w-full glass-field rounded-2xl px-3.5 py-2.5 text-sm\"><option value=\"mpesa_stk\">M-Pesa STK (Confirmed Prompt)</option> <option value=\"mpesa_counter\">M-Pesa Till / Paybill (Verified Receipt)</option> <option value=\"cash_counter\">Cash Counter (Inspected at Register)</option></select></div></div><div class=\"grid grid-cols-1 sm:grid-cols-2 gap-4\"><div><label class=\"text-xs block mb-1 text-[rgba(247,243,235,0.75)]\">M-Pesa Code / Receipt Ref</label> <input id=\"saleReceiptRef\" required placeholder=\"e.g. QJD78K92L...\" class=\"w-full glass-field rounded-2xl px-3.5 py-2.5 text-sm\"></div><div><label class=\"text-xs block mb-1 text-[rgba(247,243,235,0.75)]\">Customer Phone (Optional)</label> <input id=\"saleCustomerPhone\" placeholder=\"07xx... (for receipts/alerts)\" class=\"w-full glass-field rounded-2xl px-3.5 py-2.5 text-sm\"></div></div><div><label class=\"text-xs block mb-1 text-[rgba(247,243,235,0.75)]\">Sale Notes (Optional)</label> <input id=\"saleNotes\" placeholder=\"e.g. Complimentary gift bag, repeat client\" class=\"w-full glass-field rounded-2xl px-3.5 py-2.5 text-sm\"></div><div class=\"pt-3 border-t border-[rgba(214,199,175,0.12)] flex items-center justify-between\"><div><span class=\"text-xs text-[rgba(247,243,235,0.6)]\">Calculated Total:</span><div class=\"text-lg font-semibold text-[#faf7f2]\">KES <span id=\"saleCalculatedTotal\">2,500</span></div></div><button type=\"submit\" class=\"py-2.5 px-6 rounded-2xl gold-btn text-sm font-semibold\">Stage Sale Batch for stock apply</button></div></form></div><!-- Operating Guide Card --><div class=\"space-y-4\"><div class=\"glass-panel p-5 space-y-3\"><h4 class=\"text-sm font-semibold uppercase tracking-[0.2em] text-[var(--gold-soft)]\">Authoritative Stock Policy</h4><p class=\"text-xs text-[rgba(247,243,235,0.7)] leading-relaxed\">Per R09 policy, public HTTP stock mutation is prohibited to protect inventory integrity. Counter sales staged here produce signed <code class=\"text-[var(--gold-soft)]\">local_sale</code> batch commands for the operator CLI (<code class=\"text-[var(--gold-soft)]\">cmd/stock apply</code>).</p><div class=\"text-xs text-[rgba(247,243,235,0.5)] pt-2 border-t border-white/5 space-y-1\"><p>&bull; Mombasa SBS Markiti Complex Shop 2</p><p>&bull; Batch format: <code class=\"text-[var(--gold-soft)]\">&#123;&quot;kind&quot;:&quot;local_sale&quot;,...&#125;</code></p><p>&bull; Immediate atomic deduction in PostgreSQL ledger</p></div></div><div class=\"glass-panel p-5 space-y-2\"><div class=\"flex items-center justify-between\"><h4 class=\"text-xs font-semibold uppercase tracking-[0.16em] text-[rgba(247,243,235,0.8)]\">Quick Actions</h4></div><div class=\"flex flex-col gap-2 pt-1\"><a href=\"/\" class=\"py-2 px-3 rounded-xl border border-white/10 text-xs text-center text-gray-300 hover:bg-white/5 transition\">Browse Storefront Collection &rarr;</a> <a href=\"/checkout\" class=\"py-2 px-3 rounded-xl border border-white/10 text-xs text-center text-gray-300 hover:bg-white/5 transition\">Open Guest Checkout &rarr;</a></div></div></div></div><!-- Recent Counter Sales Table --><div class=\"glass-panel p-6 space-y-4\"><div class=\"flex items-center justify-between\"><div><h3 class=\"text-lg font-display font-semibold text-[#faf7f2]\">Staged Counter Sales &amp; Ledger Batches</h3><p class=\"text-xs text-[rgba(247,243,235,0.6)]\">Audited shop floor transactions ready for authoritative stock deduction.</p></div><button id=\"clearSalesHistoryBtn\" class=\"text-xs text-gray-400 hover:text-white px-2 py-1 rounded-lg border border-white/10\">Clear Local Log</button></div><div class=\"overflow-x-auto\"><table class=\"w-full text-left text-sm\"><thead class=\"text-xs uppercase tracking-[0.1em] text-[var(--gold-soft)] border-b border-white/10\"><tr><th class=\"py-2.5 px-3\">Time</th><th class=\"py-2.5 px-3\">Fragrance</th><th class=\"py-2.5 px-3\">Qty</th><th class=\"py-2.5 px-3\">Amount</th><th class=\"py-2.5 px-3\">Operator</th><th class=\"py-2.5 px-3\">Verification / Ref</th><th class=\"py-2.5 px-3\">Status</th></tr></thead> <tbody id=\"recentSalesTbody\" class=\"divide-y divide-white/5 text-xs text-gray-300\"><!-- Dynamically populated --><tr><td colspan=\"7\" class=\"py-6 text-center text-gray-500\">No counter sales recorded yet today. Use the form above to record a verified sale.</td></tr></tbody></table></div></div></div><!-- TAB 2: Orders & Sales Queue --><div id=\"tab-orders-queue\" class=\"dash-tab-content space-y-6 hidden\"><div class=\"glass-panel p-6 space-y-4\"><div class=\"flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3\"><div><div class=\"flex items-center gap-2\"><h3 class=\"text-lg font-display font-semibold text-[#faf7f2]\">Orders &amp; Fulfillment Queue</h3><span id=\"orderSyncBadge\" class=\"dash-badge dash-badge-khaki text-[10px]\">Sync: Checking Server...</span></div><p class=\"text-xs text-[rgba(247,243,235,0.6)]\">Live customer orders from checkout and counter sales.</p></div><div class=\"flex items-center gap-1.5 bg-black/40 p-1 rounded-2xl border border-white/10 text-xs\"><button class=\"queue-filter-btn px-3 py-1 rounded-xl bg-[#c6b79b] text-[#120f0d] font-semibold\" data-filter=\"all\">All Activity</button> <button class=\"queue-filter-btn px-3 py-1 rounded-xl text-gray-300 hover:text-white\" data-filter=\"online\">Online Orders</button> <button class=\"queue-filter-btn px-3 py-1 rounded-xl text-gray-300 hover:text-white\" data-filter=\"counter\">Counter Sales</button></div></div><div id=\"ordersQueueList\" class=\"space-y-3\"><!-- Dynamically populated --><div class=\"py-8 text-center text-gray-500 text-sm\">Loading orders queue...</div></div></div></div><!-- TAB 3: Catalog & Stock --><div id=\"tab-catalog-inventory\" class=\"dash-tab-content space-y-6 hidden\"><div class=\"glass-panel p-6 space-y-4\"><div class=\"flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3\"><div><h3 class=\"text-lg font-display font-semibold text-[#faf7f2]\">Fragrance Catalog &amp; Inventory</h3><p class=\"text-xs text-[rgba(247,243,235,0.6)]\">Sourced from the PostgreSQL catalog and verified against active holdings.</p></div><input id=\"dashCatalogSearch\" placeholder=\"Filter scents...\" class=\"w-full sm:w-64 glass-field rounded-2xl px-3.5 py-1.5 text-xs\"></div><div class=\"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3\" id=\"dashCatalogGrid\">")
+		templ_7745c5c3_Err = AdminPager("inventory").Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		for _, p := range products {
-			thumb := ""
-			if len(p.Images) > 0 {
-				thumb = p.Images[0]
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, " <div class=\"dash-metric-card p-4 flex items-center justify-between gap-3\" data-name=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var8 string
-			templ_7745c5c3_Var8, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.Name).Resolve(ctx)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 335, Col: 99}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var8)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\" data-category=\"")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var9 string
-			templ_7745c5c3_Var9, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.Category).Resolve(ctx)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 335, Col: 128}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var9)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\"><div class=\"flex items-center gap-3 min-w-0\"><div class=\"w-12 h-12 rounded-xl overflow-hidden bg-black/40 shrink-0 border border-white/10 flex items-center justify-center\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			if thumb != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<img src=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var10 string
-				templ_7745c5c3_Var10, templ_7745c5c3_Err = templruntime.NewAttributeExpression(thumb).ResolveURL(ctx)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 339, Col: 27}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var10)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" alt=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var11 string
-				templ_7745c5c3_Var11, templ_7745c5c3_Err = templruntime.NewAttributeExpression(p.Name).Resolve(ctx)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 339, Col: 42}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\" class=\"w-full h-full object-cover\" loading=\"lazy\" onerror=\"this.style.display='none'\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div><div class=\"min-w-0\"><h4 class=\"text-sm font-semibold text-[#faf7f2] truncate\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var12 string
-			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(p.Name)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 343, Col: 76}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</h4><p class=\"text-xs text-[rgba(247,243,235,0.5)] truncate\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var13 string
-			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(p.Gender)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 344, Col: 77}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, " &bull; ")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var14 string
-			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(p.Category)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 344, Col: 99}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</p><p class=\"text-xs text-[var(--gold-soft)] font-medium\">KES ")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			var templ_7745c5c3_Var15 string
-			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(formatPriceKes(p.PriceKes))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 345, Col: 97}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</p></div></div><div class=\"shrink-0 text-right\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			if p.Available {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<span class=\"dash-badge dash-badge-khaki text-[10px]\">In Stock</span>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<span class=\"dash-badge dash-badge-espresso text-[10px]\">Held</span>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</div></div>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</section><section id=\"panelPayments\" data-panel=\"payments\" class=\"admin-panel\" hidden><div class=\"admin-section-heading\"><div><h2>Payment exceptions</h2><p>Inspect evidence before recording any financial resolution.</p></div><button type=\"button\" data-refresh=\"payments\">Refresh payments</button></div><label>Exception status<select id=\"exceptionFilter\"><option value=\"open\">Open</option><option value=\"resolved\">Resolved</option><option value=\"dismissed\">Dismissed</option><option value=\"all\">All</option></select></label><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Payment exceptions</caption><thead><tr><th>Created</th><th>Type</th><th>Order / receipt</th><th>Received / expected</th><th>Status</th><th>Action</th></tr></thead><tbody id=\"exceptionsRows\"></tbody></table></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</div></div></div><!-- TAB 4: Operating Policies Reference --><div id=\"tab-policy-scope\" class=\"dash-tab-content space-y-6 hidden\"><div class=\"glass-panel p-6 sm:p-8 space-y-6\"><div><h3 class=\"text-xl font-display font-semibold text-[#faf7f2]\">Approved R01 Operating Rules</h3><p class=\"text-xs text-[rgba(247,243,235,0.65)] mt-1\">Mandatory business rules approved for Bliss Atelier Perfumes release operations.</p></div><div class=\"grid grid-cols-1 md:grid-cols-2 gap-4\"><div class=\"p-4 rounded-2xl bg-[rgba(255,250,240,0.03)] border border-white/10 space-y-2\"><div class=\"flex items-center gap-2\"><span class=\"w-2 h-2 rounded-full bg-[#c6b79b]\"></span><h4 class=\"text-sm font-semibold text-[#faf7f2]\">1. Payment Before Dispatch</h4></div><p class=\"text-xs text-[rgba(247,243,235,0.7)] leading-relaxed\">Payment on delivery is prohibited. All orders must be paid and verified via M-Pesa STK push or verified counter payment before dispatch.</p></div><div class=\"p-4 rounded-2xl bg-[rgba(255,250,240,0.03)] border border-white/10 space-y-2\"><div class=\"flex items-center gap-2\"><span class=\"w-2 h-2 rounded-full bg-[#c6b79b]\"></span><h4 class=\"text-sm font-semibold text-[#faf7f2]\">2. Mombasa Fulfillment</h4></div><p class=\"text-xs text-[rgba(247,243,235,0.7)] leading-relaxed\">Delivery covers all Mombasa areas; transport fees are quoted separately, approved by the customer, and added on top of the product order total.</p></div><div class=\"p-4 rounded-2xl bg-[rgba(255,250,240,0.03)] border border-white/10 space-y-2\"><div class=\"flex items-center gap-2\"><span class=\"w-2 h-2 rounded-full bg-[#c6b79b]\"></span><h4 class=\"text-sm font-semibold text-[#faf7f2]\">3. 2-Day Unopened Exchange</h4></div><p class=\"text-xs text-[rgba(247,243,235,0.7)] leading-relaxed\">Only unused, unopened, unsprayed bottles qualify for exchange. The exchange window is strictly within the first two days after purchase at the shop.</p></div><div class=\"p-4 rounded-2xl bg-[rgba(255,250,240,0.03)] border border-white/10 space-y-2\"><div class=\"flex items-center gap-2\"><span class=\"w-2 h-2 rounded-full bg-[#c6b79b]\"></span><h4 class=\"text-sm font-semibold text-[#faf7f2]\">4. 15-Minute Checkout Hold</h4></div><p class=\"text-xs text-[rgba(247,243,235,0.7)] leading-relaxed\">Stock is temporarily held for 15 minutes during customer checkout. Unpaid expired holds release availability; late payments enter manual reconciliation.</p></div><div class=\"p-4 rounded-2xl bg-[rgba(255,250,240,0.03)] border border-white/10 space-y-2\"><div class=\"flex items-center gap-2\"><span class=\"w-2 h-2 rounded-full bg-[#c6b79b]\"></span><h4 class=\"text-sm font-semibold text-[#faf7f2]\">5. Authoritative Stock Ledger (R09)</h4></div><p class=\"text-xs text-[rgba(247,243,235,0.7)] leading-relaxed\">Public HTTP stock mutation is prohibited. Verified counter sales generate an immediate canonical batch payload for the authoritative stock ledger (<code class=\"text-xs text-[var(--gold-soft)]\">cmd/stock apply</code>) using kind <code class=\"text-xs text-[var(--gold-soft)]\">local_sale</code>.</p></div><div class=\"p-4 rounded-2xl bg-[rgba(255,250,240,0.03)] border border-white/10 space-y-2\"><div class=\"flex items-center gap-2\"><span class=\"w-2 h-2 rounded-full bg-[#c6b79b]\"></span><h4 class=\"text-sm font-semibold text-[#faf7f2]\">6. Server-Side Fulfillment Sync</h4></div><p class=\"text-xs text-[rgba(247,243,235,0.7)] leading-relaxed\">Fulfillment queue synchronizes with the server-side orders endpoint when available to load orders from all customer devices, falling back to local session records when operating offline.</p></div></div></div></div></section></main>")
+		templ_7745c5c3_Err = AdminPager("exceptions").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<div class=\"admin-section-heading\"><h3>Unresolved STK attempts</h3><button id=\"runReconciliation\" type=\"button\" data-mutation>Run reconciliation</button></div><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Unresolved payment attempts</caption><thead><tr><th>Order</th><th>Amount</th><th>Status</th><th>Queries</th><th>Next query</th></tr></thead><tbody id=\"unresolvedRows\"></tbody></table></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = AdminPager("unresolved").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<button id=\"openSettlement\" type=\"button\">Record verified manual settlement</button><h3>Immutable payment audit ledger</h3><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Manual settlements and corrections</caption><thead><tr><th>Time</th><th>Order / action</th><th>Amount / receipt</th><th>Authorized by</th><th>Evidence / notes</th></tr></thead><tbody id=\"paymentAuditRows\"></tbody></table></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = AdminPager("paymentAudit").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</section><section id=\"panelUsers\" data-panel=\"users\" class=\"admin-panel\" hidden><div class=\"admin-section-heading\"><div><h2>User administration</h2><p>Role changes and deactivation immediately revoke the affected account’s sessions.</p></div><button type=\"button\" data-refresh=\"users\">Refresh users</button></div><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Users visible to your role</caption><thead><tr><th>User ID</th><th>Name / email</th><th>Role</th><th>Active</th><th>Created</th><th>Actions</th></tr></thead><tbody id=\"usersRows\"></tbody></table></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = AdminPager("users").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</section><section id=\"panelAudit\" data-panel=\"audit-logs\" class=\"admin-panel\" hidden><div class=\"admin-section-heading\"><div><h2>Security audit logs</h2><p>Times shown in Africa/Nairobi. Owner events are visible only to owners.</p></div><button type=\"button\" data-refresh=\"audit-logs\">Refresh audit</button></div><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Administrative security events</caption><thead><tr><th>Timestamp</th><th>Actor / role</th><th>Action</th><th>Resource</th><th>IP address</th><th>Metadata</th></tr></thead><tbody id=\"auditRows\"></tbody></table></div>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = AdminPager("audit").Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</section><p id=\"adminUpdated\" class=\"admin-updated\" aria-live=\"polite\"></p></div><dialog id=\"orderDialog\" class=\"admin-dialog\" aria-labelledby=\"orderDialogTitle\"><div class=\"admin-dialog-heading\"><h2 id=\"orderDialogTitle\">Order details</h2><button type=\"button\" data-close-dialog aria-label=\"Close order details\">Close</button></div><div id=\"orderDetails\"></div><form id=\"quoteForm\" data-manager hidden><h3>Issue delivery quote</h3><label>Transport fee (KES)<input name=\"fee_kes\" type=\"number\" min=\"1\" max=\"1000000\" step=\"1\" required></label><label>Delivery note<textarea name=\"notes\" maxlength=\"1000\"></textarea></label><button type=\"submit\" data-mutation>Issue quote</button><p id=\"quoteStatus\" aria-live=\"polite\"></p></form><form id=\"assignForm\" data-owner hidden><h3>Assign to employee</h3><label>Employee user ID<input name=\"user_id\" maxlength=\"128\" required></label><button type=\"submit\" data-mutation>Assign order</button></form><button id=\"fulfillOrder\" type=\"button\" data-mutation hidden>Mark dispatched / collected</button></dialog> <dialog id=\"exceptionDialog\" class=\"admin-dialog\" aria-labelledby=\"exceptionDialogTitle\"><div class=\"admin-dialog-heading\"><h2 id=\"exceptionDialogTitle\">Resolve payment exception</h2><button type=\"button\" data-close-dialog aria-label=\"Close payment exception\">Close</button></div><div id=\"exceptionDetails\"></div><form id=\"resolveForm\"><label>Resolution action<select name=\"action\" required><option value=\"applied_to_order\">Applied to order</option><option value=\"refund_recorded\">Refund recorded</option><option value=\"dismissed_duplicate\">Dismissed duplicate</option><option value=\"voided\">Voided</option></select></label><label>Resolution notes<textarea name=\"resolution_notes\" maxlength=\"2000\" required></textarea></label><label>Evidence reference<input name=\"evidence\" maxlength=\"512\" required></label><button type=\"submit\" data-mutation>Resolve exception</button></form></dialog> <dialog id=\"settlementDialog\" class=\"admin-dialog\" aria-labelledby=\"settlementDialogTitle\"><div class=\"admin-dialog-heading\"><h2 id=\"settlementDialogTitle\">Verified manual settlement</h2><button type=\"button\" data-close-dialog aria-label=\"Close manual settlement\">Close</button></div><form id=\"settlementForm\"><label>Order ID<input name=\"order_id\" maxlength=\"128\" required></label><label>Amount (KES)<input name=\"amount_kes\" type=\"number\" min=\"1\" max=\"1000000\" step=\"1\" required></label><label>M-Pesa receipt number<input name=\"receipt_number\" maxlength=\"128\" required></label><label>Evidence reference<input name=\"evidence\" maxlength=\"512\" required></label><label>Notes<textarea name=\"notes\" maxlength=\"2000\" required></textarea></label><button type=\"submit\" data-mutation>Record manual settlement</button></form></dialog><noscript><p>Enable JavaScript to sign in and use the operations dashboard.</p></noscript></main>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+func AdminPager(name string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div class=\"admin-pager\" data-pager=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var4 string
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.NewAttributeExpression(name).Resolve(ctx)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 80, Col: 42}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\"><button type=\"button\" data-page-prev=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var5 string
+		templ_7745c5c3_Var5, templ_7745c5c3_Err = templruntime.NewAttributeExpression(name).Resolve(ctx)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 80, Col: 86}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\">Previous</button><span data-page-label=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var6 string
+		templ_7745c5c3_Var6, templ_7745c5c3_Err = templruntime.NewAttributeExpression(name).Resolve(ctx)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 80, Col: 132}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "\">Page 1</span><button type=\"button\" data-page-next=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var7 string
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templruntime.NewAttributeExpression(name).Resolve(ctx)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 80, Col: 189}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\">Next</button></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

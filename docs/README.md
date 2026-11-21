@@ -54,3 +54,7 @@ Read in order: scope → architecture → ADR 002 → backend migration → deve
 ADR 004 records the SQL migration runner/Prisma baseline. Record further ADRs when decisions are made: hosting and supported runtime versions; admin identity/session strategy; inventory cutover and opening-stock intake; NCBA-authorized STK route and settlement identifiers; delivery fee acceptance/recipient; exchange price/stock policy; analytics retention. Consult R01 for approved business policy. ADR 003 records a conditional hosting direction; final public selection and its evidence remain open.
 
 - [Database catalog and stock workflow](stock-workflow.md): R09 operator import, availability, reconciliation and closure gates.
+# Administrative workspace
+
+See [R19 administrative operations](admin-operations.md) for screens, role
+permissions, schema v10, offline behavior and verification commands.

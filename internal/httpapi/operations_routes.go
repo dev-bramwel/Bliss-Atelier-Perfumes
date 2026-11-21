@@ -1,0 +1,158 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/auth"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/operations"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
+)
+
+type OperationsService interface {
+	CanAccess(context.Context, string, string) (bool, error)
+	Inventory(context.Context, int, int) (*operations.InventoryPage, error)
+	Orders(context.Context, string, int, int) (*operations.OrderPage, error)
+	Assign(context.Context, string, string, *auth.User, string) error
+	Fulfill(context.Context, string, *auth.User, string) error
+}
+
+func pageBounds(r *http.Request) (int, int) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
+}
+
+// Administrative routes never accept the historical shared manager secret. A
+// revoked cookie cannot fall back to another credential supplied in a header.
+func administrativeSessions(next http.Handler, service *auth.Service, checker *TrustedProxyChecker) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		r = r.WithContext(ctx)
+		path := strings.TrimPrefix(r.URL.Path, "/api")
+		admin := path == "/admin" || strings.HasPrefix(path, "/admin/")
+		ops := strings.HasPrefix(path, "/operations/")
+		quote := r.Method == http.MethodPost && strings.HasPrefix(path, "/orders/") && strings.HasSuffix(path, "/delivery-quote")
+		fulfill := r.Method == http.MethodPost && strings.HasPrefix(path, "/orders/") && (strings.HasSuffix(path, "/fulfill") || strings.HasSuffix(path, "/assign"))
+		invalidate := path == "/catalog/invalidate"
+		if !admin && !ops && !quote && !fulfill && !invalidate {
+			next.ServeHTTP(w, r)
+			return
+		}
+		cookie, err := r.Cookie("bliss_session")
+		if err != nil || cookie.Value == "" {
+			respond(w, 401, map[string]string{"error": "Please sign in with your staff account."})
+			return
+		}
+		user, ses, err := AuthenticateRequest(r.Context(), r, service, checker)
+		if err != nil {
+			respond(w, 401, map[string]string{"error": "Your session has ended. Please sign in again."})
+			return
+		}
+		manager := user.Role == auth.RoleOwner || user.Role == auth.RoleManager
+		if (admin && !manager) || ((ops || fulfill) && !auth.IsStaff(user.Role)) {
+			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
+			return
+		}
+		if (quote || invalidate) && !manager {
+			respond(w, 401, map[string]string{"error": "Owner or manager access is required."})
+			return
+		}
+		if !RequireCSRF(r, ses) {
+			respond(w, 403, map[string]string{"error": "Invalid CSRF token. Refresh your sign-in context and retry."})
+			return
+		}
+		RefreshSessionCookie(w, r, ses)
+		next.ServeHTTP(w, r.WithContext(ContextWithAuth(r.Context(), user, ses)))
+	})
+}
+
+func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, checker *TrustedProxyChecker) {
+	handleOrders := func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			respond(w, 503, map[string]string{"error": "Operations unavailable"})
+			return
+		}
+		u := UserFromContext(r.Context())
+		scope := ""
+		if u.Role == auth.RoleEmployee {
+			scope = u.ID
+		}
+		limit, offset := pageBounds(r)
+		p, err := store.Orders(r.Context(), scope, limit, offset)
+		if err != nil {
+			respond(w, 503, map[string]string{"error": "Orders unavailable"})
+			return
+		}
+		respond(w, 200, p)
+	}
+	handleInventory := func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			respond(w, 503, map[string]string{"error": "Inventory unavailable"})
+			return
+		}
+		limit, offset := pageBounds(r)
+		p, err := store.Inventory(r.Context(), limit, offset)
+		if err != nil {
+			respond(w, 503, map[string]string{"error": "Inventory unavailable"})
+			return
+		}
+		respond(w, 200, p)
+	}
+	handleMutation := func(assign bool) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			u := UserFromContext(r.Context())
+			if assign && u.Role != auth.RoleOwner {
+				respond(w, 403, map[string]string{"error": "Only the owner can assign orders."})
+				return
+			}
+			if store == nil {
+				respond(w, 503, map[string]string{"error": "Operations unavailable"})
+				return
+			}
+			var err error
+			if assign {
+				var body struct {
+					UserID string `json:"user_id"`
+				}
+				if json.NewDecoder(r.Body).Decode(&body) != nil || body.UserID == "" {
+					respond(w, 400, map[string]string{"error": "An employee user ID is required."})
+					return
+				}
+				err = store.Assign(r.Context(), r.PathValue("id"), body.UserID, u, SafeClientIP(r, checker))
+			} else {
+				err = store.Fulfill(r.Context(), r.PathValue("id"), u, SafeClientIP(r, checker))
+			}
+			switch {
+			case errors.Is(err, auth.ErrPermissionDenied):
+				respond(w, 403, map[string]string{"error": "This order is not assigned to you."})
+			case errors.Is(err, orders.ErrOrderNotFound):
+				respond(w, 404, map[string]string{"error": "Order not found"})
+			case errors.Is(err, operations.ErrConflict):
+				respond(w, 409, map[string]string{"error": "The order must be paid and awaiting dispatch, or the selected employee is inactive."})
+			case err != nil:
+				respond(w, 503, map[string]string{"error": "Operation could not be confirmed. Refresh the order before retrying."})
+			default:
+				respond(w, 200, map[string]string{"status": "updated"})
+			}
+		}
+	}
+	for _, prefix := range []string{"", "/api"} {
+		mux.HandleFunc("GET "+prefix+"/operations/orders", handleOrders)
+		mux.HandleFunc("GET "+prefix+"/operations/inventory", handleInventory)
+		mux.HandleFunc("POST "+prefix+"/orders/{id}/assign", handleMutation(true))
+		mux.HandleFunc("POST "+prefix+"/orders/{id}/fulfill", handleMutation(false))
+	}
+}

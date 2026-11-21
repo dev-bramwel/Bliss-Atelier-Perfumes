@@ -20,7 +20,7 @@ func TestAdmin_AuthRequired(t *testing.T) {
 	secCfg := SecurityConfig{
 		ManagerSecret: testSecret,
 	}
-	server := New(":0", 5*time.Second, nil, nil, mock, nil, secCfg)
+	server, cookie, csrf := newSessionAPI(t, ":0", 5*time.Second, nil, nil, mock, nil, secCfg)
 
 	// 1. Missing Authorization header
 	req := httptest.NewRequest("GET", "/api/admin/payments/exceptions", nil)
@@ -41,7 +41,7 @@ func TestAdmin_AuthRequired(t *testing.T) {
 
 	// 3. Valid Secret
 	req = httptest.NewRequest("GET", "/api/admin/payments/exceptions", nil)
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	rec = httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -84,11 +84,11 @@ func TestAdmin_PaymentExceptionsLifecycle(t *testing.T) {
 		},
 	}
 
-	server := New(":0", 5*time.Second, nil, nil, mock, nil, SecurityConfig{ManagerSecret: testSecret})
+	server, cookie, csrf := newSessionAPI(t, ":0", 5*time.Second, nil, nil, mock, nil, SecurityConfig{ManagerSecret: testSecret})
 
 	// List Exceptions
 	req := httptest.NewRequest("GET", "/api/admin/payments/exceptions?status=open", nil)
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	rec := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
 
@@ -105,7 +105,7 @@ func TestAdmin_PaymentExceptionsLifecycle(t *testing.T) {
 
 	// Get Single Exception
 	req = httptest.NewRequest("GET", "/api/admin/payments/exceptions/exc-1", nil)
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	rec = httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -118,7 +118,7 @@ func TestAdmin_PaymentExceptionsLifecycle(t *testing.T) {
 		Notes:  "Reversal verified with bank statement",
 	})
 	req = httptest.NewRequest("POST", "/api/admin/payments/exceptions/exc-1/resolve", bytes.NewReader(resolveBody))
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
@@ -155,7 +155,7 @@ func TestAdmin_ManualSettlement(t *testing.T) {
 		},
 	}
 
-	server := New(":0", 5*time.Second, nil, nil, mock, nil, SecurityConfig{ManagerSecret: testSecret})
+	server, cookie, csrf := newSessionAPI(t, ":0", 5*time.Second, nil, nil, mock, nil, SecurityConfig{ManagerSecret: testSecret})
 
 	// Success manual settlement
 	body, _ := json.Marshal(orders.ManualSettlementRequest{
@@ -166,7 +166,7 @@ func TestAdmin_ManualSettlement(t *testing.T) {
 		Notes:         "Verified direct cash deposit with bank manager",
 	})
 	req := httptest.NewRequest("POST", "/api/admin/payments/manual-settlement", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	rec := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
 
@@ -194,7 +194,7 @@ func TestAdmin_ManualSettlement(t *testing.T) {
 		Notes:         "Notes",
 	})
 	req = httptest.NewRequest("POST", "/api/admin/payments/manual-settlement", bytes.NewReader(bodyDup))
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	rec = httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusConflict {
@@ -210,7 +210,7 @@ func TestAdmin_ManualSettlement(t *testing.T) {
 		Notes:         "Notes",
 	})
 	req = httptest.NewRequest("POST", "/api/admin/payments/manual-settlement", bytes.NewReader(bodyExp))
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	rec = httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusConflict {
@@ -233,7 +233,7 @@ func TestAdmin_PaymentCorrection(t *testing.T) {
 		},
 	}
 
-	server := New(":0", 5*time.Second, nil, nil, mock, nil, SecurityConfig{ManagerSecret: testSecret})
+	server, cookie, csrf := newSessionAPI(t, ":0", 5*time.Second, nil, nil, mock, nil, SecurityConfig{ManagerSecret: testSecret})
 
 	body, _ := json.Marshal(orders.PaymentCorrectionRequest{
 		OrderID:       "ord-corr",
@@ -244,7 +244,7 @@ func TestAdmin_PaymentCorrection(t *testing.T) {
 		Notes:         "Customer charged twice due to handset retry; reversal processed",
 	})
 	req := httptest.NewRequest("POST", "/api/admin/payments/corrections", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	rec := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
 
@@ -281,11 +281,11 @@ func TestAdmin_ReconcileAndAuditLedger(t *testing.T) {
 		},
 	}
 
-	server := New(":0", 5*time.Second, nil, nil, mock, nil, SecurityConfig{ManagerSecret: testSecret})
+	server, cookie, csrf := newSessionAPI(t, ":0", 5*time.Second, nil, nil, mock, nil, SecurityConfig{ManagerSecret: testSecret})
 
 	// List Audit
 	req := httptest.NewRequest("GET", "/api/admin/payments/audit-ledger?orderId=ord-1", nil)
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	rec := httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
 
@@ -295,7 +295,7 @@ func TestAdmin_ReconcileAndAuditLedger(t *testing.T) {
 
 	// Trigger Reconcile
 	req = httptest.NewRequest("POST", "/api/admin/payments/reconcile", nil)
-	req.Header.Set("Authorization", "Bearer "+testSecret)
+	authorizeStaff(req, cookie, csrf)
 	rec = httptest.NewRecorder()
 	server.server.Handler.ServeHTTP(rec, req)
 

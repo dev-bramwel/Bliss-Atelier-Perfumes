@@ -1,0 +1,133 @@
+# R19 administrative operations
+
+Issue #25 adds a session-backed workspace at `/admin`, `/dashboard` and
+`/admin/orders`, `/admin/inventory`, `/admin/payments`, `/admin/users`,
+`/admin/audit-logs`. These routes render the same Templ shell. Private records
+are fetched after staff authentication; they are never embedded in the HTML.
+
+## Sign-in and permissions
+
+Use the configured Google sign-in flow with an active staff account. The client
+gets the profile and a fresh CSRF token from `/api/auth/me`. The token stays in
+memory and accompanies every mutation as `X-CSRF-Token`. Administrative APIs
+require the `bliss_session` cookie; the historical shared manager secret is no
+longer accepted for cache invalidation, quote issuance or `/admin/*` APIs.
+
+Owners and managers can inspect all orders, quote delivery, inspect and resolve
+payment exceptions, record verified manual settlements and view payment audit
+records. Only owners assign orders to active employees. Employees can read
+inventory and inspect/fulfill their assigned orders through `/operations/*`
+and `/orders/:id` routes; all `/admin/*` APIs reject employees and customers.
+Guest order tokens retain their existing scoped customer behavior.
+
+Managers see only employee/customer user records and cannot grant owner or
+manager roles. Owners see all users; the UI offers manager, employee and customer
+as target roles. Manager audit queries exclude owner events **before** database
+pagination. Server authorization remains authoritative when a control is hidden.
+Role changes/deactivation revoke sessions. A subsequent 401 closes open drawers,
+clears the in-memory auth context and displays the sign-in prompt.
+
+## Screens and contracts
+
+All URLs below have the `/api` prefix when accessed through the storefront.
+
+| Screen | Reads | Mutations |
+| --- | --- | --- |
+| Orders | `GET /operations/orders`, `GET /orders/:id` | `POST /orders/:id/assign`, `POST /orders/:id/fulfill`, `POST /orders/:id/delivery-quote` |
+| Inventory | `GET /operations/inventory` | `POST /catalog/invalidate` |
+| Payments | `GET /admin/payments/exceptions`, `.../exceptions/:id`, `.../unresolved`, `.../audit-ledger` | `POST .../exceptions/:id/resolve`, `.../manual-settlement`, `.../reconcile` |
+| Users | `GET /admin/users` | `POST /admin/users/:id/role`, `.../:id/status` |
+| Security audit | `GET /admin/audit-logs` | None |
+
+Lists use `limit` and `offset`; the UI requests 25 records, the API defaults to
+50 and caps requests at 100. Queries use stable ordering. The inventory response
+includes `products`, `total`, `common_price_kes`, `approval_until`; each product
+has `stock`, `held`, `available`, `opened`, `priceKes`. Unreserved units do not
+override reconciliation approval or opening-count requirements for public sales.
+Order lists include `orders`, `total`, `pending_dispatch`, assignment and latest
+delivery quote. Employee counts and lists use the employee scope in SQL.
+Stock/orders refresh every 15 seconds while the tab is visible and no mutation is
+in flight. A manual refresh is available; this is polling rather than a push feed.
+
+Assignment accepts `{ "user_id": "usr_..." }`. Fulfillment marks an already-paid,
+unfulfilled order as dispatched/collected. It cannot take payment, adjust stock
+again or fulfill an unpaid order. Assignment, fulfillment and their security audit
+records commit atomically. Employee assignment is rechecked inside the fulfillment
+transaction. Assignment and fulfillment serialize on the order row.
+
+Quote issuance accepts `{ "fee_kes": 350, "notes": "Delivery to Nyali" }`,
+derives the actor from the session, uses merchant collection, and expires after
+15 minutes. The established detailed R11 payload remains supported. Database
+quote status `pending` is displayed as **offered**, with a countdown. Pickup
+orders do not expose quote controls. Acceptance remains a customer operation.
+
+Exception resolution accepts `action`, `resolution_notes`, `evidence`; the old
+`notes` field remains compatible. Allowed actions are `applied_to_order`,
+`refund_recorded`, `dismissed_duplicate`, `voided`. A resolution records evidence
+and an atomic administrative audit entry; it does not itself create a refund or
+settle an order. Verify the actual financial operation before recording it.
+Manual settlement accepts the issue's `order_id`, `amount_kes`, `receipt_number`,
+`evidence`, `notes` fields, as well as the established camelCase payload. The
+server binds `authorizedBy` to the session and retains the R17 stock, amount,
+receipt and accepted-quote checks. The immutable payment ledger shows settlements
+and corrections. No operator identity is taken from browser input.
+
+The staged-sale metric counts existing device-local `shopSales` records. These
+are drafts for the trusted stock CLI, not confirmed server sales or a new public
+stock mutation interface. No write is sent to the previously missing
+`/api/stock/apply` endpoint.
+
+## Offline protection
+
+`shared.js` and the layout own `#offlineOverlay`, its local looping empty-atomizer
+WebM, and an animated SVG fallback. Reduced-motion users receive the static SVG.
+The overlay is a modal dialog above open drawers. A browser disconnect, failed
+fetch or gateway failure locks mutation buttons. Draft inputs stay in their
+original DOM; sensitive payment/quote drafts are not persisted to browser storage.
+
+A bounded heartbeat checks `/api/health/live` every three seconds after a failure,
+and immediately on the browser's online event. A valid `{"status":"alive"}`
+response restores controls and displays `Atelier Online ✓` before dismissing the
+overlay. Recovery refreshes server reads without replacing draft forms. Mutations
+are never replayed automatically. If a write's response is lost, inspect the
+server record before explicitly retrying. Reloading or closing the tab discards
+drafts. Logout removes local order/sale records and session storage and returns
+to the collection.
+
+## Upgrade and verification
+
+Run the existing migration/deployment procedure before starting the updated API.
+Migration `0010_order_assignment.sql` adds staff assignments and their foreign
+keys/index; `schema-v10.json` and runtime readiness include it. Existing schema
+snapshots and applied migrations remain unchanged. Runtime grants include the
+assignment table; catalog-only credentials cannot read it. Roll back only to a
+build compatible with schema v10, retaining assignment and audit history.
+
+Verification commands:
+
+```powershell
+go test ./...
+go vet ./...
+node --test web/catalog.test.cjs
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-integration.ps1
+```
+
+The integration script includes `internal/operations` and requires Docker. Its
+disposable database test checks inventory holds, employee-scoped lists, owner-only
+assignment, unpaid/duplicate fulfillment rejection, paid stock and atomic audits.
+The HTTP tests cover all four roles, cookie/CSRF requirements, revoked sessions,
+employee order isolation, issue payloads and actor binding.
+
+For browser verification, install the existing `tools/ci` dependencies and
+Playwright Chromium, run the web server on `127.0.0.1:8086`, then:
+
+```powershell
+node web/admin.browser.cjs
+```
+
+`BLISS_WEB_URL` overrides the address; `PLAYWRIGHT_MODULE` can point to another
+installed Playwright module. API fixtures test owner, manager, employee and
+customer journeys, pagination, offline and failed-write draft preservation,
+CSRF headers, role filtering, session expiry and mobile layouts. They do not
+replace the PostgreSQL or live provider integration suite. Screenshots are written
+under `.local/r19-browser`.

@@ -5,6 +5,7 @@
   "scripts": {
     "contracts": "node contracts.mjs",
     "browser": "node browser.mjs",
+    "admin-browser": "node ../../web/admin.browser.cjs",
     "test": "node --test issue-dependencies.test.mjs"
   },
   "devDependencies": {

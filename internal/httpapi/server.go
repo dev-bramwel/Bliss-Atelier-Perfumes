@@ -124,6 +124,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	var redisClient *rediscache.Client
 	var catalogCache CatalogCacheProvider
 	var authService *auth.Service
+	var operationsStore OperationsService
 
 	for _, d := range deps {
 		switch v := d.(type) {
@@ -145,6 +146,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			catalogCache = v
 		case *auth.Service:
 			authService = v
+		case OperationsService:
+			operationsStore = v
 		}
 	}
 
@@ -167,6 +170,9 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	proxyChecker := NewTrustedProxyChecker(secConfig.TrustedProxies)
 	extractManager := func(r *http.Request, w ...http.ResponseWriter) string {
 		if authService != nil {
+			if u := UserFromContext(r.Context()); u != nil && (u.Role == auth.RoleOwner || u.Role == auth.RoleManager) {
+				return u.ID
+			}
 			if user, ses, err := AuthenticateRequest(r.Context(), r, authService, proxyChecker); err == nil && user != nil {
 				// Downward Isolation: Only Owner and Manager roles are permitted into manager payment/admin routes
 				if user.Role == auth.RoleOwner || user.Role == auth.RoleManager {
@@ -189,6 +195,11 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 	authorizeOrder := func(ctx context.Context, r *http.Request, id string, w ...http.ResponseWriter) (bool, error) {
 		if authService != nil {
+			if _, err := r.Cookie("bliss_session"); err == nil {
+				if _, _, authErr := AuthenticateRequest(ctx, r, authService, proxyChecker); authErr != nil {
+					return false, nil
+				}
+			}
 			if user, ses, err := AuthenticateRequest(ctx, r, authService, proxyChecker); err == nil && user != nil {
 				if len(w) > 0 && w[0] != nil {
 					RefreshSessionCookie(w[0], r, ses)
@@ -197,11 +208,18 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				if user.Role == auth.RoleOwner || user.Role == auth.RoleManager {
 					return true, nil
 				}
+				if user.Role == auth.RoleEmployee && operationsStore != nil {
+					return operationsStore.CanAccess(ctx, id, user.ID)
+				}
 				// Downward Isolation: Employees and Customers do not have blanket access to arbitrary orders.
 				// Customer and guest access requires possession of the order's guest token.
 			}
 		}
-		return AuthorizeOrderAccess(ctx, r, id, orderStore, []string{secConfig.ManagerSecret}...)
+		// Shared manager secrets never confer order access in a session-enabled application.
+		if authService != nil {
+			return AuthorizeOrderAccess(ctx, r, id, orderStore)
+		}
+		return AuthorizeOrderAccess(ctx, r, id, orderStore, secConfig.ManagerSecret)
 	}
 
 	requireCSRFIfSession := func(w http.ResponseWriter, r *http.Request) bool {
@@ -219,6 +237,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	mux := http.NewServeMux()
 	registerAuthRoutes(mux, authService, proxyChecker)
 	registerAdminRoutes(mux, authService, proxyChecker)
+	registerOperationsRoutes(mux, operationsStore, proxyChecker)
 
 	catalogHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -279,6 +298,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		if catalogCache != nil {
 			if err := catalogCache.Invalidate(ctx); err != nil {
 				slog.Warn("catalog_cache_invalidation_failed", "error", err.Error())
+				respond(w, 503, map[string]string{"error": "Cache could not be invalidated. Please retry when the connection is restored."})
+				return
 			}
 		}
 		respond(w, http.StatusOK, map[string]string{"status": "invalidated"})
@@ -585,6 +606,13 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 
 			// Sanitize order: return only non-PII fields for unauthenticated lookup.
+			if authService != nil {
+				if u, _, e := AuthenticateRequest(ctx, r, authService, proxyChecker); e == nil && auth.IsStaff(u.Role) {
+					order.GuestToken = ""
+					respond(w, 200, map[string]any{"order": order})
+					return
+				}
+			}
 			// Customer phone, delivery location, name, and notes are excluded.
 			publicItems := make([]PublicOrderItem, 0, len(order.Items))
 			for _, item := range order.Items {
@@ -996,9 +1024,21 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			id := r.PathValue("id")
 			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 			var req orders.ResolveExceptionRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			var input struct {
+				orders.ResolveExceptionRequest
+				ResolutionNotes string `json:"resolution_notes"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				respond(w, 400, map[string]string{"error": "invalid request payload"})
 				return
+			}
+			req = input.ResolveExceptionRequest
+			if actor := UserFromContext(r.Context()); actor != nil {
+				req.ActorRole = actor.Role
+				req.IPAddress = SafeClientIP(r, proxyChecker)
+			}
+			if req.Notes == "" {
+				req.Notes = input.ResolutionNotes
 			}
 			// Invariant: req.AuthorizedBy is strictly bound to the authenticated manager identity
 			req.AuthorizedBy = manager
@@ -1026,7 +1066,16 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
-			attempts, err := orderStore.ListUnresolvedPaymentAttempts(ctx, 0, 50)
+			limit, offset := pageBounds(r)
+			var attempts []orders.PaymentAttempt
+			var err error
+			if p, ok := orderStore.(interface {
+				UnresolvedPage(context.Context, time.Duration, int, int) ([]orders.PaymentAttempt, error)
+			}); ok {
+				attempts, err = p.UnresolvedPage(ctx, 0, limit, offset)
+			} else {
+				attempts, err = orderStore.ListUnresolvedPaymentAttempts(ctx, 0, limit)
+			}
 			if err != nil {
 				respond(w, 500, map[string]string{"error": "failed to list unresolved attempts"})
 				return
@@ -1064,9 +1113,25 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 			var req orders.ManualSettlementRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			var input struct {
+				orders.ManualSettlementRequest
+				OrderID   string `json:"order_id"`
+				AmountKES int    `json:"amount_kes"`
+				Receipt   string `json:"receipt_number"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				respond(w, 400, map[string]string{"error": "invalid request payload"})
 				return
+			}
+			req = input.ManualSettlementRequest
+			if input.OrderID != "" {
+				req.OrderID = input.OrderID
+			}
+			if input.AmountKES != 0 {
+				req.AmountKes = input.AmountKES
+			}
+			if input.Receipt != "" {
+				req.ReceiptNumber = input.Receipt
 			}
 			// Invariant: req.AuthorizedBy is strictly bound to the authenticated manager identity
 			req.AuthorizedBy = manager
@@ -1139,7 +1204,16 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
 			defer cancel()
 			orderID := r.URL.Query().Get("orderId")
-			records, err := orderStore.ListPaymentAuditRecords(ctx, orderID)
+			limit, offset := pageBounds(r)
+			var records []orders.PaymentAuditRecord
+			var err error
+			if p, ok := orderStore.(interface {
+				PaymentAuditPage(context.Context, string, int, int) ([]orders.PaymentAuditRecord, error)
+			}); ok {
+				records, err = p.PaymentAuditPage(ctx, orderID, limit, offset)
+			} else {
+				records, err = orderStore.ListPaymentAuditRecords(ctx, orderID)
+			}
 			if err != nil {
 				respond(w, 500, map[string]string{"error": "failed to query audit records"})
 				return
@@ -1177,14 +1251,33 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				return
 			}
 			var p delivery.CreateQuoteParams
+			var input struct {
+				delivery.CreateQuoteParams
+				FeeKES *int   `json:"fee_kes"`
+				Notes  string `json:"notes"`
+			}
 			var maxBytesErr *http.MaxBytesError
-			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 				if errors.As(err, &maxBytesErr) {
 					respond(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large; maximum 64KB allowed"})
 					return
 				}
 				respond(w, 400, map[string]string{"error": "invalid json payload"})
 				return
+			}
+			p = input.CreateQuoteParams
+			if input.FeeKES != nil {
+				if *input.FeeKES <= 0 {
+					respond(w, 400, map[string]string{"error": "Transport fee must be a positive integer."})
+					return
+				}
+				p.AmountKES = *input.FeeKES
+				p.FeeRecipient = delivery.FeeRecipientMerchant
+				p.Arrangement = strings.TrimSpace(input.Notes)
+				if p.Arrangement == "" {
+					p.Arrangement = "Mombasa delivery"
+				}
+				p.ExpiresAt = time.Now().Add(15 * time.Minute)
 			}
 			p.CreatedBy = managerID
 			ctx, cancel := context.WithTimeout(r.Context(), timeout)
@@ -1431,13 +1524,18 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	})
 
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+		// Both the web proxy and direct API callers use the same payment routes.
+		if strings.HasPrefix(r.URL.Path, "/admin/payments/") {
+			r.URL.Path = "/api" + r.URL.Path
+		}
 		mux.ServeHTTP(w, r)
 	})
 
 	a.server = &http.Server{
 		Addr:              address,
-		Handler:           CORSHandler(secConfig.AllowedOrigins, innerHandler),
+		Handler:           CORSHandler(secConfig.AllowedOrigins, administrativeSessions(innerHandler, authService, proxyChecker)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      timeout + 5*time.Second,

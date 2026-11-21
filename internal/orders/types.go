@@ -262,6 +262,8 @@ type ExceptionFilter struct {
 }
 
 type ResolveExceptionRequest struct {
+	ActorRole    string `json:"-"`
+	IPAddress    string `json:"-"`
 	Action       string `json:"action"`
 	Notes        string `json:"notes"`
 	AuthorizedBy string `json:"authorizedBy"`
