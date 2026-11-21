@@ -15,13 +15,13 @@ import (
 )
 
 type mockStore struct {
-	mu           sync.Mutex
-	attempts     []orders.PaymentAttempt
-	orders       map[string]*orders.Order
-	exceptions   []orders.PaymentException
-	updatedAtts  map[string]orders.PaymentAttempt
-	schedQueries map[string]time.Time
-	confirmed    map[string]string // orderID -> receiptNumber
+	mu            sync.Mutex
+	attempts      []orders.PaymentAttempt
+	orders        map[string]*orders.Order
+	exceptions    []orders.PaymentException
+	updatedAtts   map[string]orders.PaymentAttempt
+	schedQueries  map[string]time.Time
+	confirmed     map[string]string // orderID -> receiptNumber
 	countOverride int
 }
 
@@ -388,10 +388,10 @@ func TestReconciler_UnresolvedPaymentsGaugeReflectsTotalCount(t *testing.T) {
 	store.attempts = make([]orders.PaymentAttempt, 50)
 	for i := 0; i < 50; i++ {
 		store.attempts[i] = orders.PaymentAttempt{
-			ID:            fmt.Sprintf("att-%d", i),
-			OrderID:       fmt.Sprintf("ord-%d", i),
-			Status:        orders.AttemptUnknown,
-			CreatedAt:     time.Now().Add(-5 * time.Minute),
+			ID:        fmt.Sprintf("att-%d", i),
+			OrderID:   fmt.Sprintf("ord-%d", i),
+			Status:    orders.AttemptUnknown,
+			CreatedAt: time.Now().Add(-5 * time.Minute),
 		}
 	}
 	store.countOverride = 85
