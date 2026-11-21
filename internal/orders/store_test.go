@@ -1025,13 +1025,23 @@ func TestStore_InitializeActiveReservationsTelemetry(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now().UTC()
+	for _, ordID := range []string{"ord-tel-1", "ord-tel-2", "ord-tel-3", "ord-tel-4"} {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO public."Order" (id, "customerName", "customerPhone", "deliveryLocation", "totalKes", items, "updatedAt")
+			VALUES ($1, 'Test Customer', '254712345678', 'Nairobi', 1000, '[]'::jsonb, now())
+		`, ordID)
+		if err != nil {
+			t.Fatalf("failed to insert prerequisite order %s: %v", ordID, err)
+		}
+	}
+
 	_, err := pool.Exec(ctx, `
 		INSERT INTO public.stock_reservation (id, order_id, status, expires_at, created_at)
 		VALUES
-			('res-telemetry-1', 'ord-tel-1', 'active', $1, $2),
-			('res-telemetry-2', 'ord-tel-2', 'active', $3, $4),
-			('res-telemetry-3', 'ord-tel-3', 'active', $5, $6),
-			('res-telemetry-4', 'ord-tel-4', 'released', $7, $8)
+			(gen_random_uuid(), 'ord-tel-1', 'active', $1, $2),
+			(gen_random_uuid(), 'ord-tel-2', 'active', $3, $4),
+			(gen_random_uuid(), 'ord-tel-3', 'active', $5, $6),
+			(gen_random_uuid(), 'ord-tel-4', 'released', $7, $8)
 	`,
 		now.Add(10*time.Minute), now,
 		now.Add(5*time.Minute), now,
