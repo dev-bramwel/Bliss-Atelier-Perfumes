@@ -105,6 +105,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		}
 		catalogStore = &catalog.Store{Pool: pool, Invalidator: catalogCache}
 		orderStore = &orders.Store{Pool: pool, Invalidator: catalogCache}
+		_ = orderStore.InitializeActiveReservationsTelemetry(ctx)
 		deliveryStore = delivery.NewStore(pool)
 		ping = pool.Ping
 		if cfg.RequireSchema {
