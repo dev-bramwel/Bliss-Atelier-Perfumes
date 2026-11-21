@@ -500,6 +500,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					AmountKes: order.TotalKes,
 				})
 				if stkErr == nil && stkResp != nil {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "accepted")
 					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptAccepted, stkResp.TransactionID, stkResp.ReferenceID, "")
 					order.LatestAttempt.Status = orders.AttemptAccepted
 					order.LatestAttempt.ProviderTransactionID = stkResp.TransactionID
@@ -510,11 +511,13 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 						"responseDescription": stkResp.StatusDescription,
 					}
 				} else if errors.Is(stkErr, provider.ErrProviderTimeout) {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "timeout")
 					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptUnknown, "", "", "provider initiation timed out")
 					order.LatestAttempt.Status = orders.AttemptUnknown
 					order.LatestAttempt.ErrorMessage = "provider initiation timed out"
 					orderWarning = "Payment confirmation is pending. Check this order before trying again."
 				} else if stkErr != nil {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptFailed, "", "", stkErr.Error())
 					order.LatestAttempt.Status = orders.AttemptFailed
 					order.LatestAttempt.ErrorMessage = stkErr.Error()
@@ -522,6 +525,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				}
 			}
 			if isPickup && paymentProv == nil && order.LatestAttempt != nil {
+				telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 				_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptFailed, "", "", "Payment service is temporarily unavailable")
 				order.LatestAttempt.Status = orders.AttemptFailed
 				order.LatestAttempt.ErrorMessage = "Payment service is temporarily unavailable"
@@ -921,6 +925,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					AmountKes: payableAmount,
 				})
 				if stkErr == nil && stkResp != nil {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "accepted")
 					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptAccepted, stkResp.TransactionID, stkResp.ReferenceID, "")
 					attempt.Status = orders.AttemptAccepted
 					attempt.ProviderTransactionID = stkResp.TransactionID
@@ -931,11 +936,13 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 						"responseDescription": stkResp.StatusDescription,
 					}
 				} else if errors.Is(stkErr, provider.ErrProviderTimeout) {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "timeout")
 					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptUnknown, "", "", "provider initiation timed out")
 					attempt.Status = orders.AttemptUnknown
 					attempt.ErrorMessage = "provider initiation timed out"
 					retryWarning = "Payment confirmation is pending. Check this order before trying again."
 				} else if stkErr != nil {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, "", "", stkErr.Error())
 					attempt.Status = orders.AttemptFailed
 					attempt.ErrorMessage = stkErr.Error()
@@ -944,6 +951,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 
 			if paymentProv == nil {
+				telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 				_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, "", "", "Payment service is temporarily unavailable")
 				attempt.Status = orders.AttemptFailed
 				attempt.ErrorMessage = "Payment service is temporarily unavailable"
