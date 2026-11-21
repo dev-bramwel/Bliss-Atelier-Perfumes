@@ -133,8 +133,9 @@ Configured in `infra/observability/prometheus/alerts.yml` and `infra/observabili
 | `UnresolvedPaymentSpike`| Unresolved attempts > 3 | Critical | [`runbook-payment-reconciliation-failure.md`](../runbooks/runbook-payment-reconciliation-failure.md) |
 | `PaymentExceptionDetected`| Any financial exception raised | Critical | [`runbook-payment-reconciliation-failure.md`](../runbooks/runbook-payment-reconciliation-failure.md) |
 | `DlqPoisonMessagesDetected`| Dead-letter queue count > 0 | Critical | [`runbook-dlq-poison-messages.md`](../runbooks/runbook-dlq-poison-messages.md) |
-| `OutboxBacklogGrowing` | Outbox pending events > 20 | Warning | [`runbook-dlq-poison-messages.md`](../runbooks/runbook-dlq-poison-messages.md) |
+| `OutboxBacklogGrowing` | Outbox pending events > 20 | Warning | [`runbook-outbox-backlog.md`](../runbooks/runbook-outbox-backlog.md) |
 | `RedisOutageFallbackActive`| Redis operation error rate > 0 | Warning | [`runbook-cache-and-rate-limit-outage.md`](../runbooks/runbook-cache-and-rate-limit-outage.md) |
+| `ServiceTargetDown` | Scrape target unreachable (`up == 0`) | Critical | [`runbook-api-error-surge.md`](../runbooks/runbook-api-error-surge.md) |
 
 ---
 
