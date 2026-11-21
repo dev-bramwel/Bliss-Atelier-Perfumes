@@ -17,6 +17,7 @@ func (c *dbPoolCollector) Collect() {
 	DBPoolConnections.Set(float64(stat.IdleConns()), "idle")
 	DBPoolConnections.Set(float64(stat.TotalConns()), "total")
 	DBPoolMaxConnections.Set(float64(stat.MaxConns()))
+	DBPoolAcquireWait.Set(stat.AcquireDuration().Seconds())
 }
 
 // RegisterPoolStats registers a dynamic collector for PostgreSQL connection pool stats.
