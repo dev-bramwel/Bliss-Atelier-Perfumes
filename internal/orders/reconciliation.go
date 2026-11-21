@@ -358,6 +358,25 @@ func (s *Store) ListUnresolvedPaymentAttempts(ctx context.Context, staleThreshol
 	return attempts, nil
 }
 
+// CountUnresolvedPaymentAttempts returns the total count of payment attempts in 'accepted' or 'unknown' status
+// that are due for query reconciliation, without applying a batch limit.
+func (s *Store) CountUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration) (int, error) {
+	cutoff := time.Now().Add(-staleThreshold)
+	var count int
+	err := s.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM public.payment_attempt
+		WHERE status IN ('accepted', 'unknown')
+			AND created_at <= $1
+			AND query_count < 5
+			AND (next_query_at IS NULL OR next_query_at <= now())
+	`, cutoff).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count unresolved payment attempts: %w", err)
+	}
+	return count, nil
+}
+
 // UpdatePaymentAttemptQuerySchedule updates an attempt's query count and schedules the next query retry.
 func (s *Store) UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error {
 	var errStr *string
