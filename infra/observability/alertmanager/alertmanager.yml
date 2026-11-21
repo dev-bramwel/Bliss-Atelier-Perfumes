@@ -35,27 +35,32 @@ receivers:
         http_config:
           bearer_token_file: "/run/secrets/drill_responder_token"
 
-  # Production/Operational primary escalation target (defaults to drill sink if external webhook is unconfigured)
+  # Production/Operational primary escalation target
+  # Routes to designated operational escalation dispatcher which logs structured incident metadata
+  # and forwards to upstream paging systems (Opsgenie / PagerDuty / Slack) when GO_ESCALATION_FORWARD_URL is set.
   - name: "operational_escalation_default"
     webhook_configs:
-      - url: "http://drill-responder:9099/alerts"
+      - url: "http://drill-responder:9099/escalations/default"
         send_resolved: true
         http_config:
           bearer_token_file: "/run/secrets/drill_responder_token"
 
-  # Finance Operations escalation receiver
+  # Finance Operations escalation receiver:
+  # Dedicated channel for unmapped payments, payment exceptions, and reconciliation backlogs.
   - name: "finance_operations_escalation"
     webhook_configs:
-      - url: "http://drill-responder:9099/alerts"
+      - url: "http://drill-responder:9099/escalations/finance-ops"
         send_resolved: true
         http_config:
           bearer_token_file: "/run/secrets/drill_responder_token"
 
-  # Platform SRE escalation receiver
+  # Platform SRE escalation receiver:
+  # Dedicated channel for high 5xx error surges, DB connection exhaustion, and DLQ poison message alerts.
   - name: "platform_sre_escalation"
     webhook_configs:
-      - url: "http://drill-responder:9099/alerts"
+      - url: "http://drill-responder:9099/escalations/platform-sre"
         send_resolved: true
         http_config:
           bearer_token_file: "/run/secrets/drill_responder_token"
+
 
