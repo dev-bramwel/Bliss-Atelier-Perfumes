@@ -278,6 +278,7 @@ func newPaymentCallbackHandlers(
 			txID := payload.TransID
 			mob := payload.GetMobile()
 			expAmt := attempt.AmountKes
+			telemetry.PaymentAttemptsTotal.Inc("ncba", "failed")
 			telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionAmountMismatch)
 			_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
 				OrderID:               &order.ID,
@@ -325,6 +326,7 @@ func newPaymentCallbackHandlers(
 					"DUPLICATE_RECEIPT: receipt already used on order "+existingOrderID)
 				txID := payload.TransID
 				mob := payload.GetMobile()
+				telemetry.PaymentAttemptsTotal.Inc("ncba", "failed")
 				telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionDuplicateReceipt)
 				_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
 					OrderID:               &order.ID,
@@ -522,6 +524,7 @@ func newPaymentCallbackHandlers(
 				fmt.Sprintf("AMOUNT_MISMATCH: received %d KES, expected %d KES", amount, attempt.AmountKes))
 			txID := stk.CheckoutRequestID
 			expAmt := attempt.AmountKes
+			telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 			telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionAmountMismatch)
 			_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
 				OrderID:               &order.ID,
@@ -560,6 +563,7 @@ func newPaymentCallbackHandlers(
 				_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, stk.CheckoutRequestID, stk.MerchantRequestID,
 					"DUPLICATE_RECEIPT: receipt already used on order "+existingOrderID)
 				txID := stk.CheckoutRequestID
+				telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 				telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionDuplicateReceipt)
 				_, _ = orderStore.RecordPaymentException(ctx, orders.PaymentException{
 					OrderID:               &order.ID,
