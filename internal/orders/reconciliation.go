@@ -385,7 +385,7 @@ func (s *Store) UnresolvedPage(ctx context.Context, staleThreshold time.Duration
 }
 
 // CountUnresolvedPaymentAttempts returns the total count of payment attempts in 'accepted' or 'unknown' status
-// that are due for query reconciliation, without applying a batch limit.
+// that remain unresolved, including in-flight retries and terminal unknown attempts awaiting operator action.
 func (s *Store) CountUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration) (int, error) {
 	cutoff := time.Now().Add(-staleThreshold)
 	var count int
@@ -393,9 +393,7 @@ func (s *Store) CountUnresolvedPaymentAttempts(ctx context.Context, staleThresho
 		SELECT COUNT(*)
 		FROM public.payment_attempt
 		WHERE status IN ('accepted', 'unknown')
-			AND created_at <= $1
-			AND query_count < 5
-			AND (next_query_at IS NULL OR next_query_at <= now())
+			AND (status = 'unknown' OR created_at <= $1)
 	`, cutoff).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count unresolved payment attempts: %w", err)
