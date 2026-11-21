@@ -1,11 +1,13 @@
 package telemetry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -37,14 +39,16 @@ type AlertNotification struct {
 }
 
 // DrillResponder is a bounded, authenticated receiver that captures incoming Alertmanager
-// notifications and exposes liveness endpoints for synthetic incident drills.
+// notifications, dispatches operational escalations, and exposes liveness endpoints.
 type DrillResponder struct {
 	mu             sync.RWMutex
 	authToken      string
+	forwardURL     string
 	receivedAlerts []AlertNotification
 }
 
-// NewDrillResponder initializes an in-memory alert recipient store with token validation.
+// NewDrillResponder initializes an in-memory alert recipient store with token validation
+// and optional operational escalation webhook forwarding.
 func NewDrillResponder(authToken ...string) *DrillResponder {
 	var token string
 	if len(authToken) > 0 && authToken[0] != "" {
@@ -57,10 +61,20 @@ func NewDrillResponder(authToken ...string) *DrillResponder {
 		}
 	}
 
+	forwardURL := os.Getenv("GO_ESCALATION_FORWARD_URL")
+
 	return &DrillResponder{
 		authToken:      token,
+		forwardURL:     forwardURL,
 		receivedAlerts: make([]AlertNotification, 0, MaxRetainedAlerts),
 	}
+}
+
+// SetForwardURL sets the upstream operational escalation destination URL (e.g., PagerDuty, Opsgenie, Slack).
+func (r *DrillResponder) SetForwardURL(url string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.forwardURL = url
 }
 
 // Alerts returns a thread-safe snapshot of all captured alert notifications.
@@ -89,7 +103,7 @@ func (r *DrillResponder) isAuthorized(req *http.Request) bool {
 	return authHeader == expectedBearer || customToken == r.authToken
 }
 
-// Handler returns the HTTP router serving /alerts and /health/live.
+// Handler returns the HTTP router serving /alerts, /health/live, and operational escalation endpoints.
 func (r *DrillResponder) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health/live", func(w http.ResponseWriter, req *http.Request) {
@@ -97,63 +111,109 @@ func (r *DrillResponder) Handler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	mux.HandleFunc("/alerts", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
+
+	handleAlertEndpoint := func(escalationTarget string) http.HandlerFunc {
+		return func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				if !r.isAuthorized(req) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(r.Alerts())
+				return
+			}
+
+			if req.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			// Enforce authentication via Bearer token or X-Drill-Token header
 			if !r.isAuthorized(req) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
 				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(r.Alerts())
-			return
-		}
 
-		if req.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// Enforce authentication via Bearer token or X-Drill-Token header
-		if !r.isAuthorized(req) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
-			return
-		}
-
-		// Enforce strict 64 KiB request body limit
-		req.Body = http.MaxBytesReader(w, req.Body, MaxAlertBodyBytes)
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			var maxBytesErr *http.MaxBytesError
-			if errors.As(err, &maxBytesErr) {
-				http.Error(w, "request entity too large", http.StatusRequestEntityTooLarge)
+			// Enforce strict 64 KiB request body limit
+			req.Body = http.MaxBytesReader(w, req.Body, MaxAlertBodyBytes)
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				var maxBytesErr *http.MaxBytesError
+				if errors.As(err, &maxBytesErr) {
+					http.Error(w, "request entity too large", http.StatusRequestEntityTooLarge)
+					return
+				}
+				http.Error(w, "failed to read body", http.StatusBadRequest)
 				return
 			}
-			http.Error(w, "failed to read body", http.StatusBadRequest)
-			return
-		}
 
-		var notif AlertNotification
-		if err := json.Unmarshal(body, &notif); err != nil {
-			http.Error(w, "invalid json payload", http.StatusBadRequest)
-			return
-		}
+			var notif AlertNotification
+			if err := json.Unmarshal(body, &notif); err != nil {
+				http.Error(w, "invalid json payload", http.StatusBadRequest)
+				return
+			}
 
-		// Retain alerts with bounded ring buffer semantics
-		r.mu.Lock()
-		if len(r.receivedAlerts) >= MaxRetainedAlerts {
-			r.receivedAlerts = r.receivedAlerts[1:]
-		}
-		r.receivedAlerts = append(r.receivedAlerts, notif)
-		r.mu.Unlock()
+			// Operational escalation dispatch & structured audit
+			if escalationTarget != "" {
+				slog.Warn("operational_alert_escalated",
+					"channel", escalationTarget,
+					"receiver", notif.Receiver,
+					"status", notif.Status,
+					"alert_count", len(notif.Alerts),
+				)
+				for _, a := range notif.Alerts {
+					slog.Warn("operational_escalation_incident",
+						"channel", escalationTarget,
+						"alertname", a.Labels["alertname"],
+						"severity", a.Labels["severity"],
+						"team", a.Labels["team"],
+						"owner", a.Annotations["owner"],
+						"escalation", a.Annotations["escalation"],
+						"runbook_url", a.Annotations["runbook_url"],
+					)
+				}
+			}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"received"}`))
-	})
+			// Optional external webhook forwarder (PagerDuty, Opsgenie, Slack)
+			r.mu.RLock()
+			fwd := r.forwardURL
+			r.mu.RUnlock()
+			if fwd != "" {
+				go func(target string, payload []byte) {
+					client := &http.Client{Timeout: 5 * time.Second}
+					postReq, pErr := http.NewRequestWithContext(context.Background(), http.MethodPost, target, bytes.NewReader(payload))
+					if pErr == nil {
+						postReq.Header.Set("Content-Type", "application/json")
+						if resp, dErr := client.Do(postReq); dErr == nil {
+							_ = resp.Body.Close()
+						}
+					}
+				}(fwd, body)
+			}
+
+			// Retain alerts with bounded ring buffer semantics
+			r.mu.Lock()
+			if len(r.receivedAlerts) >= MaxRetainedAlerts {
+				r.receivedAlerts = r.receivedAlerts[1:]
+			}
+			r.receivedAlerts = append(r.receivedAlerts, notif)
+			r.mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"received"}`))
+		}
+	}
+
+	mux.HandleFunc("/alerts", handleAlertEndpoint(""))
+	mux.HandleFunc("/escalations/platform-sre", handleAlertEndpoint("platform-sre"))
+	mux.HandleFunc("/escalations/finance-ops", handleAlertEndpoint("finance-ops"))
+	mux.HandleFunc("/escalations/default", handleAlertEndpoint("default"))
 	return mux
 }
 
