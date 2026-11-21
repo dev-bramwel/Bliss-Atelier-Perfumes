@@ -290,3 +290,35 @@ func TestHTTPMiddlewareMethodNormalization(t *testing.T) {
 		t.Fatalf("un-normalized method leaked into metrics labels:\n%s", metrics)
 	}
 }
+
+func TestStatusCapturingResponseWriter_FirstStatusHonoredAndInterfacesForwarded(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sw := &statusCapturingResponseWriter{
+		ResponseWriter: rec,
+		statusCode:     http.StatusOK,
+	}
+
+	// 1. First WriteHeader sets code
+	sw.WriteHeader(http.StatusCreated)
+	// 2. Second WriteHeader should be ignored
+	sw.WriteHeader(http.StatusInternalServerError)
+
+	if sw.statusCode != http.StatusCreated {
+		t.Errorf("expected first status 201 to be preserved, got %d", sw.statusCode)
+	}
+
+	// 3. Unwrap returns original ResponseWriter
+	if sw.Unwrap() != rec {
+		t.Errorf("expected Unwrap() to return inner recorder")
+	}
+
+	// 4. Flush does not panic
+	sw.Flush()
+
+	// 5. ReadFrom works
+	data := "test-body-stream"
+	n, err := sw.ReadFrom(strings.NewReader(data))
+	if err != nil || n != int64(len(data)) {
+		t.Errorf("expected ReadFrom to stream %d bytes, got %d (err: %v)", len(data), n, err)
+	}
+}
