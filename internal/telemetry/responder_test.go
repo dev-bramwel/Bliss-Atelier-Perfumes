@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -137,3 +138,43 @@ func TestRunResponder_Cancellation(t *testing.T) {
 		t.Fatalf("expected clean exit on cancellation, got error: %v", err)
 	}
 }
+
+func TestDrillResponder_OperationalEscalationRoutingAndForwarding(t *testing.T) {
+	forwardReceived := make(chan string, 2)
+	upstreamMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		forwardReceived <- string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstreamMock.Close()
+
+	responder := NewDrillResponder("test-token-123")
+	responder.SetForwardURL(upstreamMock.URL)
+	handler := responder.Handler()
+
+	platformPayload := `{"receiver":"platform_sre_escalation","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"ApiHigh5xxRate","severity":"critical","team":"platform-sre"},"annotations":{"summary":"High 5xx Rate","owner":"Platform SRE Team","escalation":"platform-oncall","runbook_url":"docs/runbooks/runbook-api-error-surge.md"}}]}`
+
+	req := httptest.NewRequest(http.MethodPost, "/escalations/platform-sre", strings.NewReader(platformPayload))
+	req.Header.Set("Authorization", "Bearer test-token-123")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 from /escalations/platform-sre, got %d", rec.Code)
+	}
+
+	select {
+	case fwd := <-forwardReceived:
+		if !strings.Contains(fwd, "ApiHigh5xxRate") {
+			t.Errorf("forwarded body did not contain alertname: %s", fwd)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for forwarded alert at upstream mock")
+	}
+
+	alerts := responder.Alerts()
+	if len(alerts) != 1 || alerts[0].Receiver != "platform_sre_escalation" {
+		t.Fatalf("expected alert retained in responder, got: %+v", alerts)
+	}
+}
+
