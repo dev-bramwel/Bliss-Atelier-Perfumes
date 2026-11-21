@@ -166,6 +166,8 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 		return nil, fmt.Errorf("failed to commit payment attempt transaction: %w", err)
 	}
 
+	telemetry.PaymentAttemptsTotal.Inc(provider, "initiated")
+
 	return &attempt, nil
 }
 
