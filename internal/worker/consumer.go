@@ -96,7 +96,7 @@ func (c *NotificationConsumer) RegisterHandler(eventType string, handler Handler
 
 // Start begins consuming deliveries from the queue until context cancellation.
 func (c *NotificationConsumer) Start(ctx context.Context) error {
-	c.logger.Info("notification_consumer_started", "consumer_name", ConsumerName)
+	c.logger.InfoContext(ctx, "notification_consumer_started", "consumer_name", ConsumerName)
 	return c.consumer.Consume(ctx, c.ProcessDelivery)
 }
 
@@ -105,7 +105,7 @@ func (c *NotificationConsumer) ProcessDelivery(ctx context.Context, d messaging.
 	msgID := d.MessageID()
 	if msgID == "" {
 		// Deliveries without message IDs are treated as poison
-		c.logger.Error("consumer_missing_message_id", "routing_key", d.RoutingKey())
+		c.logger.ErrorContext(ctx, "consumer_missing_message_id", "routing_key", d.RoutingKey())
 		telemetry.RabbitMQMessagesConsumedTotal.Inc("notifications", "dead_letter")
 		if c.inbox != nil {
 			_, _ = c.SyncDLQGauge(ctx)
@@ -519,7 +519,7 @@ func (c *NotificationConsumer) handleOrderCreated(ctx context.Context, env event
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		return fmt.Errorf("%w: %v", ErrPoisonPayload, err)
 	}
-	c.logger.Info("notification_order_created",
+	c.logger.InfoContext(ctx, "notification_order_created",
 		"order_id", payload.OrderID,
 		"total_kes", payload.TotalKes,
 		"item_count", len(payload.Items),
@@ -532,7 +532,7 @@ func (c *NotificationConsumer) handleOrderPaid(ctx context.Context, env events.E
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		return fmt.Errorf("%w: %v", ErrPoisonPayload, err)
 	}
-	c.logger.Info("notification_order_paid",
+	c.logger.InfoContext(ctx, "notification_order_paid",
 		"order_id", payload.OrderID,
 		"receipt", payload.ReceiptNumber,
 		"amount_kes", payload.AmountKes,
@@ -545,7 +545,7 @@ func (c *NotificationConsumer) handlePaymentAttempt(ctx context.Context, env eve
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		return fmt.Errorf("%w: %v", ErrPoisonPayload, err)
 	}
-	c.logger.Info("notification_payment_attempt",
+	c.logger.InfoContext(ctx, "notification_payment_attempt",
 		"order_id", payload.OrderID,
 		"attempt_number", payload.AttemptNumber,
 		"status", payload.Status,
