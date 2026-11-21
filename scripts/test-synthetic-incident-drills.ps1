@@ -129,11 +129,23 @@ if ($dockerAvailable) {
         Write-Host "  ✓ amtool check-config: validated Alertmanager configuration" -ForegroundColor Green
 
         # Test route resolution
-        $amRoute = docker run --rm --entrypoint /bin/amtool -v "${baseDir}/infra/observability/alertmanager:/etc/alertmanager:ro" prom/alertmanager:v0.27.0 config routes test --config.file=/etc/alertmanager/alertmanager.yml alertname=UnresolvedPaymentSpike severity=critical
-        if ($LASTEXITCODE -ne 0 -or $amRoute.Trim() -ne "drill_responder_webhook") {
-            throw "amtool config routes test failed: expected drill_responder_webhook, got $amRoute"
+        $amRouteFinance = docker run --rm --entrypoint /bin/amtool -v "${baseDir}/infra/observability/alertmanager:/etc/alertmanager:ro" prom/alertmanager:v0.27.0 config routes test --config.file=/etc/alertmanager/alertmanager.yml alertname=UnresolvedPaymentSpike severity=critical team=finance-ops
+        if ($LASTEXITCODE -ne 0 -or $amRouteFinance.Trim() -ne "finance_operations_escalation") {
+            throw "amtool config routes test failed: expected finance_operations_escalation, got $amRouteFinance"
         }
-        Write-Host "  ✓ amtool route test: alerts route to $($amRoute.Trim())" -ForegroundColor Green
+        Write-Host "  ✓ amtool route test (finance-ops): alerts route to $($amRouteFinance.Trim())" -ForegroundColor Green
+
+        $amRoutePlatform = docker run --rm --entrypoint /bin/amtool -v "${baseDir}/infra/observability/alertmanager:/etc/alertmanager:ro" prom/alertmanager:v0.27.0 config routes test --config.file=/etc/alertmanager/alertmanager.yml alertname=ApiHigh5xxRate severity=critical team=platform-sre
+        if ($LASTEXITCODE -ne 0 -or $amRoutePlatform.Trim() -ne "platform_sre_escalation") {
+            throw "amtool config routes test failed: expected platform_sre_escalation, got $amRoutePlatform"
+        }
+        Write-Host "  ✓ amtool route test (platform-sre): alerts route to $($amRoutePlatform.Trim())" -ForegroundColor Green
+
+        $amRouteDrill = docker run --rm --entrypoint /bin/amtool -v "${baseDir}/infra/observability/alertmanager:/etc/alertmanager:ro" prom/alertmanager:v0.27.0 config routes test --config.file=/etc/alertmanager/alertmanager.yml alertname=SyntheticAlert severity=critical
+        if ($LASTEXITCODE -ne 0 -or $amRouteDrill.Trim() -ne "drill_responder_webhook") {
+            throw "amtool config routes test failed: expected drill_responder_webhook, got $amRouteDrill"
+        }
+        Write-Host "  ✓ amtool route test (synthetic drill): alerts route to $($amRouteDrill.Trim())" -ForegroundColor Green
 
         # ----------------------------------------------------------------------
         # Live Containerized Alertmanager -> Drill-Responder Delivery Drill
