@@ -111,7 +111,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 		return s, nil
 	}
 
-	r.logger.Info("reconciler_sweep_starting", "unresolved_count", len(attempts))
+	r.logger.InfoContext(ctx, "reconciler_sweep_starting", "unresolved_count", len(attempts))
 
 	for _, att := range attempts {
 		if ctx.Err() != nil {
@@ -121,7 +121,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 		// Case 1: Ambiguous initiation with no provider transaction ID
 		if att.ProviderTransactionID == "" {
 			if time.Since(att.CreatedAt) >= 15*time.Minute {
-				r.logger.Warn("reconciler_timing_out_unmapped_attempt",
+				r.logger.WarnContext(ctx, "reconciler_timing_out_unmapped_attempt",
 					"attempt_id", att.ID,
 					"order_id", att.OrderID,
 					"created_at", att.CreatedAt,
@@ -148,7 +148,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 		})
 
 		if qErr != nil {
-			r.logger.Warn("reconciler_provider_query_failed",
+			r.logger.WarnContext(ctx, "reconciler_provider_query_failed",
 				"attempt_id", att.ID,
 				"tx_id", att.ProviderTransactionID,
 				"error", qErr.Error(),
@@ -159,7 +159,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 
 		switch qResp.Status {
 		case "SUCCESS":
-			r.logger.Info("reconciler_converged_success",
+			r.logger.InfoContext(ctx, "reconciler_converged_success",
 				"attempt_id", att.ID,
 				"order_id", att.OrderID,
 				"tx_id", att.ProviderTransactionID,
@@ -167,7 +167,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 			// Confirm payment for the order without passing checkoutRequestId as M-Pesa receipt
 			cErr := r.store.ConfirmPayment(ctx, att.OrderID, "", att.AmountKes)
 			if cErr != nil && !errors.Is(cErr, orders.ErrLatePaymentResolution) {
-				r.logger.Error("reconciler_confirm_payment_error",
+				r.logger.ErrorContext(ctx, "reconciler_confirm_payment_error",
 					"order_id", att.OrderID,
 					"error", cErr.Error(),
 				)
@@ -180,7 +180,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 			s.Succeeded++
 
 		case "FAILED":
-			r.logger.Info("reconciler_converged_failure",
+			r.logger.InfoContext(ctx, "reconciler_converged_failure",
 				"attempt_id", att.ID,
 				"order_id", att.OrderID,
 				"description", qResp.Description,
@@ -189,7 +189,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 			s.Failed++
 
 		default: // "PENDING" or unknown provider status
-			r.logger.Info("reconciler_attempt_still_pending",
+			r.logger.InfoContext(ctx, "reconciler_attempt_still_pending",
 				"attempt_id", att.ID,
 				"order_id", att.OrderID,
 				"provider_status", qResp.Status,
@@ -198,7 +198,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 		}
 	}
 
-	r.logger.Info("reconciler_sweep_completed",
+	r.logger.InfoContext(ctx, "reconciler_sweep_completed",
 		"processed", s.Processed,
 		"succeeded", s.Succeeded,
 		"failed", s.Failed,
@@ -213,7 +213,7 @@ func (r *Reconciler) handleRetryOrException(ctx context.Context, att orders.Paym
 	nextQueryCount := att.QueryCount + 1
 
 	if nextQueryCount >= r.cfg.MaxQueryAttempts {
-		r.logger.Error("reconciler_max_attempts_exceeded_raising_exception",
+		r.logger.ErrorContext(ctx, "reconciler_max_attempts_exceeded_raising_exception",
 			"attempt_id", att.ID,
 			"order_id", att.OrderID,
 			"queries", nextQueryCount,
@@ -248,7 +248,7 @@ func (r *Reconciler) handleRetryOrException(ctx context.Context, att orders.Paym
 			},
 		})
 		if err != nil {
-			r.logger.Error("reconciler_failed_to_record_exception", "error", err.Error())
+			r.logger.ErrorContext(ctx, "reconciler_failed_to_record_exception", "error", err.Error())
 		} else {
 			s.ExceptionsRaised++
 		}
