@@ -128,6 +128,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 				)
 				_ = r.store.UpdatePaymentAttempt(ctx, att.ID, orders.AttemptFailed, "", "",
 					"Initiation timed out before provider transaction ID was established")
+				telemetry.PaymentAttemptsTotal.Inc(att.Provider, "failed")
 				s.Failed++
 			} else {
 				// Reschedule query retry so in-flight attempts do not starve the batch on every tick
@@ -177,6 +178,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 			}
 
 			_ = r.store.UpdatePaymentAttempt(ctx, att.ID, orders.AttemptSucceeded, att.ProviderTransactionID, att.ProviderReferenceID, "")
+			telemetry.PaymentAttemptsTotal.Inc(att.Provider, "success")
 			s.Succeeded++
 
 		case "FAILED":
@@ -186,6 +188,7 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 				"description", qResp.Description,
 			)
 			_ = r.store.UpdatePaymentAttempt(ctx, att.ID, orders.AttemptFailed, att.ProviderTransactionID, att.ProviderReferenceID, qResp.Description)
+			telemetry.PaymentAttemptsTotal.Inc(att.Provider, "failed")
 			s.Failed++
 
 		default: // "PENDING" or unknown provider status
@@ -225,6 +228,7 @@ func (r *Reconciler) handleRetryOrException(ctx context.Context, att orders.Paym
 		// Mark attempt unknown
 		_ = r.store.UpdatePaymentAttempt(ctx, att.ID, orders.AttemptUnknown, att.ProviderTransactionID, att.ProviderReferenceID,
 			"Exceeded maximum query attempts without definitive status from provider: "+reason)
+		telemetry.PaymentAttemptsTotal.Inc(att.Provider, "unknown")
 
 		// Raise actionable payment exception
 		telemetry.PaymentExceptionsTotal.Inc(orders.ExceptionStaleAttemptUnresolved)
