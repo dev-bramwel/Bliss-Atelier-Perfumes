@@ -141,6 +141,29 @@ func TestCorrelationIDContextAndPropagation(t *testing.T) {
 	}
 }
 
+func TestCorrelationID_RejectsPIIAndPhoneNumbers(t *testing.T) {
+	piiInputs := []string{
+		"254712345678",       // Kenyan phone with country code
+		"0712345678",         // Local Kenyan phone
+		"0112345678",         // Local 01... phone
+		"123456789012",       // Pure numeric sequence
+		"phone_254712345678", // String embedding phone number
+		"customer@test.com",  // Email
+	}
+
+	for _, input := range piiInputs {
+		req := httptest.NewRequest("GET", "/api/catalog", nil)
+		req.Header.Set("X-Correlation-ID", input)
+		id, _ := EnsureCorrelationID(req)
+		if id == input {
+			t.Errorf("expected caller PII %q to be rejected, but it was accepted", input)
+		}
+		if !strings.HasPrefix(id, "c_") {
+			t.Errorf("expected safe generated ID starting with c_, got %s", id)
+		}
+	}
+}
+
 func TestHTTPMiddlewareMetricsCapture(t *testing.T) {
 	testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/fail" {
