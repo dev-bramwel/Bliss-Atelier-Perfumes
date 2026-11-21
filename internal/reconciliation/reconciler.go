@@ -17,6 +17,7 @@ import (
 // OrderStore defines the repository capabilities required by the reconciler.
 type OrderStore interface {
 	ListUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration, limit int) ([]orders.PaymentAttempt, error)
+	CountUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration) (int, error)
 	UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error
 	UpdatePaymentAttempt(ctx context.Context, attemptID, status, providerTxID, providerRefID, errorMsg string) error
 	ConfirmPayment(ctx context.Context, orderID string, receiptNumber string, paidAmountKes ...int) error
@@ -98,7 +99,11 @@ func (r *Reconciler) ReconcileStaleAttempts(ctx context.Context) (Summary, error
 		return s, fmt.Errorf("failed to list unresolved attempts: %w", err)
 	}
 
-	telemetry.UnresolvedPaymentsGauge.Set(float64(len(attempts)))
+	totalUnresolved := len(attempts)
+	if count, countErr := r.store.CountUnresolvedPaymentAttempts(ctx, r.cfg.StaleThreshold); countErr == nil {
+		totalUnresolved = count
+	}
+	telemetry.UnresolvedPaymentsGauge.Set(float64(totalUnresolved))
 	telemetry.ReconciliationRunsTotal.Inc("success")
 
 	s.Processed = len(attempts)
