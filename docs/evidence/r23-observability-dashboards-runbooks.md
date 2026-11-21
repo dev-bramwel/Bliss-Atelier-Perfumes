@@ -17,12 +17,13 @@ Bliss Atelier Perfumes requires robust, zero-leak operational visibility and inc
    - Route paths are normalized to bounded templates (e.g. `/api/orders/{id}/payment-status`, `/api/admin/users/{id}/role`). Any unmapped path collapses into `/unmapped`.
    - HTTP methods are normalized via `NormalizeMethod` to bounded standard verbs (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`); unmapped verbs collapse into `UNKNOWN`.
 2. **Total PII & Secret Redaction**:
-   - Customer phone numbers (`+254...`, `07...`), addresses, session tokens, and webhook secrets are redacted across all logs, traces, and metrics.
+   - Customer phone numbers (`+254...`, `07...`), addresses, session tokens, and webhook secrets are redacted across all logs, telemetry, and metrics. Caller-controlled `X-Correlation-ID` values are strictly sanitized to reject numeric phone patterns, digit sequences, and PII.
 3. **Correlation ID Continuity & Tracing Scope**:
-   - The tracing scope delivered is **request-to-worker correlation ID tracing**.
-   - Every inbound HTTP request receives or preserves an `X-Correlation-ID` header.
+   > [!NOTE] Scope Clarification: Request-to-Worker Correlation IDs vs. Distributed Tracing
+   > The telemetry implementation provides end-to-end **request correlation ID continuity** across HTTP contexts, structured `slog` logs, outbox event envelopes, and message queue headers. It does **not** create OpenTelemetry/Jaeger spans or export distributed trace trees.
+   - Every inbound HTTP request receives or preserves a validated, non-PII `X-Correlation-ID` header.
    - Attached to `context.Context` via `telemetry.WithCorrelationID`.
-   - Automatically injected into all structured `slog` logs via `telemetry.CorrelationHandler`.
+   - Automatically injected into all structured `slog` logs via `telemetry.CorrelationHandler` and context-aware log calls.
    - Propagated through domain events (`events.NewEvent(..., correlationID, ...)`), stored in `public.outbox_event`, packaged into RabbitMQ `events.Envelope`, and restored in `worker.NotificationConsumer` context for asynchronous execution traceability.
 4. **Lightweight, Zero-Dependency Prometheus Exposition (`GET /metrics`)**:
    - Standard Prometheus 0.0.4 text exposition format served on `GET /metrics` on both API (`:8080`) and Worker (`:5002`) with zero external Go module overhead.
