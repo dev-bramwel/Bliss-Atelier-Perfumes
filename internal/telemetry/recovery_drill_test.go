@@ -44,6 +44,18 @@ func (m *mockReconciliationStore) ListUnresolvedPaymentAttempts(ctx context.Cont
 	return unresolved, nil
 }
 
+func (m *mockReconciliationStore) CountUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, a := range m.attempts {
+		if a.Status == orders.AttemptAccepted || a.Status == orders.AttemptUnknown {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (m *mockReconciliationStore) UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error {
 	return nil
 }
