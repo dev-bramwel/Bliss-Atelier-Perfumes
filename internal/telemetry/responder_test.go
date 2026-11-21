@@ -177,4 +177,3 @@ func TestDrillResponder_OperationalEscalationRoutingAndForwarding(t *testing.T) 
 		t.Fatalf("expected alert retained in responder, got: %+v", alerts)
 	}
 }
-
