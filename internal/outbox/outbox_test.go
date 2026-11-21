@@ -55,9 +55,18 @@ type mockOutboxStore struct {
 }
 
 func (m *mockOutboxStore) FetchPending(ctx context.Context, batchSize int, dest string) ([]EventRecord, error) {
+	if batchSize > 0 && len(m.pending) > batchSize {
+		result := m.pending[:batchSize]
+		m.pending = m.pending[batchSize:]
+		return result, nil
+	}
 	result := m.pending
 	m.pending = nil
 	return result, nil
+}
+
+func (m *mockOutboxStore) CountPending(ctx context.Context, dest string) (int, error) {
+	return len(m.pending), nil
 }
 
 func (m *mockOutboxStore) MarkPublished(ctx context.Context, ids []string) error {
@@ -193,5 +202,43 @@ func TestBackgroundPublisher_BrokerOutage(t *testing.T) {
 	err = fakeProducer.Publish(ctx, "order.created", "evt-recover", []byte("{}"))
 	if err != nil {
 		t.Fatalf("expected publish to succeed after recovery, got %v", err)
+	}
+}
+
+func TestBackgroundPublisher_BacklogGaugeReflectsTotalBacklogOverBatchLimit(t *testing.T) {
+	fakeProducer := messaging.NewFakeMessaging()
+	defer fakeProducer.Close()
+
+	payload := json.RawMessage(`{"orderId":"ord-1"}`)
+	records := []EventRecord{
+		{ID: "evt-1", EventType: "order.created", Payload: payload, Destination: "rabbitmq", Status: StatusPending},
+		{ID: "evt-2", EventType: "order.created", Payload: payload, Destination: "rabbitmq", Status: StatusPending},
+		{ID: "evt-3", EventType: "order.created", Payload: payload, Destination: "rabbitmq", Status: StatusPending},
+	}
+
+	mockStore := &mockOutboxStore{pending: records}
+	pub := NewBackgroundPublisher(
+		mockStore,
+		fakeProducer,
+		PublisherConfig{
+			BatchSize:   1, // Batch size is 1, but total backlog is 3
+			Destination: "rabbitmq",
+		},
+		slog.Default(),
+	)
+
+	ctx := context.Background()
+	if err := pub.ProcessBatch(ctx); err != nil {
+		t.Fatalf("ProcessBatch failed: %v", err)
+	}
+
+	// Verify that mockStore published 1 item from the batch
+	if len(mockStore.published) != 1 {
+		t.Errorf("expected 1 published from batch size 1, got %d", len(mockStore.published))
+	}
+
+	// Verify remaining backlog in mockStore
+	if len(mockStore.pending) != 2 {
+		t.Errorf("expected 2 items remaining in pending store, got %d", len(mockStore.pending))
 	}
 }
