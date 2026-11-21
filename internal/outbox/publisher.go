@@ -30,16 +30,24 @@ func DefaultPublisherConfig() PublisherConfig {
 	}
 }
 
+// EventStore defines persistence operations required by the outbox dispatcher.
+type EventStore interface {
+	FetchPending(ctx context.Context, batchSize int, destination string) ([]EventRecord, error)
+	CountPending(ctx context.Context, destination string) (int, error)
+	MarkPublished(ctx context.Context, ids []string) error
+	MarkFailed(ctx context.Context, id string, reason string, maxRetries int) error
+}
+
 // BackgroundPublisher polls the outbox store for pending events and publishes them with publisher confirms.
 type BackgroundPublisher struct {
-	store    *Store
+	store    EventStore
 	producer messaging.Publisher
 	cfg      PublisherConfig
 	logger   *slog.Logger
 }
 
 // NewBackgroundPublisher creates an outbox background publisher.
-func NewBackgroundPublisher(store *Store, producer messaging.Publisher, cfg PublisherConfig, logger *slog.Logger) *BackgroundPublisher {
+func NewBackgroundPublisher(store EventStore, producer messaging.Publisher, cfg PublisherConfig, logger *slog.Logger) *BackgroundPublisher {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = 500 * time.Millisecond
 	}
@@ -88,11 +96,14 @@ func (p *BackgroundPublisher) Start(ctx context.Context) error {
 
 // ProcessBatch fetches a single batch of pending outbox events and publishes them with confirms.
 func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
+	if count, countErr := p.store.CountPending(ctx, p.cfg.Destination); countErr == nil {
+		telemetry.OutboxPendingEventsGauge.Set(float64(count))
+	}
+
 	records, err := p.store.FetchPending(ctx, p.cfg.BatchSize, p.cfg.Destination)
 	if err != nil {
 		return err
 	}
-	telemetry.OutboxPendingEventsGauge.Set(float64(len(records)))
 	if len(records) == 0 {
 		return nil
 	}
@@ -146,6 +157,9 @@ func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 		}
 		telemetry.OutboxEventsPublishedTotal.Add(float64(len(publishedIDs)), p.cfg.Destination)
 		p.logger.DebugContext(ctx, "outbox_events_published", "count", len(publishedIDs))
+		if count, countErr := p.store.CountPending(ctx, p.cfg.Destination); countErr == nil {
+			telemetry.OutboxPendingEventsGauge.Set(float64(count))
+		}
 	}
 
 	return nil
