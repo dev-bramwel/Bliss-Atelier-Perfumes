@@ -27,3 +27,11 @@ scrape_configs:
           service: "bliss-worker"
           environment: "local-dev"
 
+  - job_name: "bliss-rabbitmq"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+        labels:
+          service: "bliss-rabbitmq"
+          environment: "local-dev"
+
