@@ -63,6 +63,7 @@
         "Reconnect and sign in before submitting. Your draft is retained.",
       );
     let response;
+    let text = "";
     try {
       response = await fetch(`/api${path}`, {
         credentials: "same-origin",
@@ -80,6 +81,7 @@
           ...options.headers,
         },
       });
+      text = await response.text();
     } catch {
       connection.dropped();
       throw new Error(
@@ -88,7 +90,6 @@
           : "Connection lost. Your inputs are retained while we reconnect.",
       );
     }
-    const text = await response.text();
     let data;
     try {
       data = text ? JSON.parse(text) : {};
@@ -301,31 +302,33 @@
           u.is_active ? "Yes" : "No",
           date(u.created_at),
         ].forEach((v) => cell(row, v));
-        const controls = el("div"),
-          select = el("select");
-        select.setAttribute("aria-label", `New role for ${u.name || u.email}`);
-        for (const role of owner()
-          ? ["manager", "employee", "customer"]
-          : ["employee", "customer"]) {
-          const option = el("option", role);
-          option.value = role;
-          select.append(option);
+        const controls = el("div");
+        if (owner()) {
+          const select = el("select");
+          select.setAttribute("aria-label", `New role for ${u.name || u.email}`);
+          for (const role of ["manager", "employee", "customer"]) {
+            const option = el("option", role);
+            option.value = role;
+            select.append(option);
+          }
+          if ([...select.options].some((option) => option.value === u.role))
+            select.value = u.role;
+          controls.append(
+            select,
+            action(
+              "Update role",
+              () =>
+                mutate(
+                  `/admin/users/${encodeURIComponent(u.id)}/role`,
+                  { role: select.value },
+                  "Role updated; the affected account must sign in again.",
+                  loadUsers,
+                ),
+              true,
+            ),
+          );
         }
-        if ([...select.options].some((option) => option.value === u.role))
-          select.value = u.role;
         controls.append(
-          select,
-          action(
-            "Update role",
-            () =>
-              mutate(
-                `/admin/users/${encodeURIComponent(u.id)}/role`,
-                { role: select.value },
-                "Role updated; the affected account must sign in again.",
-                loadUsers,
-              ),
-            true,
-          ),
           action(
             u.is_active ? "Deactivate" : "Activate",
             () =>

@@ -310,12 +310,28 @@ const exception = {
           );
           assert.equal(writes.at(-1).body.amount_kes, 2500);
           await page.goto(base + "/admin/users");
-          await page.waitForSelector("#usersRows select");
-          assert.equal(
-            await page.locator('#usersRows option[value="owner"]').count(),
-            0,
-          );
-          if (role === "manager") {
+          if (role === "owner") {
+            await page.waitForSelector("#usersRows select");
+            assert.equal(
+              await page.locator('#usersRows option[value="owner"]').count(),
+              0,
+            );
+            const roleDraft = page.locator("#usersRows select").first();
+            await roleDraft.selectOption("customer");
+            await context.setOffline(true);
+            await page.waitForSelector("#offlineOverlay[open]");
+            await context.setOffline(false);
+            await page.waitForFunction(() => document.getElementById("offlineOverlay").hidden);
+            assert.equal(await roleDraft.inputValue(), "customer");
+            await page.locator("#usersRows button").first().click();
+            await page.waitForFunction(() =>
+              document
+                .getElementById("adminMessage")
+                .textContent.includes("Role updated"),
+            );
+          } else if (role === "manager") {
+            await page.waitForSelector("#usersRows tr");
+            assert.equal(await page.locator("#usersRows select").count(), 0);
             assert.equal(
               await page
                 .locator("#usersRows")
@@ -323,24 +339,13 @@ const exception = {
                 .count(),
               0,
             );
-            assert.equal(
-              await page.locator('#usersRows option[value="manager"]').count(),
-              0,
+            await page.locator("#usersRows button").first().click();
+            await page.waitForFunction(() =>
+              document
+                .getElementById("adminMessage")
+                .textContent.includes("Account status updated"),
             );
           }
-        const roleDraft = page.locator("#usersRows select").first();
-        await roleDraft.selectOption("customer");
-        await context.setOffline(true);
-        await page.waitForSelector("#offlineOverlay[open]");
-        await context.setOffline(false);
-        await page.waitForFunction(() => document.getElementById("offlineOverlay").hidden);
-        assert.equal(await roleDraft.inputValue(), "customer");
-        await page.locator("#usersRows button").first().click();
-          await page.waitForFunction(() =>
-            document
-              .getElementById("adminMessage")
-              .textContent.includes("Role updated"),
-          );
           await page.goto(base + "/admin/audit-logs");
           await page.waitForSelector("#auditRows tr");
           if (role === "manager")
