@@ -25,6 +25,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/httpapi"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/operations"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
@@ -179,7 +180,11 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			ncbaClient, _ := provider.New(cfg.IOTimeout)
 			paymentProv, _ = provider.NewNCBA(ncbaConfig, ncbaClient)
 		}
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		var ops httpapi.OperationsService
+		if pool != nil {
+			ops = &operations.Store{Pool: pool}
+		}
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService, ops).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		if pool == nil || orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")

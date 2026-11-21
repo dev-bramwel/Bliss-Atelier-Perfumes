@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed sql/*.sql schema.sql schema.json schema-v2.json schema-v3.json schema-v4.json schema-v5.json schema-v6.json schema-v7.json schema-v8.json schema-v9.json ledger.sql prisma.sql
+//go:embed sql/*.sql schema.sql schema*.json ledger.sql prisma.sql
 var assets embed.FS
 
 const LockID int64 = 477418744910
@@ -55,6 +55,8 @@ func steps() []step {
 		{7, normalized(read("sql/0007_transactional_outbox_inbox.sql"))},
 		{8, normalized(read("sql/0008_payment_reconciliation_exceptions.sql"))},
 		{9, normalized(read("sql/0009_admin_identity_sessions_audit.sql"))},
+		{10, normalized(read("sql/0010_order_assignment.sql"))},
+		{11, normalized(read("sql/0011_customer_order_access.sql"))},
 	}
 }
 
@@ -122,7 +124,7 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 	}
 	// Stabilize existing relations against DDL and writes for consistent inventory/adoption.
 	for name := range tables {
-		if name != "Order" && name != "MpesaTransaction" && name != "_prisma_migrations" && name != "bliss_schema_migrations" && name != "catalog_settings" && name != "catalog_product" && name != "stock_control" && name != "stock_batch" && name != "stock_entry" && name != "stock_approval" && name != "order_item" && name != "stock_reservation" && name != "stock_reservation_item" && name != "order_fulfillment" && name != "delivery_quote" && name != "guest_order_access" && name != "idempotency_key" && name != "payment_attempt" && name != "outbox_event" && name != "inbox_message" && name != "payment_exception" && name != "payment_audit_ledger" && name != "app_user" && name != "login_transaction" && name != "user_session" && name != "admin_audit_log" {
+		if name != "Order" && name != "MpesaTransaction" && name != "_prisma_migrations" && name != "bliss_schema_migrations" && name != "catalog_settings" && name != "catalog_product" && name != "stock_control" && name != "stock_batch" && name != "stock_entry" && name != "stock_approval" && name != "order_item" && name != "stock_reservation" && name != "stock_reservation_item" && name != "order_fulfillment" && name != "delivery_quote" && name != "guest_order_access" && name != "idempotency_key" && name != "payment_attempt" && name != "outbox_event" && name != "inbox_message" && name != "payment_exception" && name != "payment_audit_ledger" && name != "app_user" && name != "login_transaction" && name != "user_session" && name != "admin_audit_log" && name != "order_assignment" {
 			return Result{}, reject("unrecognized public schema; no changes applied")
 		}
 		if _, err = tx.Exec(ctx, "LOCK TABLE public."+pgx.Identifier{name}.Sanitize()+" IN SHARE ROW EXCLUSIVE MODE NOWAIT"); err != nil {
@@ -133,15 +135,8 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 	if err != nil {
 		return Result{}, err
 	}
-	expected := map[string]json.RawMessage{}
-	if err = json.Unmarshal([]byte(read("schema-v9.json")), &expected); err != nil {
-		return Result{}, err
-	}
-	for name, actual := range tables {
-		if !sameJSON(actual, expected[name]) {
-			return Result{}, reject("schema mismatch; no changes applied")
-		}
-	}
+	// Validate against the verified ledger version below. Comparing older tables
+	// with the latest snapshot here would reject legitimate ALTER TABLE upgrades.
 	_, orders := tables["Order"]
 	_, payments := tables["MpesaTransaction"]
 	_, prisma := tables["_prisma_migrations"]
@@ -209,8 +204,12 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 		contract = "schema-v7.json"
 	} else if applied == 8 {
 		contract = "schema-v8.json"
-	} else if applied >= 9 {
+	} else if applied == 9 {
 		contract = "schema-v9.json"
+	} else if applied == 10 {
+		contract = "schema-v10.json"
+	} else if applied >= 11 {
+		contract = "schema-v11.json"
 	}
 	versionSchema := map[string]json.RawMessage{}
 	if err = json.Unmarshal([]byte(read(contract)), &versionSchema); err != nil {
@@ -270,6 +269,29 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 		}
 		if _, err = tx.Exec(ctx, "INSERT INTO public.bliss_schema_migrations(version,checksum,origin) VALUES ($1,$2,$3)", migration.version, checksum(migration.sql), origin); err != nil {
 			return Result{}, err
+		}
+	}
+	// Verify the result before committing any DDL or migration history.
+	if len(migrations) >= len(steps()) {
+		actual, inspectErr := inspect(ctx, tx)
+		if inspectErr != nil {
+			return Result{}, inspectErr
+		}
+		latest := map[string]json.RawMessage{}
+		if err = json.Unmarshal([]byte(read("schema-v11.json")), &latest); err != nil {
+			return Result{}, err
+		}
+		for name := range latest {
+			if name != "_prisma_migrations" {
+				if _, ok := actual[name]; !ok {
+					return Result{}, reject("post-migration schema mismatch; no changes applied")
+				}
+			}
+		}
+		for name, body := range actual {
+			if !sameJSON(body, latest[name]) {
+				return Result{}, reject("post-migration schema mismatch; no changes applied")
+			}
 		}
 	}
 	if err = tx.Commit(ctx); err != nil {

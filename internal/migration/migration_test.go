@@ -117,6 +117,19 @@ func noLedger(t *testing.T, pool *pgxpool.Pool) {
 
 func TestDisposableMigrations(t *testing.T) {
 	pool := testPool(t)
+	t.Run("upgrade v10 without requiring the new column beforehand", func(t *testing.T) {
+		reset(t, pool)
+		if _, err := execute(context.Background(), pool, "init", steps()[:10]); err != nil {
+			t.Fatal(err)
+		}
+		if got := run(t, pool, "status"); got.State != "pending" {
+			t.Fatal(got)
+		}
+		run(t, pool, "up")
+		if got := run(t, pool, "status"); got.State != "current" {
+			t.Fatal(got)
+		}
+	})
 	t.Run("empty requires explicit initialization", func(t *testing.T) {
 		reset(t, pool)
 		if got := run(t, pool, "status"); got.State != "empty" {
@@ -205,7 +218,7 @@ func TestDisposableMigrations(t *testing.T) {
 		fails(t, pool, "status", "checksum mismatch")
 	})
 	for name, sql := range map[string]string{
-		"unknown version":     "UPDATE public.bliss_schema_migrations SET version=version+9",
+		"unknown version":     "UPDATE public.bliss_schema_migrations SET version=(SELECT max(version)+1 FROM public.bliss_schema_migrations) WHERE version=(SELECT max(version) FROM public.bliss_schema_migrations)",
 		"wrong origin":        "UPDATE public.bliss_schema_migrations SET origin='prisma'",
 		"empty ledger":        "DELETE FROM public.bliss_schema_migrations",
 		"ledger schema drift": "ALTER TABLE public.bliss_schema_migrations ADD COLUMN surprise text",
@@ -391,7 +404,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v9.json")), &expected); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v11.json")), &expected); err != nil {
 			t.Fatal(err)
 		}
 		if len(actual) != len(expected) {

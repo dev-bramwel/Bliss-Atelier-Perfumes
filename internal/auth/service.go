@@ -396,7 +396,7 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 	}
 
 	// Downward Isolation: manager cannot alter status of owner or manager
-	if !CanManageRole(actor.Role, targetUser.Role) {
+	if !CanManageUserStatus(actor.Role, targetUser.Role) {
 		return ErrPermissionDenied
 	}
 
@@ -473,6 +473,9 @@ func (s *Service) ListUsers(ctx context.Context, actor *User, filterRole string)
 func (s *Service) InspectAuditLogs(ctx context.Context, actor *User, limit int, offset int) ([]AuditLogEntry, error) {
 	if actor == nil || (actor.Role != RoleOwner && actor.Role != RoleManager) {
 		return nil, ErrPermissionDenied
+	}
+	if p, ok := s.store.(pagedStore); ok {
+		return p.QueryAuditPage(ctx, actor.Role, limit, offset)
 	}
 
 	entries, err := s.store.QueryAuditLogs(ctx, limit, offset)

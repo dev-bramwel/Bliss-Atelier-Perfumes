@@ -59,6 +59,20 @@ func Handler(catalogStore httpapi.Catalog) http.Handler {
 	}
 
 	// Pages (both canonical paths and legacy .html aliases)
+	for _, method := range []string{"GET", "HEAD"} {
+		mux.HandleFunc(method+" /order/{id}", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+			render(w, r, "Your order", "/static/checkout.js", CheckoutPage())
+		})
+	}
+	for _, path := range []string{"/admin", "/admin/orders", "/admin/inventory", "/admin/payments", "/admin/users", "/admin/audit-logs"} {
+		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) {
+			render(w, r, "Dashboard", "/static/dashboard.js", DashboardPage(nil))
+		})
+		mux.HandleFunc("HEAD "+path, func(w http.ResponseWriter, r *http.Request) {
+			render(w, r, "Dashboard", "/static/dashboard.js", DashboardPage(nil))
+		})
+	}
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		render(w, r, "Collection", "/static/app.js", IndexPage(fetchProducts(r)))
 	})

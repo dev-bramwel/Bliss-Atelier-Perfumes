@@ -614,12 +614,13 @@ func TestOrderCreationWithProviderSTKPush(t *testing.T) {
 			}
 			createdAttempt = att
 			return &orders.Order{
-				ID:            "ord-stk-1",
-				TotalKes:      2500,
-				PaymentMethod: "mpesa",
-				CustomerPhone: req.Customer.Phone,
-				GuestToken:    "gt_testtoken",
-				LatestAttempt: att,
+				ID:             "ord-stk-1",
+				TotalKes:       2500,
+				PaymentMethod:  "pay_now",
+				DeliveryOption: "pickup",
+				CustomerPhone:  req.Customer.Phone,
+				GuestToken:     "gt_testtoken",
+				LatestAttempt:  att,
 			}, nil
 		},
 		updateAttemptFn: func(ctx context.Context, attemptID, status, txID, refID, errMsg string) error {
@@ -631,7 +632,7 @@ func TestOrderCreationWithProviderSTKPush(t *testing.T) {
 
 	api := New("127.0.0.1:0", time.Second, nil, mock, fake)
 
-	payload := `{"customer":{"name":"Alice","phone":"254712345678","location":"Nairobi","delivery":"delivery"},"paymentMethod":"mpesa","items":[{"id":"p1","qty":1}]}`
+	payload := `{"customer":{"name":"Alice","phone":"254712345678","location":"Nairobi","delivery":"pickup"},"paymentMethod":"mpesa","items":[{"id":"p1","qty":1}]}`
 	req := httptest.NewRequest("POST", "/api/orders", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

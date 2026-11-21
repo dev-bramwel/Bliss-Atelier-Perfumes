@@ -722,7 +722,7 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	}
 
 	testMgrSecret := "test-manager-secret-789"
-	api := New("127.0.0.1:0", time.Second, nil, mockOrder, mockDeliv, SecurityConfig{ManagerSecret: testMgrSecret})
+	api, cookie, csrf := newSessionAPI(t, "127.0.0.1:0", time.Second, nil, mockOrder, mockDeliv, SecurityConfig{ManagerSecret: testMgrSecret})
 
 	// 1a. GET /api/orders/{id}/delivery-quote unauthenticated fails with 401
 	unauthGetReq := httptest.NewRequest("GET", "/api/orders/"+orderID+"/delivery-quote", nil)
@@ -762,13 +762,13 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	// 2c. POST /api/orders/{id}/delivery-quote with authenticated manager creates quote (courier collection)
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload)))
 	req.Header.Set("X-Manager-Id", "mgr-1")
-	req.Header.Set("Authorization", "Bearer "+testMgrSecret)
+	authorizeStaff(req, cookie, csrf)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 201 {
 		t.Fatalf("expected 201 Created for delivery quote, got %d (body: %s)", w.Code, w.Body.String())
 	}
-	if len(mockDeliv.quotes[orderID]) == 0 || mockDeliv.quotes[orderID][0].CreatedBy != "mgr-1" {
+	if len(mockDeliv.quotes[orderID]) == 0 || mockDeliv.quotes[orderID][0].CreatedBy != "usr_staff-manager" {
 		t.Fatalf("expected created_by to be derived from authenticated manager identity mgr-1, got %v", mockDeliv.quotes[orderID][0].CreatedBy)
 	}
 
@@ -851,7 +851,7 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	createPayload2 := `{"amount_kes":400,"fee_recipient":"merchant","arrangement":"Express with tracking","expires_at":"` + time.Now().Add(2*time.Hour).Format(time.RFC3339) + `","customer_notes":"Call ahead"}`
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload2)))
 	req.Header.Set("X-Manager-Id", "mgr-2")
-	req.Header.Set("Authorization", "Bearer "+testMgrSecret)
+	authorizeStaff(req, cookie, csrf)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 201 {
@@ -899,7 +899,7 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	createPayload3 := `{"amount_kes":450,"fee_recipient":"merchant","arrangement":"Standard dispatch","expires_at":"` + time.Now().Add(2*time.Hour).Format(time.RFC3339) + `"}`
 	req = httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote", bytes.NewReader([]byte(createPayload3)))
 	req.Header.Set("X-Manager-Id", "mgr-3")
-	req.Header.Set("Authorization", "Bearer "+testMgrSecret)
+	authorizeStaff(req, cookie, csrf)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, req)
 	if w.Code != 201 {
@@ -909,7 +909,7 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	// Manager accepts quote v3
 	acceptMgrReq := httptest.NewRequest("POST", "/api/orders/"+orderID+"/delivery-quote/accept", bytes.NewReader([]byte(`{"version":3}`)))
 	acceptMgrReq.Header.Set("X-Manager-Id", "mgr-3")
-	acceptMgrReq.Header.Set("Authorization", "Bearer "+testMgrSecret)
+	authorizeStaff(acceptMgrReq, cookie, csrf)
 	w = httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(w, acceptMgrReq)
 	if w.Code != 200 {
