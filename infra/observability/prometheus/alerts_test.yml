@@ -17,9 +17,12 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
+              team: platform-sre
             exp_annotations:
               summary: "High API 5xx Error Rate"
               description: "HTTP 5xx error rate is exceeding 5% over the last minute."
+              owner: "Platform SRE Team"
+              escalation: "platform-oncall"
               runbook_url: "docs/runbooks/runbook-api-error-surge.md"
 
   # Test 2: ApiHighLatency
@@ -47,9 +50,12 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: warning
+              team: platform-sre
             exp_annotations:
               summary: "High API p95 Latency"
               description: "p95 API response duration exceeds 1.0s threshold."
+              owner: "Platform SRE Team"
+              escalation: "platform-oncall"
               runbook_url: "docs/runbooks/runbook-api-error-surge.md"
 
   # Test 3: DbPoolSaturation
@@ -65,9 +71,12 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
+              team: platform-sre
             exp_annotations:
               summary: "Database Connection Pool Saturation"
               description: "Acquired database connections exceed 85% of configured maximum."
+              owner: "Database & SRE Team"
+              escalation: "platform-oncall"
               runbook_url: "docs/runbooks/runbook-database-pool-exhaustion.md"
 
   # Test 4: UnresolvedPaymentSpike
@@ -81,9 +90,12 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
+              team: finance-ops
             exp_annotations:
               summary: "Unresolved Payment Attempts Spike"
               description: "Unresolved payment attempts count is high, requiring automated or operator reconciliation."
+              owner: "Finance Operations Lead"
+              escalation: "finance-oncall"
               runbook_url: "docs/runbooks/runbook-payment-reconciliation-failure.md"
 
   # Test 5: PaymentExceptionDetected
@@ -97,10 +109,13 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
+              team: finance-ops
               type: AMOUNT_MISMATCH
             exp_annotations:
               summary: "Payment Exception Raised"
               description: "Payment reconciliation exception detected (amount mismatch, unmapped tx, or duplicate receipt)."
+              owner: "Finance Operations Lead"
+              escalation: "finance-oncall"
               runbook_url: "docs/runbooks/runbook-payment-reconciliation-failure.md"
 
   # Test 6: DlqPoisonMessagesDetected
@@ -114,10 +129,13 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
+              team: platform-sre
               queue: dead_letter
             exp_annotations:
               summary: "Poison Messages Quarantined in DLQ"
               description: "One or more unprocessable messages rejected to Dead Letter Queue."
+              owner: "Platform SRE Team"
+              escalation: "platform-oncall"
               runbook_url: "docs/runbooks/runbook-dlq-poison-messages.md"
 
   # Test 7: OutboxBacklogGrowing
@@ -131,10 +149,13 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: warning
+              team: platform-sre
             exp_annotations:
               summary: "Transactional Outbox Backlog Growing"
               description: "Outbox dispatcher pending queue depth exceeds 20 events."
-              runbook_url: "docs/runbooks/runbook-dlq-poison-messages.md"
+              owner: "Platform SRE Team"
+              escalation: "platform-oncall"
+              runbook_url: "docs/runbooks/runbook-outbox-backlog.md"
 
   # Test 8: RedisOutageFallbackActive
   - interval: 10s
@@ -147,9 +168,12 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: warning
+              team: platform-sre
               cache: catalog
               operation: error
             exp_annotations:
               summary: "Redis Cache Outage Active"
               description: "Redis operations encountering errors; application running on database fallback."
+              owner: "Platform SRE Team"
+              escalation: "platform-oncall"
               runbook_url: "docs/runbooks/runbook-cache-and-rate-limit-outage.md"
