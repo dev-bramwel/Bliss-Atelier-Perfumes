@@ -1007,3 +1007,42 @@ func TestFindPaymentAttemptHelpers(t *testing.T) {
 		t.Fatalf("expected receipt order ID %q, got %q (err: %v)", order.ID, receiptOrder, err)
 	}
 }
+
+func TestStore_InitializeActiveReservationsTelemetry_NilSafe(t *testing.T) {
+	var s *Store
+	if err := s.InitializeActiveReservationsTelemetry(context.Background()); err != nil {
+		t.Fatalf("expected nil error for nil store, got %v", err)
+	}
+	emptyStore := &Store{}
+	if err := emptyStore.InitializeActiveReservationsTelemetry(context.Background()); err != nil {
+		t.Fatalf("expected nil error for empty store, got %v", err)
+	}
+}
+
+func TestStore_InitializeActiveReservationsTelemetry(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO public.stock_reservation (id, order_id, status, expires_at, created_at)
+		VALUES
+			('res-telemetry-1', 'ord-tel-1', 'active', $1, $2),
+			('res-telemetry-2', 'ord-tel-2', 'active', $3, $4),
+			('res-telemetry-3', 'ord-tel-3', 'active', $5, $6),
+			('res-telemetry-4', 'ord-tel-4', 'released', $7, $8)
+	`,
+		now.Add(10*time.Minute), now,
+		now.Add(5*time.Minute), now,
+		now.Add(-2*time.Minute), now.Add(-10*time.Minute),
+		now.Add(10*time.Minute), now,
+	)
+	if err != nil {
+		t.Fatalf("failed to insert test reservations: %v", err)
+	}
+
+	if err := store.InitializeActiveReservationsTelemetry(ctx); err != nil {
+		t.Fatalf("InitializeActiveReservationsTelemetry failed: %v", err)
+	}
+}
