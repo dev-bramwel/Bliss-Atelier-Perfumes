@@ -25,7 +25,8 @@ $requiredRunbooks = @(
     "docs/runbooks/runbook-dlq-poison-messages.md",
     "docs/runbooks/runbook-database-pool-exhaustion.md",
     "docs/runbooks/runbook-cache-and-rate-limit-outage.md",
-    "docs/runbooks/runbook-api-error-surge.md"
+    "docs/runbooks/runbook-api-error-surge.md",
+    "docs/runbooks/runbook-outbox-backlog.md"
 )
 
 foreach ($rb in $requiredRunbooks) {
