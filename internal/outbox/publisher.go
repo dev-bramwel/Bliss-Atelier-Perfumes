@@ -98,6 +98,10 @@ func (p *BackgroundPublisher) Start(ctx context.Context) error {
 func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 	if count, countErr := p.store.CountPending(ctx, p.cfg.Destination); countErr == nil {
 		telemetry.OutboxPendingEventsGauge.Set(float64(count))
+	} else {
+		p.logger.ErrorContext(ctx, "outbox_count_pending_failed", "destination", p.cfg.Destination, "error", countErr.Error())
+		telemetry.OutboxCountErrorsTotal.Inc(p.cfg.Destination)
+		telemetry.OutboxPendingEventsGauge.Set(-1)
 	}
 
 	records, err := p.store.FetchPending(ctx, p.cfg.BatchSize, p.cfg.Destination)
