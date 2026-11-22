@@ -167,6 +167,9 @@ if ($dockerAvailable) {
         $prevForwardUrl = $env:GO_ESCALATION_FORWARD_URL
         $prevPlatformUrl = $env:GO_PLATFORM_ESCALATION_URL
         $prevFinanceUrl = $env:GO_FINANCE_ESCALATION_URL
+        $prevForwardToken = $env:GO_ESCALATION_FORWARD_TOKEN
+        $prevPlatformToken = $env:GO_PLATFORM_ESCALATION_TOKEN
+        $prevFinanceToken = $env:GO_FINANCE_ESCALATION_TOKEN
 
         # Inspect actively running observability services so they can be restored rather than removed
         $runningServices = @(docker compose --profile observability ps --services --filter "status=running" 2>$null)
@@ -420,6 +423,9 @@ if ($dockerAvailable) {
             $env:GO_ESCALATION_FORWARD_URL = $prevForwardUrl
             $env:GO_PLATFORM_ESCALATION_URL = $prevPlatformUrl
             $env:GO_FINANCE_ESCALATION_URL = $prevFinanceUrl
+            $env:GO_ESCALATION_FORWARD_TOKEN = $prevForwardToken
+            $env:GO_PLATFORM_ESCALATION_TOKEN = $prevPlatformToken
+            $env:GO_FINANCE_ESCALATION_TOKEN = $prevFinanceToken
         }
 
         # ----------------------------------------------------------------------
