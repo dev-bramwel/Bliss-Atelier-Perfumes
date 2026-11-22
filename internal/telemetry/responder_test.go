@@ -225,3 +225,105 @@ func TestDrillResponder_UpstreamEscalationUnavailableReturns502(t *testing.T) {
 		t.Errorf("expected failure message in error body, got %s", rec.Body.String())
 	}
 }
+
+func TestDrillResponder_MetricsAndDrillInduction(t *testing.T) {
+	responder := NewDrillResponder("test-drill-token")
+	handler := responder.Handler()
+
+	// 1. Verify GET /metrics exposes Prometheus metrics
+	reqMetrics := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	recMetrics := httptest.NewRecorder()
+	handler.ServeHTTP(recMetrics, reqMetrics)
+	if recMetrics.Code != http.StatusOK {
+		t.Fatalf("expected 200 from /metrics, got %d", recMetrics.Code)
+	}
+
+	// 2. Unauthenticated induction returns 401
+	unauthReq := httptest.NewRequest(http.MethodPost, "/drill/induce-metric", strings.NewReader(`{"metric":"payment_exceptions_total"}`))
+	unauthRec := httptest.NewRecorder()
+	handler.ServeHTTP(unauthRec, unauthReq)
+	if unauthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized without token on /drill/induce-metric, got %d", unauthRec.Code)
+	}
+
+	// 3. Induce payment_exceptions_total
+	induceReq := httptest.NewRequest(http.MethodPost, "/drill/induce-metric", strings.NewReader(`{"metric":"payment_exceptions_total","label":"AMOUNT_MISMATCH"}`))
+	induceReq.Header.Set("Authorization", "Bearer test-drill-token")
+	induceRec := httptest.NewRecorder()
+	handler.ServeHTTP(induceRec, induceReq)
+	if induceRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 from /drill/induce-metric, got %d", induceRec.Code)
+	}
+
+	// 4. Induce rabbitmq_dlq_messages_gauge to 5
+	induceDLQ := httptest.NewRequest(http.MethodPost, "/drill/induce-metric", strings.NewReader(`{"metric":"rabbitmq_dlq_messages_gauge","label":"notifications","value":5}`))
+	induceDLQ.Header.Set("Authorization", "Bearer test-drill-token")
+	induceDLQRec := httptest.NewRecorder()
+	handler.ServeHTTP(induceDLQRec, induceDLQ)
+	if induceDLQRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 from /drill/induce-metric for DLQ, got %d", induceDLQRec.Code)
+	}
+
+	metricsOutput := DefaultRegistry.Gather()
+	if !strings.Contains(metricsOutput, `rabbitmq_dlq_messages_gauge{queue="notifications"} 5`) {
+		t.Errorf("expected dlq gauge 5 in metrics output, got:\n%s", metricsOutput)
+	}
+
+	// 5. Clear DLQ metric back to 0
+	clearDLQ := httptest.NewRequest(http.MethodPost, "/drill/clear-metric", strings.NewReader(`{"metric":"rabbitmq_dlq_messages_gauge","label":"notifications"}`))
+	clearDLQ.Header.Set("Authorization", "Bearer test-drill-token")
+	clearDLQRec := httptest.NewRecorder()
+	handler.ServeHTTP(clearDLQRec, clearDLQ)
+	if clearDLQRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 from /drill/clear-metric, got %d", clearDLQRec.Code)
+	}
+
+	metricsOutputAfter := DefaultRegistry.Gather()
+	if !strings.Contains(metricsOutputAfter, `rabbitmq_dlq_messages_gauge{queue="notifications"} 0`) {
+		t.Errorf("expected dlq gauge 0 in metrics output after clear, got:\n%s", metricsOutputAfter)
+	}
+}
+
+func TestDrillResponder_TestSinkMockUpstream(t *testing.T) {
+	responder := NewDrillResponder("test-drill-token")
+	testServer := httptest.NewServer(responder.Handler())
+	defer testServer.Close()
+
+	// Route platform escalation to responder's own test sink
+	responder.SetTeamForwardURL("platform-sre", testServer.URL+"/test-sink")
+	handler := responder.Handler()
+
+	payload := `{"receiver":"platform_sre_escalation","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"ServiceTargetDown","team":"platform-sre"}}]}`
+	req := httptest.NewRequest(http.MethodPost, "/escalations/platform-sre", strings.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer test-drill-token")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 when forwarding to /test-sink, got %d", rec.Code)
+	}
+
+	sinkAlerts := responder.TestSinkAlerts()
+	if len(sinkAlerts) != 1 || sinkAlerts[0].Receiver != "platform_sre_escalation" {
+		t.Fatalf("expected test sink to capture alert, got: %+v", sinkAlerts)
+	}
+
+	// Verify GET /test-sink returns captured alert
+	reqGetSink := httptest.NewRequest(http.MethodGet, "/test-sink", nil)
+	recGetSink := httptest.NewRecorder()
+	handler.ServeHTTP(recGetSink, reqGetSink)
+	if recGetSink.Code != http.StatusOK || !strings.Contains(recGetSink.Body.String(), "ServiceTargetDown") {
+		t.Fatalf("expected GET /test-sink to return captured alert, got code %d body %s", recGetSink.Code, recGetSink.Body.String())
+	}
+
+	// Verify ?fail=500 triggers 502 Bad Gateway
+	responder.SetTeamForwardURL("platform-sre", testServer.URL+"/test-sink?fail=500")
+	reqFail := httptest.NewRequest(http.MethodPost, "/escalations/platform-sre", strings.NewReader(payload))
+	reqFail.Header.Set("Authorization", "Bearer test-drill-token")
+	recFail := httptest.NewRecorder()
+	handler.ServeHTTP(recFail, reqFail)
+
+	if recFail.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 Bad Gateway when test sink fails with 500, got %d", recFail.Code)
+	}
+}
