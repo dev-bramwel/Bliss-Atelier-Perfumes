@@ -7,7 +7,6 @@ import (
 // Supported Bliss application roles.
 const (
 	RoleOwner    = "owner"
-	RoleManager  = "manager"
 	RoleEmployee = "employee"
 	RoleCustomer = "customer"
 )

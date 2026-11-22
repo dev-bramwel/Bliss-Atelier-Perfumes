@@ -33,7 +33,7 @@ func staffFixture(t *testing.T, role string) (*auth.Service, *testAuthStore, *ht
 }
 func newSessionAPI(t *testing.T, address string, timeout time.Duration, ping Ping, deps ...any) (*API, *http.Cookie, string) {
 	t.Helper()
-	service, _, cookie, csrf := staffFixture(t, auth.RoleManager)
+	service, _, cookie, csrf := staffFixture(t, auth.RoleOwner)
 	deps = append(deps, service)
 	return New(address, timeout, ping, deps...), cookie, csrf
 }
@@ -70,7 +70,7 @@ func (m *mockOperations) Fulfill(_ context.Context, id string, u *auth.User, _ s
 }
 
 func TestOperationalSessionBoundaries(t *testing.T) {
-	for _, role := range []string{auth.RoleOwner, auth.RoleManager, auth.RoleEmployee, auth.RoleCustomer} {
+	for _, role := range []string{auth.RoleOwner, auth.RoleEmployee, auth.RoleCustomer} {
 		t.Run(role, func(t *testing.T) {
 			service, store, cookie, csrf := staffFixture(t, role)
 			ops := &mockOperations{}
@@ -151,7 +151,7 @@ func TestOperationalSessionBoundaries(t *testing.T) {
 }
 
 func TestIssuePayloadsAndActorBinding(t *testing.T) {
-	service, _, cookie, csrf := staffFixture(t, auth.RoleManager)
+	service, _, cookie, csrf := staffFixture(t, auth.RoleOwner)
 	var resolution orders.ResolveExceptionRequest
 	var settlement orders.ManualSettlementRequest
 	mock := &mockOrderService{resolveExcFn: func(_ context.Context, _ string, r orders.ResolveExceptionRequest) error { resolution = r; return nil }, manualSettleFn: func(_ context.Context, r orders.ManualSettlementRequest) (*orders.Order, *orders.PaymentAuditRecord, error) {
@@ -177,7 +177,7 @@ func TestIssuePayloadsAndActorBinding(t *testing.T) {
 			t.Fatalf("%s: %d %s", tc.path, w.Code, w.Body)
 		}
 	}
-	if resolution.Notes != "Verified reversal" || resolution.AuthorizedBy != "usr_staff-manager" || settlement.OrderID != "one" || settlement.AmountKes != 2500 || settlement.ReceiptNumber != "RCPT" || settlement.AuthorizedBy != "usr_staff-manager" {
+	if resolution.Notes != "Verified reversal" || resolution.AuthorizedBy != "usr_staff-owner" || settlement.OrderID != "one" || settlement.AmountKes != 2500 || settlement.ReceiptNumber != "RCPT" || settlement.AuthorizedBy != "usr_staff-owner" {
 		t.Fatalf("payload or actor binding failed: %+v %+v", resolution, settlement)
 	}
 	raw, _ := json.Marshal(quotes.quotes["one"][0])

@@ -193,10 +193,6 @@ func (m *MockOIDCVerifier) VerifyIDToken(ctx context.Context, rawIDToken string,
 				name = "Bliss Owner"
 				email = "owner@blissatelier.com"
 				sub = "sub-mock-owner"
-			} else if strings.Contains(role, "manager") {
-				name = "Bliss Manager"
-				email = "manager@blissatelier.com"
-				sub = "sub-mock-manager"
 			} else if strings.Contains(role, "employee") {
 				name = "Bliss Employee"
 				email = "employee@blissatelier.com"

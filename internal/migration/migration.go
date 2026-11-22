@@ -57,6 +57,7 @@ func steps() []step {
 		{9, normalized(read("sql/0009_admin_identity_sessions_audit.sql"))},
 		{10, normalized(read("sql/0010_order_assignment.sql"))},
 		{11, normalized(read("sql/0011_customer_order_access.sql"))},
+		{12, normalized(read("sql/0012_drop_manager_role.sql"))},
 	}
 }
 
@@ -208,8 +209,10 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 		contract = "schema-v9.json"
 	} else if applied == 10 {
 		contract = "schema-v10.json"
-	} else if applied >= 11 {
+	} else if applied == 11 {
 		contract = "schema-v11.json"
+	} else if applied >= 12 {
+		contract = "schema-v12.json"
 	}
 	versionSchema := map[string]json.RawMessage{}
 	if err = json.Unmarshal([]byte(read(contract)), &versionSchema); err != nil {
@@ -278,7 +281,7 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 			return Result{}, inspectErr
 		}
 		latest := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v11.json")), &latest); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v12.json")), &latest); err != nil {
 			return Result{}, err
 		}
 		for name := range latest {

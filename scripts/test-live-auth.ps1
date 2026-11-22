@@ -121,82 +121,54 @@ if ($ownerAuth.User.role -ne "owner") {
     throw "Owner role was not bootstrapped! Expected 'owner', got '$($ownerAuth.User.role)'"
 }
 
-# --- STEP 2: Manager, Employee, and Customer Logins ---
-Write-Host "`n[STEP 2] Logging in candidate Manager, Employee, and Customer..." -ForegroundColor Cyan
-$managerAuth = Invoke-MockLogin -RoleName "manager"
-Write-Host "  -> Manager Candidate ID=$($managerAuth.User.id), Email=$($managerAuth.User.email), Initial Role=$($managerAuth.User.role)"
+# --- STEP 2: Employee and Customer Logins ---
+Write-Host "`n[STEP 2] Logging in candidate Employee and Customer..." -ForegroundColor Cyan
 $employeeAuth = Invoke-MockLogin -RoleName "employee"
 Write-Host "  -> Employee Candidate ID=$($employeeAuth.User.id), Email=$($employeeAuth.User.email), Initial Role=$($employeeAuth.User.role)"
 $customerAuth = Invoke-MockLogin -RoleName "customer"
 Write-Host "  -> Customer ID=$($customerAuth.User.id), Email=$($customerAuth.User.email), Initial Role=$($customerAuth.User.role)"
 
-# --- STEP 3: Owner Promotes Manager and Employee ---
-Write-Host "`n[STEP 3] Owner promoting candidates to 'manager' and 'employee'..." -ForegroundColor Cyan
-Invoke-Api -Method "POST" -Path "/api/admin/users/$($managerAuth.User.id)/role" -AuthContext $ownerAuth -Body @{ role = "manager" } -ExpectedStatuses @(200) | Out-Null
-Write-Host "  -> Promoted $($managerAuth.User.email) to manager" -ForegroundColor Green
+# --- STEP 3: Owner Promotes Employee and Rejects Manager ---
+Write-Host "`n[STEP 3] Owner promoting candidate to 'employee' and testing 'manager' rejection..." -ForegroundColor Cyan
 Invoke-Api -Method "POST" -Path "/api/admin/users/$($employeeAuth.User.id)/role" -AuthContext $ownerAuth -Body @{ role = "employee" } -ExpectedStatuses @(200) | Out-Null
 Write-Host "  -> Promoted $($employeeAuth.User.email) to employee" -ForegroundColor Green
 
-# Refresh auth contexts after role update
-$managerAuth = Invoke-MockLogin -RoleName "manager"
-if ($managerAuth.User.role -ne "manager") { throw "Manager role update failed" }
+# Verify 'manager' role promotion is rejected
+$rejectedManager = Invoke-Api -Method "POST" -Path "/api/admin/users/$($customerAuth.User.id)/role" -AuthContext $ownerAuth -Body @{ role = "manager" } -ExpectedStatuses @(400)
+Write-Host "  -> Correctly rejected invalid 'manager' role assignment (400)" -ForegroundColor Green
+
+# Refresh auth context after role update
 $employeeAuth = Invoke-MockLogin -RoleName "employee"
 if ($employeeAuth.User.role -ne "employee") { throw "Employee role update failed" }
 
-# --- STEP 4: Upward Visibility & Downward Isolation Verification ---
-Write-Host "`n[STEP 4] Verifying Upward Visibility & Downward Isolation..." -ForegroundColor Cyan
+# --- STEP 4: Upward Visibility & Access Control Verification ---
+Write-Host "`n[STEP 4] Verifying Role Visibility & Access Control..." -ForegroundColor Cyan
 
 # 4.1: Owner sees ALL users
 $ownerList = Invoke-Api -Method "GET" -Path "/api/admin/users" -AuthContext $ownerAuth
 $ownerUserRoles = $ownerList.Json.users | ForEach-Object { $_.role }
 Write-Host "  -> Owner sees $($ownerList.Json.users.Count) users: $($ownerUserRoles -join ', ')" -ForegroundColor Green
-if ($ownerList.Json.users.Count -lt 4) { throw "Owner should see all 4 users" }
+if ($ownerList.Json.users.Count -lt 3) { throw "Owner should see at least 3 users (owner, employee, customer)" }
 
-# 4.2: Manager sees Employee, Customer — NEVER Owner or other Managers!
-$managerList = Invoke-Api -Method "GET" -Path "/api/admin/users" -AuthContext $managerAuth
-$managerUserRoles = $managerList.Json.users | ForEach-Object { $_.role }
-Write-Host "  -> Manager sees $($managerList.Json.users.Count) downward users: $($managerUserRoles -join ', ')" -ForegroundColor Green
-if ($managerUserRoles -contains "owner" -or $managerUserRoles -contains "manager") {
-    throw "SECURITY BREACH: Manager can see Owner or Manager! Downward Isolation violated!"
-}
-if ($managerList.Json.users.Count -ne 2) {
-    throw "Manager should see exactly 2 downward users (employee and customer)"
-}
-Write-Host "  -> Downward Isolation Confirmed: Owner and Manager tiers are hidden from Manager" -ForegroundColor Green
-
-# 4.3: Manager cannot promote anyone to Owner (403 Forbidden)
-Write-Host "  -> Testing Manager attempting to promote Employee to Owner..."
-$forbiddenAttempt = Invoke-Api -Method "POST" -Path "/api/admin/users/$($employeeAuth.User.id)/role" -AuthContext $managerAuth -Body @{ role = "owner" } -ExpectedStatuses @(403)
-Write-Host "  -> Correctly rejected with 403 Forbidden: $($forbiddenAttempt.Json.error)" -ForegroundColor Green
-
-# 4.4: Manager cannot touch Owner (403 or 404)
-Write-Host "  -> Testing Manager attempting to demote Owner..."
-$forbiddenOwnerTouch = Invoke-Api -Method "POST" -Path "/api/admin/users/$($ownerAuth.User.id)/role" -AuthContext $managerAuth -Body @{ role = "customer" } -ExpectedStatuses @(403, 404)
-Write-Host "  -> Correctly blocked ($($forbiddenOwnerTouch.StatusCode))" -ForegroundColor Green
-
-# 4.5: Employee and Customer cannot access admin endpoints (403 Forbidden)
+# 4.2: Employee cannot access admin user directory (403 Forbidden)
 Write-Host "  -> Testing Employee access to /api/admin/users..."
 $employeeForbidden = Invoke-Api -Method "GET" -Path "/api/admin/users" -AuthContext $employeeAuth -ExpectedStatuses @(403)
 Write-Host "  -> Employee correctly received 403 Forbidden" -ForegroundColor Green
 
+# 4.3: Customer cannot access admin user directory (403 Forbidden)
 Write-Host "  -> Testing Customer access to /api/admin/users..."
 $customerForbidden = Invoke-Api -Method "GET" -Path "/api/admin/users" -AuthContext $customerAuth -ExpectedStatuses @(403)
 Write-Host "  -> Customer correctly received 403 Forbidden" -ForegroundColor Green
 
-# --- STEP 5: Audit Log Integrity & Isolation ---
-Write-Host "`n[STEP 5] Verifying Audit Logs & Downward Isolation..." -ForegroundColor Cyan
+# --- STEP 5: Audit Log Integrity & Access Restriction ---
+Write-Host "`n[STEP 5] Verifying Audit Logs & Access Restriction..." -ForegroundColor Cyan
 $ownerAudit = Invoke-Api -Method "GET" -Path "/api/admin/audit-logs" -AuthContext $ownerAuth
 Write-Host "  -> Owner sees $($ownerAudit.Json.audit_logs.Count) audit log entries" -ForegroundColor Green
 if ($ownerAudit.Json.audit_logs.Count -eq 0) { throw "Expected audit log entries from role changes" }
 
-$managerAudit = Invoke-Api -Method "GET" -Path "/api/admin/audit-logs" -AuthContext $managerAuth
-Write-Host "  -> Manager sees $($managerAudit.Json.audit_logs.Count) audit log entries" -ForegroundColor Green
-# Ensure manager doesn't see owner actor audit entries
-$managerAuditOwners = $managerAudit.Json.audit_logs | Where-Object { $_.actor_role -eq "owner" }
-if ($managerAuditOwners.Count -gt 0) {
-    throw "SECURITY BREACH: Manager sees owner audit log records!"
-}
-Write-Host "  -> Audit Log Downward Isolation Confirmed: Owner audit actions hidden from Manager" -ForegroundColor Green
+# Non-owner cannot access audit logs
+$employeeAuditForbidden = Invoke-Api -Method "GET" -Path "/api/admin/audit-logs" -AuthContext $employeeAuth -ExpectedStatuses @(403)
+Write-Host "  -> Employee correctly rejected from audit logs (403 Forbidden)" -ForegroundColor Green
 
 # --- STEP 6: Session Revocation & Redis Eviction ---
 Write-Host "`n[STEP 6] Testing Session Revocation & Redis Cache Eviction..." -ForegroundColor Cyan
@@ -214,9 +186,10 @@ Write-Host "  -> Reactivated Employee account" -ForegroundColor Green
 
 # --- STEP 7: User Self-Logout ---
 Write-Host "`n[STEP 7] Testing User Self-Logout..." -ForegroundColor Cyan
-Invoke-Api -Method "POST" -Path "/api/auth/logout" -AuthContext $managerAuth -ExpectedStatuses @(200) | Out-Null
-Write-Host "  -> Manager logged out" -ForegroundColor Green
-$loggedOutResp = Invoke-Api -Method "GET" -Path "/api/auth/me" -AuthContext $managerAuth -ExpectedStatuses @(401)
+$employeeAuth = Invoke-MockLogin -RoleName "employee"
+Invoke-Api -Method "POST" -Path "/api/auth/logout" -AuthContext $employeeAuth -ExpectedStatuses @(200) | Out-Null
+Write-Host "  -> Employee logged out" -ForegroundColor Green
+$loggedOutResp = Invoke-Api -Method "GET" -Path "/api/auth/me" -AuthContext $employeeAuth -ExpectedStatuses @(401)
 Write-Host "  -> Session successfully cleared (Status 401: $($loggedOutResp.Json.error))" -ForegroundColor Green
 
 Write-Host "`n================================================================="

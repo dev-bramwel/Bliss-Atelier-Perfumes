@@ -13,7 +13,7 @@ type pagedStore interface {
 }
 
 func (s *PGStore) QueryAuditPage(ctx context.Context, role string, limit, offset int) ([]AuditLogEntry, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,user_id,actor_role,action,resource,resource_id,ip_address,metadata,created_at FROM public.admin_audit_log WHERE ($1='owner' OR actor_role IN ('manager','employee','customer')) ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3`, role, limit, offset)
+	rows, err := s.pool.Query(ctx, `SELECT id,user_id,actor_role,action,resource,resource_id,ip_address,metadata,created_at FROM public.admin_audit_log WHERE ($1='owner' OR actor_role IN ('employee','customer')) ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3`, role, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -33,10 +33,7 @@ func (s *PGStore) QueryAuditPage(ctx context.Context, role string, limit, offset
 	return entries, rows.Err()
 }
 func (s *Service) ListUsersPage(ctx context.Context, actor *User, filter string, limit, offset int) ([]User, error) {
-	if actor == nil || (actor.Role != RoleOwner && actor.Role != RoleManager) {
-		return nil, ErrPermissionDenied
-	}
-	if actor.Role == RoleManager && (filter == RoleOwner || filter == RoleManager) {
+	if actor == nil || actor.Role != RoleOwner {
 		return nil, ErrPermissionDenied
 	}
 	if p, ok := s.store.(pagedStore); ok {

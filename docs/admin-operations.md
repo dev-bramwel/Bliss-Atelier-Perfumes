@@ -13,19 +13,20 @@ memory and accompanies every mutation as `X-CSRF-Token`. Administrative APIs
 require the `bliss_session` cookie; the historical shared manager secret is no
 longer accepted for cache invalidation, quote issuance or `/admin/*` APIs.
 
-Owners and managers can inspect all orders, quote delivery, inspect and resolve
-payment exceptions, record verified manual settlements and view payment audit
-records. Only owners assign orders to active employees. Employees can read
-inventory and inspect/fulfill their assigned orders through `/operations/*`
-and `/orders/:id` routes; all `/admin/*` APIs reject employees and customers.
-Guest order tokens retain their existing scoped customer behavior.
+Owners can inspect all orders, quote delivery, inspect and resolve payment
+exceptions, record verified manual settlements, view payment audit records,
+and assign orders to active employees. Employees can read inventory and
+inspect/fulfill their assigned orders through `/operations/*` and `/orders/:id`
+routes; all `/admin/*` APIs reject employees and customers. Guest order tokens
+retain their existing scoped customer behavior.
 
-Managers see only employee/customer user records and cannot grant owner or
-manager roles. Owners see all users; the UI offers manager, employee and customer
-as target roles. Manager audit queries exclude owner events **before** database
-pagination. Server authorization remains authoritative when a control is hidden.
-Role changes/deactivation revoke sessions. A subsequent 401 closes open drawers,
-clears the in-memory auth context and displays the sign-in prompt.
+Owners see all users and manage user roles; the UI offers employee and customer
+as target roles. Audit queries allow owners to inspect operational records across
+all actions. Subordinate roles (employees and customers) have zero role management
+capability and cannot inspect administrative audit logs. Server authorization
+remains authoritative when a control is hidden. Role changes/deactivation revoke
+sessions. A subsequent 401 closes open drawers, clears the in-memory auth context
+and displays the sign-in prompt.
 
 ## Screens and contracts
 
@@ -126,8 +127,8 @@ node web/admin.browser.cjs
 ```
 
 `BLISS_WEB_URL` overrides the address; `PLAYWRIGHT_MODULE` can point to another
-installed Playwright module. API fixtures test owner, manager, employee and
-customer journeys, pagination, offline and failed-write draft preservation,
+installed Playwright module. API fixtures test owner, employee and customer
+journeys, pagination, offline and failed-write draft preservation,
 CSRF headers, role filtering, session expiry and mobile layouts. They do not
 replace the PostgreSQL or live provider integration suite. Screenshots are written
 under `.local/r19-browser`.

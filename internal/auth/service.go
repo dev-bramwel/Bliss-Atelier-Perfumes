@@ -395,7 +395,7 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 		return errors.New("user not found")
 	}
 
-	// Downward Isolation: manager cannot alter status of owner or manager
+	// Downward Isolation: only owner can alter user status
 	if !CanManageUserStatus(actor.Role, targetUser.Role) {
 		return ErrPermissionDenied
 	}
@@ -434,44 +434,20 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 
 // ListUsers retrieves users respecting Upward Visibility and Downward Isolation:
 // - Owner: can list all users of all roles.
-// - Manager: can only list employee and customer accounts.
 // - Employee / Customer: denied access (Downward Isolation).
 func (s *Service) ListUsers(ctx context.Context, actor *User, filterRole string) ([]User, error) {
-	if actor == nil || (actor.Role != RoleOwner && actor.Role != RoleManager) {
+	if actor == nil || actor.Role != RoleOwner {
 		return nil, ErrPermissionDenied
 	}
 
-	if actor.Role == RoleManager {
-		// Manager can only see employee and customer tiers
-		if filterRole == RoleOwner || filterRole == RoleManager {
-			return nil, ErrPermissionDenied
-		}
-	}
-
-	users, err := s.store.ListUsers(ctx, filterRole)
-	if err != nil {
-		return nil, err
-	}
-
-	if actor.Role == RoleManager {
-		var filtered []User
-		for _, u := range users {
-			if u.Role == RoleEmployee || u.Role == RoleCustomer {
-				filtered = append(filtered, u)
-			}
-		}
-		return filtered, nil
-	}
-
-	return users, nil
+	return s.store.ListUsers(ctx, filterRole)
 }
 
 // InspectAuditLogs retrieves audit logs respecting Downward Isolation:
 // - Owner: full visibility over all system audit logs.
-// - Manager: operational visibility only (manager, employee, customer); owner logs hidden.
 // - Employee / Customer: denied access (Downward Isolation).
 func (s *Service) InspectAuditLogs(ctx context.Context, actor *User, limit int, offset int) ([]AuditLogEntry, error) {
-	if actor == nil || (actor.Role != RoleOwner && actor.Role != RoleManager) {
+	if actor == nil || actor.Role != RoleOwner {
 		return nil, ErrPermissionDenied
 	}
 	if p, ok := s.store.(pagedStore); ok {

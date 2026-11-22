@@ -130,6 +130,34 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal(got)
 		}
 	})
+	t.Run("upgrade v11 manager account to employee and reject manager in v12", func(t *testing.T) {
+		reset(t, pool)
+		ctx := context.Background()
+		if _, err := execute(ctx, pool, "init", steps()[:11]); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO public.app_user (id, google_sub, email, name, role) VALUES ('mgr-1', 'sub-mgr-1', 'mgr@example.test', 'Test Manager', 'manager')`); err != nil {
+			t.Fatal(err)
+		}
+		if got := run(t, pool, "status"); got.State != "pending" {
+			t.Fatal(got)
+		}
+		run(t, pool, "up")
+		if got := run(t, pool, "status"); got.State != "current" {
+			t.Fatal(got)
+		}
+		var role string
+		if err := pool.QueryRow(ctx, `SELECT role FROM public.app_user WHERE id = 'mgr-1'`).Scan(&role); err != nil {
+			t.Fatalf("failed to query migrated user: %v", err)
+		}
+		if role != "employee" {
+			t.Fatalf("expected role 'employee', got %q", role)
+		}
+		_, err := pool.Exec(ctx, `INSERT INTO public.app_user (id, google_sub, email, name, role) VALUES ('mgr-2', 'sub-mgr-2', 'mgr2@example.test', 'Manager Two', 'manager')`)
+		if err == nil {
+			t.Fatal("expected error inserting manager account after migration 12, got nil")
+		}
+	})
 	t.Run("empty requires explicit initialization", func(t *testing.T) {
 		reset(t, pool)
 		if got := run(t, pool, "status"); got.State != "empty" {
@@ -404,7 +432,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v11.json")), &expected); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v12.json")), &expected); err != nil {
 			t.Fatal(err)
 		}
 		if len(actual) != len(expected) {

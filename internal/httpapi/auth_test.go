@@ -359,11 +359,6 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 	_ = store.UpdateUserRole(ctx, ownerUser.ID, auth.RoleOwner)
 	ownerUser.Role = auth.RoleOwner
 
-	// Create manager user
-	mgrUser, _ := store.UpsertUserByGoogleSub(ctx, "sub-mgr", "manager@blissatelier.com", "Manager User", "")
-	_ = store.UpdateUserRole(ctx, mgrUser.ID, auth.RoleManager)
-	mgrUser.Role = auth.RoleManager
-
 	// Create employee user
 	empUser, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp", "employee@blissatelier.com", "Employee User", "")
 	_ = store.UpdateUserRole(ctx, empUser.ID, auth.RoleEmployee)
@@ -402,7 +397,7 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 	}
 
 	ownerCookie, ownerCSRF := loginAs(ownerUser)
-	mgrCookie, mgrCSRF := loginAs(mgrUser)
+	empCookie, empCSRF := loginAs(empUser)
 	custCookie, _ := loginAs(custUser)
 
 	// 1. Customer cannot access /api/admin/users (403 Forbidden)
@@ -426,120 +421,87 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 		Users []auth.User `json:"users"`
 	}
 	_ = json.NewDecoder(ownerRR.Body).Decode(&ownerListResp)
-	if len(ownerListResp.Users) < 4 {
+	if len(ownerListResp.Users) < 3 {
 		t.Fatalf("expected owner to see all users, got %d", len(ownerListResp.Users))
 	}
 
-	// 3. Downward Isolation: Manager cannot see owner in user list
-	mgrReq := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
-	mgrReq.AddCookie(mgrCookie)
-	mgrRR := httptest.NewRecorder()
-	api.server.Handler.ServeHTTP(mgrRR, mgrReq)
-	if mgrRR.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for manager listing users, got %d", mgrRR.Code)
-	}
-	var mgrListResp struct {
-		Users []auth.User `json:"users"`
-	}
-	_ = json.NewDecoder(mgrRR.Body).Decode(&mgrListResp)
-	for _, u := range mgrListResp.Users {
-		if u.Role == auth.RoleOwner || u.Role == auth.RoleManager {
-			t.Fatalf("downward isolation breach: manager saw owner/manager in list: %s", u.Role)
-		}
+	// 3. Downward Isolation: Employee cannot list users (403 Forbidden)
+	empReq := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	empReq.AddCookie(empCookie)
+	empRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(empRR, empReq)
+	if empRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for employee accessing admin users, got %d", empRR.Code)
 	}
 
-	// 4. Downward Isolation: Manager attempting to promote employee to owner must be 403 Forbidden
+	// 4. Downward Isolation: Employee attempting to promote someone to owner must be 403 Forbidden
 	promotePayload := strings.NewReader(`{"role":"owner"}`)
-	promoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+empUser.ID+"/role", promotePayload)
-	promoteReq.AddCookie(mgrCookie)
-	promoteReq.Header.Set("X-CSRF-Token", mgrCSRF)
+	promoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+custUser.ID+"/role", promotePayload)
+	promoteReq.AddCookie(empCookie)
+	promoteReq.Header.Set("X-CSRF-Token", empCSRF)
 	promoteRR := httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(promoteRR, promoteReq)
 	if promoteRR.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 Forbidden when manager attempts to promote to owner, got %d: %s", promoteRR.Code, promoteRR.Body.String())
+		t.Fatalf("expected 403 Forbidden when employee attempts to promote to owner, got %d: %s", promoteRR.Code, promoteRR.Body.String())
 	}
 
-	// 4b. Downward Isolation: Manager attempting to demote employee to customer must be 403 Forbidden
-	mgrDemotePayload := strings.NewReader(`{"role":"customer"}`)
-	mgrDemoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+empUser.ID+"/role", mgrDemotePayload)
-	mgrDemoteReq.AddCookie(mgrCookie)
-	mgrDemoteReq.Header.Set("X-CSRF-Token", mgrCSRF)
-	mgrDemoteRR := httptest.NewRecorder()
-	api.server.Handler.ServeHTTP(mgrDemoteRR, mgrDemoteReq)
-	if mgrDemoteRR.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 Forbidden when manager attempts to demote employee, got %d: %s", mgrDemoteRR.Code, mgrDemoteRR.Body.String())
+	// 4b. Downward Isolation: Employee attempting to demote or change role must be 403 Forbidden
+	empDemotePayload := strings.NewReader(`{"role":"customer"}`)
+	empDemoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+empUser.ID+"/role", empDemotePayload)
+	empDemoteReq.AddCookie(empCookie)
+	empDemoteReq.Header.Set("X-CSRF-Token", empCSRF)
+	empDemoteRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(empDemoteRR, empDemoteReq)
+	if empDemoteRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when employee attempts to change role, got %d: %s", empDemoteRR.Code, empDemoteRR.Body.String())
 	}
 
-	// 5. Owner can promote employee to manager
-	ownerPromotePayload := strings.NewReader(`{"role":"manager"}`)
-	ownerPromoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+empUser.ID+"/role", ownerPromotePayload)
+	// 5. Owner can promote customer to employee
+	ownerPromotePayload := strings.NewReader(`{"role":"employee"}`)
+	ownerPromoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+custUser.ID+"/role", ownerPromotePayload)
 	ownerPromoteReq.AddCookie(ownerCookie)
 	ownerPromoteReq.Header.Set("X-CSRF-Token", ownerCSRF)
 	ownerPromoteRR := httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(ownerPromoteRR, ownerPromoteReq)
 	if ownerPromoteRR.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK when owner promotes employee to manager, got %d: %s", ownerPromoteRR.Code, ownerPromoteRR.Body.String())
+		t.Fatalf("expected 200 OK when owner promotes customer to employee, got %d: %s", ownerPromoteRR.Code, ownerPromoteRR.Body.String())
 	}
 
-	// 6. Downward Isolation: Employee cannot list users
-	empOnlyUser, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp-only", "emp-only@blissatelier.com", "Employee Only", "")
-	_ = store.UpdateUserRole(ctx, empOnlyUser.ID, auth.RoleEmployee)
-	empOnlyCookie, empOnlyCSRF := loginAs(empOnlyUser)
-
-	empReq := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
-	empReq.AddCookie(empOnlyCookie)
-	empRR := httptest.NewRecorder()
-	api.server.Handler.ServeHTTP(empRR, empReq)
-	if empRR.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 Forbidden when employee lists users, got %d", empRR.Code)
-	}
-
-	// 7. Downward Isolation: Employee cannot access manager-only operations (e.g., catalog cache invalidation)
+	// 6. Downward Isolation: Employee cannot access owner-only operations (e.g., catalog cache invalidation)
 	empInvReq := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
-	empInvReq.AddCookie(empOnlyCookie)
-	empInvReq.Header.Set("X-CSRF-Token", empOnlyCSRF)
+	empInvReq.AddCookie(empCookie)
+	empInvReq.Header.Set("X-CSRF-Token", empCSRF)
 	empInvRR := httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(empInvRR, empInvReq)
 	if empInvRR.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 Unauthorized when employee accesses manager endpoint, got %d: %s", empInvRR.Code, empInvRR.Body.String())
+		t.Fatalf("expected 401 Unauthorized when employee accesses owner endpoint, got %d: %s", empInvRR.Code, empInvRR.Body.String())
 	}
 
-	// 8. CSRF Protection: Manager session accessing mutating manager endpoint without CSRF is rejected
-	mgrInvNoCSRF := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
-	mgrInvNoCSRF.AddCookie(mgrCookie)
-	mgrInvNoCSRFRR := httptest.NewRecorder()
-	api.server.Handler.ServeHTTP(mgrInvNoCSRFRR, mgrInvNoCSRF)
-	if mgrInvNoCSRFRR.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 Forbidden when manager accesses endpoint without CSRF, got %d", mgrInvNoCSRFRR.Code)
+	// 7. CSRF Protection: Owner session accessing mutating owner endpoint without CSRF is rejected
+	ownerInvNoCSRF := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
+	ownerInvNoCSRF.AddCookie(ownerCookie)
+	ownerInvNoCSRFRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(ownerInvNoCSRFRR, ownerInvNoCSRF)
+	if ownerInvNoCSRFRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when owner accesses endpoint without CSRF, got %d", ownerInvNoCSRFRR.Code)
 	}
 
-	// 9. Manager session accessing mutating manager endpoint WITH CSRF succeeds and refreshes session cookie
-	mgrInvWithCSRF := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
-	mgrInvWithCSRF.AddCookie(mgrCookie)
-	mgrInvWithCSRF.Header.Set("X-CSRF-Token", mgrCSRF)
-	mgrInvWithCSRFRR := httptest.NewRecorder()
-	api.server.Handler.ServeHTTP(mgrInvWithCSRFRR, mgrInvWithCSRF)
-	if mgrInvWithCSRFRR.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK when manager accesses endpoint with CSRF, got %d: %s", mgrInvWithCSRFRR.Code, mgrInvWithCSRFRR.Body.String())
+	// 8. Owner session accessing mutating owner endpoint WITH CSRF succeeds and refreshes session cookie
+	ownerInvWithCSRF := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
+	ownerInvWithCSRF.AddCookie(ownerCookie)
+	ownerInvWithCSRF.Header.Set("X-CSRF-Token", ownerCSRF)
+	ownerInvWithCSRFRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(ownerInvWithCSRFRR, ownerInvWithCSRF)
+	if ownerInvWithCSRFRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when owner accesses endpoint with CSRF, got %d: %s", ownerInvWithCSRFRR.Code, ownerInvWithCSRFRR.Body.String())
 	}
-	if !strings.Contains(mgrInvWithCSRFRR.Header().Get("Set-Cookie"), "bliss_session") {
+	if !strings.Contains(ownerInvWithCSRFRR.Header().Get("Set-Cookie"), "bliss_session") {
 		t.Fatalf("expected sliding session cookie refresh in response Set-Cookie")
 	}
 
-	// 10. Exclusive Owner Authority: Owner can demote manager to employee
-	ownerDemoteMgrPayload := strings.NewReader(`{"role":"employee"}`)
-	ownerDemoteMgrReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+mgrUser.ID+"/role", ownerDemoteMgrPayload)
-	ownerDemoteMgrReq.AddCookie(ownerCookie)
-	ownerDemoteMgrReq.Header.Set("X-CSRF-Token", ownerCSRF)
-	ownerDemoteMgrRR := httptest.NewRecorder()
-	api.server.Handler.ServeHTTP(ownerDemoteMgrRR, ownerDemoteMgrReq)
-	if ownerDemoteMgrRR.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK when owner demotes manager to employee, got %d: %s", ownerDemoteMgrRR.Code, ownerDemoteMgrRR.Body.String())
-	}
-
-	// 10b. Exclusive Owner Authority: Owner can demote employee to customer
+	// 9. Exclusive Owner Authority: Owner can demote employee to customer
 	ownerDemoteEmpPayload := strings.NewReader(`{"role":"customer"}`)
-	ownerDemoteEmpReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+empUser.ID+"/role", ownerDemoteEmpPayload)
+	ownerDemoteEmpReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+custUser.ID+"/role", ownerDemoteEmpPayload)
 	ownerDemoteEmpReq.AddCookie(ownerCookie)
 	ownerDemoteEmpReq.Header.Set("X-CSRF-Token", ownerCSRF)
 	ownerDemoteEmpRR := httptest.NewRecorder()
@@ -548,10 +510,10 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 		t.Fatalf("expected 200 OK when owner demotes employee to customer, got %d: %s", ownerDemoteEmpRR.Code, ownerDemoteEmpRR.Body.String())
 	}
 
-	// 10. Manager with empty display name still succeeds via user ID identity fallback
-	noNameMgr, _ := store.UpsertUserByGoogleSub(ctx, "sub-no-name-mgr", "noname.mgr@blissatelier.com", "", "")
-	_ = store.UpdateUserRole(ctx, noNameMgr.ID, auth.RoleManager)
-	noNameCookie, noNameCSRF := loginAs(noNameMgr)
+	// 10. Owner with empty display name still succeeds via user ID identity fallback
+	noNameOwner, _ := store.UpsertUserByGoogleSub(ctx, "sub-no-name-owner", "noname.owner@blissatelier.com", "", "")
+	_ = store.UpdateUserRole(ctx, noNameOwner.ID, auth.RoleOwner)
+	noNameCookie, noNameCSRF := loginAs(noNameOwner)
 
 	noNameReq := httptest.NewRequest(http.MethodPost, "/api/catalog/invalidate", nil)
 	noNameReq.AddCookie(noNameCookie)
@@ -559,6 +521,6 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 	noNameRR := httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(noNameRR, noNameReq)
 	if noNameRR.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for manager with blank profile name, got %d: %s", noNameRR.Code, noNameRR.Body.String())
+		t.Fatalf("expected 200 OK for owner with blank profile name, got %d: %s", noNameRR.Code, noNameRR.Body.String())
 	}
 }

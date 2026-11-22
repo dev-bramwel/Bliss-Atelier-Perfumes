@@ -12,7 +12,6 @@
     busy = false,
     selectedOrder = null,
     selectedException = null;
-  const manager = () => ["owner", "manager"].includes(context.user?.role);
   const owner = () => context.user?.role === "owner";
   const money = (n) => `KES ${Number(n || 0).toLocaleString("en-KE")}`;
   const date = (s) =>
@@ -287,7 +286,7 @@
   async function loadUsers() {
     const data = await api(`/admin/users?${query("users")}`);
     // The server filters before pagination. This also protects UI controls if an
-    // older server accidentally returns a peer or owner to a manager.
+    // older server accidentally returns an owner to a non-owner.
     const users = (data.users || []).filter(
       (u) => owner() || ["employee", "customer"].includes(u.role),
     );
@@ -306,7 +305,7 @@
         if (owner()) {
           const select = el("select");
           select.setAttribute("aria-label", `New role for ${u.name || u.email}`);
-          for (const role of ["manager", "employee", "customer"]) {
+          for (const role of ["employee", "customer"]) {
             const option = el("option", role);
             option.value = role;
             select.append(option);
@@ -352,7 +351,7 @@
     const logs = (data.audit_logs || []).filter(
       (entry) =>
         owner() ||
-        ["manager", "employee", "customer"].includes(entry.actor_role),
+        ["employee", "customer"].includes(entry.actor_role),
     );
     table(
       "auditRows",
@@ -447,7 +446,7 @@
       ["Total", money(selectedOrder.totalKes)],
     ]);
     $("quoteForm").hidden =
-      !manager() ||
+      !owner() ||
       selectedOrder.deliveryOption !== "delivery" ||
       selectedOrder.paymentStatus !== "PENDING";
     $("assignForm").hidden = !owner();
@@ -513,7 +512,7 @@
       : "orders";
   }
   function showSection(next) {
-    if (!manager() && ["payments", "users", "audit-logs"].includes(next)) {
+    if (!owner() && ["payments", "users", "audit-logs"].includes(next)) {
       message("Your role does not permit this section.");
       next = "orders";
     }
@@ -530,7 +529,7 @@
   async function initialize() {
     try {
       const data = await api("/auth/me");
-      if (!["owner", "manager", "employee"].includes(data.user?.role)) {
+      if (!["owner", "employee"].includes(data.user?.role)) {
         endSession(
           "This account has no staff access. Contact the owner if you need access.",
         );
@@ -544,12 +543,9 @@
       $("adminSignIn").hidden = true;
       $("adminWorkspace").hidden = false;
       $("adminLogout").hidden = false;
-      $("orderScope").textContent = manager()
+      $("orderScope").textContent = owner()
         ? "All customer orders. Dispatch requires verified payment."
         : "Only orders assigned to you by the owner are shown.";
-      document.querySelectorAll("[data-manager]").forEach((node) => {
-        node.hidden = !manager();
-      });
       document.querySelectorAll("[data-owner]").forEach((node) => {
         node.hidden = !owner();
       });

@@ -18,9 +18,9 @@ templ DashboardPage(products []catalog.Product) {
    <nav class="admin-nav" aria-label="Atelier administration">
     <a href="/admin/orders" data-section="orders">Orders &amp; fulfillment</a>
     <a href="/admin/inventory" data-section="inventory">Catalog &amp; inventory</a>
-    <a href="/admin/payments" data-section="payments" data-manager hidden>Payment exceptions</a>
-    <a href="/admin/users" data-section="users" data-manager hidden>Users</a>
-    <a href="/admin/audit-logs" data-section="audit-logs" data-manager hidden>Security audit</a>
+    <a href="/admin/payments" data-section="payments" data-owner hidden>Payment exceptions</a>
+    <a href="/admin/users" data-section="users" data-owner hidden>Users</a>
+    <a href="/admin/audit-logs" data-section="audit-logs" data-owner hidden>Security audit</a>
    </nav>
    <section class="admin-metrics" aria-label="Operational metrics">
     <article><span>Catalog fragrances</span><strong id="metricCatalog">—</strong></article>
@@ -34,7 +34,7 @@ templ DashboardPage(products []catalog.Product) {
     @AdminPager("orders")
    </section>
    <section id="panelInventory" class="admin-panel" data-panel="inventory" hidden>
-    <div class="admin-section-heading"><div><h2>Catalog &amp; inventory</h2><p>Ledger stock minus active checkout holds. Holds expire after 15 minutes.</p><p id="inventoryApproval"></p></div><div><button type="button" data-refresh="inventory">Refresh stock</button><button id="invalidateCatalog" type="button" data-mutation data-manager hidden>Invalidate catalog cache</button></div></div>
+    <div class="admin-section-heading"><div><h2>Catalog &amp; inventory</h2><p>Ledger stock minus active checkout holds. Holds expire after 15 minutes.</p><p id="inventoryApproval"></p></div><div><button type="button" data-refresh="inventory">Refresh stock</button><button id="invalidateCatalog" type="button" data-mutation data-owner hidden>Invalidate catalog cache</button></div></div>
     <div class="admin-table-wrap"><table><caption class="sr-only">Product prices and stock holds</caption><thead><tr><th>Product</th><th>Price</th><th>Ledger stock</th><th>Active holds</th><th>Unreserved</th><th>Opening count</th></tr></thead><tbody id="inventoryRows"></tbody></table></div>
     @AdminPager("inventory")
    </section>
@@ -64,7 +64,7 @@ templ DashboardPage(products []catalog.Product) {
    <p id="adminUpdated" class="admin-updated" aria-live="polite"></p>
   </div>
   <dialog id="orderDialog" class="admin-dialog" aria-labelledby="orderDialogTitle"><div class="admin-dialog-heading"><h2 id="orderDialogTitle">Order details</h2><button type="button" data-close-dialog aria-label="Close order details">Close</button></div><div id="orderDetails"></div>
-   <form id="quoteForm" data-manager hidden><h3>Issue delivery quote</h3><label>Transport fee (KES)<input name="fee_kes" type="number" min="1" max="1000000" step="1" required/></label><label>Delivery note<textarea name="notes" maxlength="1000"></textarea></label><button type="submit" data-mutation>Issue quote</button><p id="quoteStatus" aria-live="polite"></p></form>
+   <form id="quoteForm" data-owner hidden><h3>Issue delivery quote</h3><label>Transport fee (KES)<input name="fee_kes" type="number" min="1" max="1000000" step="1" required/></label><label>Delivery note<textarea name="notes" maxlength="1000"></textarea></label><button type="submit" data-mutation>Issue quote</button><p id="quoteStatus" aria-live="polite"></p></form>
    <form id="assignForm" data-owner hidden><h3>Assign to employee</h3><label>Employee user ID<input name="user_id" maxlength="128" required/></label><button type="submit" data-mutation>Assign order</button></form>
    <button id="fulfillOrder" type="button" data-mutation hidden>Mark dispatched / collected</button>
   </dialog>
