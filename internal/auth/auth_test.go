@@ -31,14 +31,17 @@ func TestRoleHierarchyAndIsolation(t *testing.T) {
 		t.Fatal("customer must not have role management authority")
 	}
 
-	// User status management isolation: Only Owner can manage user status
+	// User status management isolation: Owner manages all; Employee manages Customer only; Customer has zero status privileges
 	if !CanManageUserStatus(RoleOwner, RoleEmployee) || !CanManageUserStatus(RoleOwner, RoleCustomer) {
 		t.Fatal("owner should be able to manage user statuses")
 	}
-	if CanManageUserStatus(RoleEmployee, RoleEmployee) || CanManageUserStatus(RoleEmployee, RoleCustomer) || CanManageUserStatus(RoleEmployee, RoleOwner) {
-		t.Fatal("employee must not manage user status")
+	if !CanManageUserStatus(RoleEmployee, RoleCustomer) {
+		t.Fatal("employee should be able to manage customer user status")
 	}
-	if CanManageUserStatus(RoleCustomer, RoleCustomer) || CanManageUserStatus(RoleCustomer, RoleOwner) {
+	if CanManageUserStatus(RoleEmployee, RoleEmployee) || CanManageUserStatus(RoleEmployee, RoleOwner) {
+		t.Fatal("employee must not manage employee or owner user status")
+	}
+	if CanManageUserStatus(RoleCustomer, RoleCustomer) || CanManageUserStatus(RoleCustomer, RoleOwner) || CanManageUserStatus(RoleCustomer, RoleEmployee) {
 		t.Fatal("customer must not manage user status")
 	}
 
@@ -536,5 +539,78 @@ func TestAuthServiceFullFlow(t *testing.T) {
 	empDemoted, _ := store.GetUserByID(ctx, empUser.ID)
 	if empDemoted.Role != RoleCustomer {
 		t.Fatalf("expected role customer after demotion, got %s", empDemoted.Role)
+	}
+}
+
+func TestDeactivateSelfAndStaffReactivation(t *testing.T) {
+	ctx := context.Background()
+	store := newMemStore()
+	verifier := NewMockOIDCVerifier()
+	service := NewService(store, verifier, nil)
+
+	// Create owner, employee, and customer
+	owner, _ := store.UpsertUserByGoogleSub(ctx, "sub-owner", "owner@blissatelier.com", "Owner User", "")
+	_ = store.UpdateUserRole(ctx, owner.ID, RoleOwner)
+	owner, _ = store.GetUserByID(ctx, owner.ID)
+
+	emp, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp", "emp@blissatelier.com", "Employee User", "")
+	_ = store.UpdateUserRole(ctx, emp.ID, RoleEmployee)
+	emp, _ = store.GetUserByID(ctx, emp.ID)
+
+	cust, _ := store.UpsertUserByGoogleSub(ctx, "sub-cust", "cust@example.com", "Customer User", "")
+
+	// 1. Sole owner cannot deactivate self
+	err := service.DeactivateSelf(ctx, owner, "127.0.0.1")
+	if !errors.Is(err, ErrCannotDeactivateSoleOwner) {
+		t.Fatalf("expected ErrCannotDeactivateSoleOwner for sole owner, got %v", err)
+	}
+
+	// 2. Customer can self-deactivate
+	err = service.DeactivateSelf(ctx, cust, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("customer self-deactivation failed: %v", err)
+	}
+
+	// Verify customer status is inactive
+	updatedCust, _ := store.GetUserByID(ctx, cust.ID)
+	if updatedCust.IsActive {
+		t.Fatal("expected customer to be deactivated")
+	}
+
+	// Verify audit log has user.self_deactivate
+	logs, _ := store.QueryAuditLogs(ctx, 10, 0)
+	foundAudit := false
+	for _, l := range logs {
+		if l.Action == "user.self_deactivate" && l.ResourceID == cust.ID {
+			foundAudit = true
+			break
+		}
+	}
+	if !foundAudit {
+		t.Fatal("expected audit log entry with action user.self_deactivate")
+	}
+
+	// 3. Employee can reactivate customer
+	err = service.UpdateUserStatus(ctx, emp, cust.ID, true, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("employee should be able to reactivate customer, got %v", err)
+	}
+	reactivatedCust, _ := store.GetUserByID(ctx, cust.ID)
+	if !reactivatedCust.IsActive {
+		t.Fatal("expected customer to be reactivated by employee")
+	}
+
+	// 4. Employee CANNOT deactivate/reactivate another employee
+	otherEmp, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp2", "emp2@blissatelier.com", "Employee 2", "")
+	_ = store.UpdateUserRole(ctx, otherEmp.ID, RoleEmployee)
+	err = service.UpdateUserStatus(ctx, emp, otherEmp.ID, false, "127.0.0.1")
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied when employee attempts to deactivate another employee, got %v", err)
+	}
+
+	// 5. Employee CANNOT deactivate owner
+	err = service.UpdateUserStatus(ctx, emp, owner.ID, false, "127.0.0.1")
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied when employee attempts to deactivate owner, got %v", err)
 	}
 }
