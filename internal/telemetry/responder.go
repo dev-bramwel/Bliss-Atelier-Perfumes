@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -69,14 +70,30 @@ type AlertNotification struct {
 	Alerts   []ResponderAlert `json:"alerts"`
 }
 
+// readSecretEnv returns the trimmed string from an env variable or its _FILE companion.
+func readSecretEnv(envKey, fileEnvKey string) string {
+	if val := os.Getenv(envKey); val != "" {
+		return strings.TrimSpace(val)
+	}
+	if fileKey := os.Getenv(fileEnvKey); fileKey != "" {
+		if b, err := os.ReadFile(fileKey); err == nil {
+			return strings.TrimSpace(string(b))
+		}
+	}
+	return ""
+}
+
 // DrillResponder is a bounded, authenticated receiver that captures incoming Alertmanager
 // notifications, dispatches operational escalations, and exposes liveness endpoints.
 type DrillResponder struct {
 	mu             sync.RWMutex
 	authToken      string
 	forwardURL     string
+	forwardToken   string
 	platformURL    string
+	platformToken  string
 	financeURL     string
+	financeToken   string
 	receivedAlerts []AlertNotification
 	testSinkAlerts []AlertNotification
 }
@@ -87,17 +104,27 @@ func NewDrillResponder(authToken ...string) *DrillResponder {
 	var token string
 	if len(authToken) > 0 && authToken[0] != "" {
 		token = authToken[0]
-	} else if env := os.Getenv("GO_DRILL_RESPONDER_TOKEN"); env != "" {
-		token = env
-	} else if file := os.Getenv("GO_DRILL_RESPONDER_TOKEN_FILE"); file != "" {
-		if b, err := os.ReadFile(file); err == nil {
-			token = strings.TrimSpace(string(b))
-		}
+	} else {
+		token = readSecretEnv("GO_DRILL_RESPONDER_TOKEN", "GO_DRILL_RESPONDER_TOKEN_FILE")
 	}
 
 	forwardURL := os.Getenv("GO_ESCALATION_FORWARD_URL")
+	forwardToken := readSecretEnv("GO_ESCALATION_FORWARD_TOKEN", "GO_ESCALATION_FORWARD_TOKEN_FILE")
+	if forwardToken == "" {
+		forwardToken = readSecretEnv("GO_ESCALATION_FORWARD_BEARER_TOKEN", "GO_ESCALATION_FORWARD_BEARER_TOKEN_FILE")
+	}
+
 	platformURL := os.Getenv("GO_PLATFORM_ESCALATION_URL")
+	platformToken := readSecretEnv("GO_PLATFORM_ESCALATION_TOKEN", "GO_PLATFORM_ESCALATION_TOKEN_FILE")
+	if platformToken == "" {
+		platformToken = readSecretEnv("GO_PLATFORM_ESCALATION_BEARER_TOKEN", "GO_PLATFORM_ESCALATION_BEARER_TOKEN_FILE")
+	}
+
 	financeURL := os.Getenv("GO_FINANCE_ESCALATION_URL")
+	financeToken := readSecretEnv("GO_FINANCE_ESCALATION_TOKEN", "GO_FINANCE_ESCALATION_TOKEN_FILE")
+	if financeToken == "" {
+		financeToken = readSecretEnv("GO_FINANCE_ESCALATION_BEARER_TOKEN", "GO_FINANCE_ESCALATION_BEARER_TOKEN_FILE")
+	}
 
 	// Initialize default metric series so initial Prometheus scrapes establish 0 baselines
 	PaymentExceptionsTotal.Set(0, "AMOUNT_MISMATCH")
@@ -111,8 +138,11 @@ func NewDrillResponder(authToken ...string) *DrillResponder {
 	return &DrillResponder{
 		authToken:      token,
 		forwardURL:     forwardURL,
+		forwardToken:   forwardToken,
 		platformURL:    platformURL,
+		platformToken:  platformToken,
 		financeURL:     financeURL,
+		financeToken:   financeToken,
 		receivedAlerts: make([]AlertNotification, 0, MaxRetainedAlerts),
 	}
 }
@@ -122,6 +152,13 @@ func (r *DrillResponder) SetForwardURL(url string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.forwardURL = url
+}
+
+// SetForwardAuthToken sets the upstream operational escalation bearer credential for the default destination.
+func (r *DrillResponder) SetForwardAuthToken(token string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.forwardToken = token
 }
 
 // SetTeamForwardURL sets a team-specific upstream operational escalation destination URL.
@@ -135,6 +172,20 @@ func (r *DrillResponder) SetTeamForwardURL(team, url string) {
 		r.financeURL = url
 	default:
 		r.forwardURL = url
+	}
+}
+
+// SetTeamForwardAuthToken sets a team-specific upstream operational escalation bearer credential.
+func (r *DrillResponder) SetTeamForwardAuthToken(team, token string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch team {
+	case "platform-sre":
+		r.platformToken = token
+	case "finance-ops":
+		r.financeToken = token
+	default:
+		r.forwardToken = token
 	}
 }
 
@@ -172,6 +223,26 @@ func (r *DrillResponder) isAuthorized(req *http.Request) bool {
 	expectedBearer := "Bearer " + r.authToken
 	customToken := strings.TrimSpace(req.Header.Get("X-Drill-Token"))
 	return authHeader == expectedBearer || customToken == r.authToken
+}
+
+// isLocalTestSink determines whether an escalation destination points to the local mock /test-sink.
+// Under no circumstances should the responder's internal bearer token be dispatched to external third parties.
+func isLocalTestSink(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	if strings.TrimSuffix(u.Path, "/") != "/test-sink" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" || host == "localhost" || host == "drill-responder" || host == "127.0.0.1" || host == "0.0.0.0" || host == "::1" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) {
+		return true
+	}
+	return false
 }
 
 // Handler returns the HTTP router serving /alerts, /health/live, and operational escalation endpoints.
@@ -251,24 +322,35 @@ func (r *DrillResponder) Handler() http.Handler {
 				}
 			}
 
-			// Determine external webhook forward destination
-			var targetURL string
+			// Determine external webhook forward destination and provider credential
+			var targetURL, targetAuthToken string
 			r.mu.RLock()
 			switch escalationTarget {
 			case "platform-sre":
 				if r.platformURL != "" {
 					targetURL = r.platformURL
+					targetAuthToken = r.platformToken
 				} else {
 					targetURL = r.forwardURL
+					targetAuthToken = r.forwardToken
+				}
+				if targetAuthToken == "" {
+					targetAuthToken = r.forwardToken
 				}
 			case "finance-ops":
 				if r.financeURL != "" {
 					targetURL = r.financeURL
+					targetAuthToken = r.financeToken
 				} else {
 					targetURL = r.forwardURL
+					targetAuthToken = r.forwardToken
+				}
+				if targetAuthToken == "" {
+					targetAuthToken = r.forwardToken
 				}
 			default:
 				targetURL = r.forwardURL
+				targetAuthToken = r.forwardToken
 			}
 			r.mu.RUnlock()
 
@@ -286,7 +368,14 @@ func (r *DrillResponder) Handler() http.Handler {
 					return
 				}
 				postReq.Header.Set("Content-Type", "application/json")
-				if r.authToken != "" {
+
+				// Attach authorization credential:
+				// 1. If a dedicated provider credential is configured for this destination, attach it.
+				// 2. Otherwise, attach the responder's internal drill token ONLY when forwarding to the local test sink.
+				// Under no circumstances is the responder's internal secret leaked to external escalation providers.
+				if targetAuthToken != "" {
+					postReq.Header.Set("Authorization", "Bearer "+targetAuthToken)
+				} else if isLocalTestSink(targetURL) && r.authToken != "" {
 					postReq.Header.Set("Authorization", "Bearer "+r.authToken)
 				}
 				resp, dErr := client.Do(postReq)
