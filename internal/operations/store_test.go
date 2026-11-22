@@ -52,7 +52,7 @@ func TestAssignedFulfillmentAndInventory(t *testing.T) {
 		user.Role = role
 		return user
 	}
-	owner, manager, employee := makeUser(auth.RoleOwner), makeUser(auth.RoleManager), makeUser(auth.RoleEmployee)
+	owner, employee := makeUser(auth.RoleOwner), makeUser(auth.RoleEmployee)
 	osStore := &orders.Store{Pool: pool}
 	s := &Store{Pool: pool}
 	order, err := osStore.CreateOrder(ctx, orders.CreateOrderRequest{Customer: orders.CustomerInput{Name: "Test buyer", Phone: "0712345678", Location: "Mombasa", Delivery: "pickup", Payment: "pay_now"}, Items: []orders.ItemInput{{ID: "p1", Qty: 2}}})
@@ -66,8 +66,8 @@ func TestAssignedFulfillmentAndInventory(t *testing.T) {
 	if inv.Products[0].Stock != 5 || inv.Products[0].Held != 2 || inv.Products[0].Available != 3 {
 		t.Fatalf("holds not reflected: %+v", inv.Products[0])
 	}
-	if err = s.Assign(ctx, order.ID, employee.ID, manager, "127.0.0.1"); !errors.Is(err, auth.ErrPermissionDenied) {
-		t.Fatal("manager assigned an order")
+	if err = s.Assign(ctx, order.ID, employee.ID, employee, "127.0.0.1"); !errors.Is(err, auth.ErrPermissionDenied) {
+		t.Fatal("employee assigned an order")
 	}
 	if err = s.Assign(ctx, order.ID, employee.ID, owner, "127.0.0.1"); err != nil {
 		t.Fatal(err)
