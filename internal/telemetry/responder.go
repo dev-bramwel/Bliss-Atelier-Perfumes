@@ -327,7 +327,7 @@ func (r *DrillResponder) Handler() http.Handler {
 			if queueLabel == "" {
 				queueLabel = "notifications"
 			}
-			RabbitMQDLQMessagesGauge.Set(queueLabel, payload.Value)
+			RabbitMQDLQMessagesGauge.Set(payload.Value, queueLabel)
 		case "unresolved_payments_gauge":
 			UnresolvedPaymentsGauge.Set(payload.Value)
 		default:
@@ -365,7 +365,7 @@ func (r *DrillResponder) Handler() http.Handler {
 			if queueLabel == "" {
 				queueLabel = "notifications"
 			}
-			RabbitMQDLQMessagesGauge.Set(queueLabel, 0)
+			RabbitMQDLQMessagesGauge.Set(0, queueLabel)
 		case "unresolved_payments_gauge":
 			UnresolvedPaymentsGauge.Set(0)
 		default:
