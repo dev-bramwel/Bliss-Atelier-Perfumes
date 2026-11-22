@@ -87,7 +87,8 @@ flowchart TD
 | **Payments** | `unresolved_payments_gauge` | Gauge | none | Number of attempts pending reconciliation. |
 | **Exceptions** | `payment_exceptions_total` | Counter | `type` (`AMOUNT_MISMATCH`, etc.) | Actionable financial exceptions detected. |
 | **Reconciler** | `reconciliation_runs_total` | Counter | `status` (`success`, `failure`) | Automated query reconciliation sweeps. |
-| **Outbox** | `outbox_pending_events_gauge` | Gauge | none | Current backlog of unpublished transactional events. |
+| **Outbox** | `outbox_pending_events_gauge` | Gauge | none | Current backlog of unpublished transactional events (`-1` indicates count error). |
+| **Outbox** | `outbox_count_errors_total` | Counter | none | Total failures querying transactional outbox backlog depth. |
 | **Outbox** | `outbox_events_published_total`| Counter | `destination` | Total published events confirmed by AMQP broker. |
 | **Worker** | `rabbitmq_messages_consumed_total`| Counter | `queue`, `status` (`ack`, `nack`, `dead_letter`) | Background consumer processing outcomes. |
 | **Worker** | `rabbitmq_dlq_messages_gauge` | Gauge | `queue` | Quarantined poison messages in Dead-Letter Queue. |
@@ -198,12 +199,13 @@ Automated verification was executed via [`scripts/test-synthetic-incident-drills
 
 ## 7. Operational Runbooks Delivered
 
-Five comprehensive runbooks delivered in [`docs/runbooks/`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/):
+Six comprehensive runbooks delivered in [`docs/runbooks/`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/):
 1. [`runbook-payment-reconciliation-failure.md`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/runbook-payment-reconciliation-failure.md): Triage for unmapped STK attempts, amount mismatch exceptions, and executing manual settlement safely without double-charging.
 2. [`runbook-dlq-poison-messages.md`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/runbook-dlq-poison-messages.md): Inspecting dead-letter messages in PostgreSQL, diagnosing payload failures, and replaying or discarding safely.
 3. [`runbook-database-pool-exhaustion.md`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/runbook-database-pool-exhaustion.md): Diagnosing connection pool saturation, finding orphaned transactions, and setting runtime pool limits safely.
 4. [`runbook-cache-and-rate-limit-outage.md`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/runbook-cache-and-rate-limit-outage.md): Handling Redis outages, verifying PostgreSQL fallback, and ensuring rate limits fail closed/safe.
 5. [`runbook-api-error-surge.md`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/runbook-api-error-surge.md): Tracing API 5xx spikes and p95 latency degradation via `correlation_id` across logs.
+6. [`runbook-outbox-backlog.md`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/runbook-outbox-backlog.md): Diagnosing transactional outbox event accumulation, inspecting pending/publishing events in PostgreSQL `public.outbox_event`, resolving broker disconnects, and verifying publisher draining via Prometheus metrics.
 
 ---
 
@@ -261,6 +263,17 @@ Five comprehensive runbooks delivered in [`docs/runbooks/`](file:///C:/Users/mut
 | :--- | :--- | :--- | :--- |
 | **Finding 1** | `[P1]` | **Safely Route DLQ Dynamic Shovel Replay and Stop on Drain**: The DLQ runbook and synthetic incident drill configured the RabbitMQ shovel with `dest-exchange: "bliss.events.v1"` without `dest-exchange-key`, and with legacy option `delete-after: "queue-length"`. In RabbitMQ 3.13, that option was renamed to `src-delete-after`. Furthermore, publishing without `dest-exchange-key` preserves the message's original routing key (`dead.notifications`), which matches the `dead.*` topic binding on `bliss.events.v1`, routing replayed messages straight back into the dead-letter queue (`bliss.notifications.v1.dead`) rather than reaching `bliss.notifications.v1`. | 1. **Direct Queue Replay Routing**: Updated [`docs/runbooks/runbook-dlq-poison-messages.md`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/runbook-dlq-poison-messages.md) and [`scripts/test-synthetic-incident-drills.ps1`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/scripts/test-synthetic-incident-drills.ps1) to route replayed messages directly to the notification queue via `"dest-queue": "bliss.notifications.v1"`. This bypasses the `dead.*` topic binding on `bliss.events.v1` and ensures messages return directly to the notification consumer.<br>2. **RabbitMQ 3.13 Option Compliance**: Updated shovel configuration to use `"src-delete-after": "queue-length"`, ensuring the dynamic shovel drains the source queue backlog and automatically cleans up without running indefinitely.<br>3. **Live Container Validation**: Verified dynamic shovel declaration in a live RabbitMQ container with `rabbitmqctl set_parameter shovel drill-test-shovel` exiting 0. |
 
+### Round 8 Follow-Up Review Findings Resolution (Head `715e68e`)
+
+| Follow-up Finding | Severity | Problem & Review Requirement | Operational Resolution & Evidence |
+| :--- | :--- | :--- | :--- |
+| **Finding 1** | `[P1]` | **Synchronous External Escalation & Alertmanager Retry Signaling**: The responder previously forwarded alerts asynchronously in an unmonitored goroutine, ignored upstream errors/non-2xx responses, and returned HTTP 200 immediately, blinding Alertmanager to upstream delivery failures. `GO_ESCALATION_FORWARD_URL` was also not configured in `compose.yaml`. | 1. **Synchronous Paging Delivery**: Updated `internal/telemetry/responder.go` so external escalation requests are forwarded synchronously with a 5-second context timeout before replying to Alertmanager.<br>2. **Upstream Failure Retry Signaling**: On upstream network failures or non-2xx HTTP status codes, the responder returns HTTP 502 Bad Gateway with structured JSON diagnostic output (`upstream escalation delivery failed` / `upstream escalation rejected notification`). Alertmanager detects non-2xx status and triggers its retry/backoff policy.<br>3. **Environment Injection**: Added `GO_ESCALATION_FORWARD_URL`, `GO_PLATFORM_ESCALATION_URL`, and `GO_FINANCE_ESCALATION_URL` to `drill-responder` in `compose.yaml`. |
+| **Finding 2** | `[P2]` | **Accurate Direct Outbox Metrics Query in Runbook**: The outbox runbook piped `/app/probe` into grep, but probe only checks HTTP status and writes no response body. Querying `localhost:9090` from scratch API failed because scratch containers have neither curl nor shell. | Updated `docs/runbooks/runbook-outbox-backlog.md` to document verified metric inspection from the host/debug environment (`curl.exe -s http://127.0.0.1:5001/metrics \| findstr /i outbox_pending_events_gauge`) or querying Prometheus directly (`http://localhost:9090/api/v1/query?query=outbox_pending_events_gauge`). |
+| **Finding 3** | `[P2]` | **End-to-End Prometheus Scrape $\to$ Rule $\to$ Alertmanager $\to$ Responder Pipeline Drill**: The incident drill script only tested direct synthetic alert injection to Alertmanager's API, skipping validation of the live scrape and rule evaluation loop. | Updated `scripts/test-synthetic-incident-drills.ps1` (Step 4b) to launch containerized `prometheus`, `alertmanager`, and `drill-responder` concurrently. Prometheus evaluates the active `ServiceTargetDown` rule (`up == 0`), fires the alert to Alertmanager, and Alertmanager routes the notification to the responder's `/escalations/platform-sre` channel with Docker secret authentication, verified end-to-end. |
+| **Finding 4** | `[P2]` | **Outbox Count Failure Tracking and Gauge Staleness Prevention**: When `CountPending` failed, `ProcessBatch` silently logged and ignored the error, leaving the previous gauge value on dashboards. | 1. **Failure Counter**: Added `OutboxCountErrorsTotal` (`outbox_count_errors_total`) counter to track database query errors.<br>2. **Unavailable Marker**: When `CountPending` fails, `ProcessBatch` marks `OutboxPendingEventsGauge` as `-1`, signaling dashboard panels and alerting rules that the backlog depth is unavailable rather than stale.<br>3. **Unit Tests**: Added `TestPublisher_ProcessBatch_CountPendingErrorMarksUnavailableAndCounts` asserting `-1` gauge value and counter increment. |
+| **Finding 5** | `[P2]` | **Team-Specific Escalation Channels with Failure Test Cases**: Escalation routing needed team-specific webhook receivers and rigorous test coverage for upstream rejection and failure modes. | 1. **Team Channels**: Added dedicated routes `/escalations/platform-sre`, `/escalations/finance-ops`, and `/escalations/default` in `responder.go` matching Alertmanager receiver definitions.<br>2. **Test Suite**: Added unit tests in `internal/telemetry/responder_test.go` covering upstream rejection (HTTP 500 $\to$ 502 returned), upstream unreachable (network error $\to$ 502 returned), and successful upstream paging delivery (HTTP 200 $\to$ 200 returned). |
+| **Finding 6** | `[P2]` | **Tracing Scope Definition Alignment**: Clarify throughout evidence, PR description, and Issue #29 that tracing is implemented via request-to-worker correlation ID continuity rather than OpenTelemetry distributed trace trees. | Explicitly verified and clarified in Section 1 and PR metadata that tracing scope is request correlation ID continuity across HTTP middleware, structured `slog` logging, transactional outbox storage, and RabbitMQ message headers. Checked all delivery criteria. |
+
 ---
 
 ## 11. Schema, Configuration & Rollback Accounting
@@ -274,6 +287,41 @@ Five comprehensive runbooks delivered in [`docs/runbooks/`](file:///C:/Users/mut
 - When poison messages are repaired and processed or updated by operators, `rabbitmq_dlq_messages_gauge` automatically drops to 0, clearing `DlqPoisonMessagesDetected` without requiring worker container restarts.
 - Runbook [`docs/runbooks/runbook-dlq-poison-messages.md`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/runbooks/runbook-dlq-poison-messages.md) reflects `public.inbox_message` schema queries and documents automated metric clearance.
 
+### Operational Escalation Webhook Contract
+
+Alertmanager routes notifications to the drill responder and external operational receivers conforming to the Alertmanager Webhook Payload v4 schema:
+
+```json
+{
+  "version": "4",
+  "groupKey": "{}/{team=\"platform-sre\"}:{alertname=\"ServiceTargetDown\", severity=\"critical\", team=\"platform-sre\"}",
+  "status": "firing",
+  "receiver": "platform_sre_escalation",
+  "groupLabels": { "alertname": "ServiceTargetDown", "severity": "critical", "team": "platform-sre" },
+  "commonLabels": { "alertname": "ServiceTargetDown", "severity": "critical", "team": "platform-sre" },
+  "commonAnnotations": { "runbook_url": "docs/runbooks/runbook-api-error-surge.md" },
+  "alerts": [
+    {
+      "status": "firing",
+      "labels": { "alertname": "ServiceTargetDown", "job": "bliss-api", "severity": "critical", "team": "platform-sre" },
+      "annotations": { "summary": "Prometheus target bliss-api is unreachable" },
+      "startsAt": "2026-11-22T08:31:31Z"
+    }
+  ]
+}
+```
+
+#### Escalation Endpoints and Routing Behavior:
+- `POST /alerts`: Default drill sink receiver with Bearer token authentication. Retains alerts in a bounded ring buffer (50 alerts) and forwards to `GO_ESCALATION_FORWARD_URL` if configured.
+- `POST /escalations/platform-sre`: Platform SRE team escalation endpoint. Forwards synchronously to `GO_PLATFORM_ESCALATION_URL` (or `GO_ESCALATION_FORWARD_URL` fallback).
+- `POST /escalations/finance-ops`: Financial Operations team escalation endpoint. Forwards synchronously to `GO_FINANCE_ESCALATION_URL` (or `GO_ESCALATION_FORWARD_URL` fallback).
+- `POST /escalations/default`: Fallback escalation endpoint. Forwards synchronously to `GO_ESCALATION_FORWARD_URL`.
+
+#### Delivery Guarantees & Retry Signaling:
+- **Upstream Success**: When the configured paging provider responds with `2xx`, the responder returns HTTP 200 `{"status":"received"}`.
+- **Upstream Rejection / Outage**: When upstream delivery fails (connection refused, network timeout, or HTTP non-2xx), the responder returns HTTP 502 Bad Gateway to Alertmanager, preserving Alertmanager's built-in retry and backoff mechanism.
+- **Local Fallback**: If no upstream URL is configured, notifications are logged with `slog.Info("operational_escalation_received")` and retained in memory for verification.
+
 ### Configuration Accounting
 
 | Variable | Target Subsystem | Default Value | Description |
@@ -282,6 +330,9 @@ Five comprehensive runbooks delivered in [`docs/runbooks/`](file:///C:/Users/mut
 | `GO_DRILL_RESPONDER_ADDR` | Drill Responder | `:9099` | HTTP bind address for the synthetic incident drill alert responder webhook receiver. |
 | `GO_DRILL_RESPONDER_TOKEN_FILE` | Drill Responder | `/run/secrets/drill_responder_token` | Path to Docker secret file containing the dynamic authentication token. Loaded securely without committed plaintext. |
 | `GO_DRILL_RESPONDER_TOKEN` | Drill Responder | *(unset)* | Environment variable alternative for supplying authentication token (used in tests). |
+| `GO_ESCALATION_FORWARD_URL` | Drill Responder | *(unset)* | Upstream webhook URL for external paging / incident management escalation (default channel). |
+| `GO_PLATFORM_ESCALATION_URL` | Drill Responder | *(unset)* | Upstream webhook URL for platform-sre escalation paging. |
+| `GO_FINANCE_ESCALATION_URL` | Drill Responder | *(unset)* | Upstream webhook URL for finance-ops escalation paging. |
 
 ### Secret Generation & Rotation Procedure
 1. **Initial Provisioning:**
@@ -339,9 +390,16 @@ If observability services or instrumentation need to be reverted:
   - Finding 2: RabbitMQ credentials externalized from `compose.yaml` to Docker secrets (`rabbitmq_password` and `rabbitmq_url`) generated via `cmd/devstack` bootstrap with zero committed plain-text passwords.
 - [x] All Round 7 follow-up review suggestions resolved and verified:
   - Finding 1: DLQ Shovel replay routes directly to `bliss.notifications.v1` (`dest-queue`) bypassing `bliss.events.v1` `dead.*` loop, and uses RabbitMQ 3.13 `src-delete-after: queue-length`.
+- [x] All Round 8 follow-up review suggestions resolved and verified:
+  - Finding 1: Synchronous external escalation forwarding with HTTP 502 retry signaling on failure, and environment wiring in `compose.yaml`.
+  - Finding 2: Outbox runbook updated with verified host/debug direct curl and Prometheus metric queries.
+  - Finding 3: Live containerized Prometheus $\to$ Alertmanager $\to$ Responder scrape and rule evaluation pipeline verified in automated drills.
+  - Finding 4: Outbox count failure tracked via `outbox_count_errors_total` and gauge marked `-1` unavailable.
+  - Finding 5: Team-specific escalation endpoints (`platform-sre`, `finance-ops`, `default`) with rejection, failure, and success tests.
+  - Finding 6: Request-to-worker correlation ID tracing scope documented and verified with zero unredacted PII.
 - [x] All unit and integration tests passing (`go test -v ./...`).
 - [x] Telemetry endpoint `GET /metrics` emits valid Prometheus 0.0.4 text format under 2ms.
 - [x] Zero high-cardinality labels and zero PII verified via automated audit.
 - [x] `compose.yaml` profile `observability` config validated.
 - [x] Synthetic incident drills and recovery verification passing 100%.
-- [x] 5 operational runbooks delivered and cross-referenced in alert annotations.
+- [x] 6 operational runbooks delivered and cross-referenced in alert annotations.
