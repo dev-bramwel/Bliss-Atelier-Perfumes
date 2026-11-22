@@ -61,13 +61,13 @@ func administrativeSessions(next http.Handler, service *auth.Service, checker *T
 			respond(w, 401, map[string]string{"error": "Your session has ended. Please sign in again."})
 			return
 		}
-		manager := user.Role == auth.RoleOwner || user.Role == auth.RoleManager
-		if (admin && !manager) || ((ops || fulfill) && !auth.IsStaff(user.Role)) {
+		owner := user.Role == auth.RoleOwner
+		if (admin && !owner) || ((ops || fulfill) && !auth.IsStaff(user.Role)) {
 			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
 			return
 		}
-		if (quote || invalidate) && !manager {
-			respond(w, 401, map[string]string{"error": "Owner or manager access is required."})
+		if (quote || invalidate) && !owner {
+			respond(w, 401, map[string]string{"error": "Owner access is required."})
 			return
 		}
 		if !RequireCSRF(r, ses) {
