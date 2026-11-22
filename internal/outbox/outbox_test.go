@@ -3,13 +3,16 @@ package outbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 func TestToRoutingKey(t *testing.T) {
@@ -52,6 +55,7 @@ type mockOutboxStore struct {
 	pending   []EventRecord
 	published []string
 	failed    map[string]string
+	countErr  error
 }
 
 func (m *mockOutboxStore) FetchPending(ctx context.Context, batchSize int, dest string) ([]EventRecord, error) {
@@ -66,6 +70,9 @@ func (m *mockOutboxStore) FetchPending(ctx context.Context, batchSize int, dest 
 }
 
 func (m *mockOutboxStore) CountPending(ctx context.Context, dest string) (int, error) {
+	if m.countErr != nil {
+		return 0, m.countErr
+	}
 	return len(m.pending), nil
 }
 
@@ -240,5 +247,37 @@ func TestBackgroundPublisher_BacklogGaugeReflectsTotalBacklogOverBatchLimit(t *t
 	// Verify remaining backlog in mockStore
 	if len(mockStore.pending) != 2 {
 		t.Errorf("expected 2 items remaining in pending store, got %d", len(mockStore.pending))
+	}
+}
+
+func TestBackgroundPublisher_CountPendingErrorSetsUnavailableGauge(t *testing.T) {
+	fakeProducer := messaging.NewFakeMessaging()
+	defer fakeProducer.Close()
+
+	mockStore := &mockOutboxStore{
+		countErr: errors.New("database connection refused"),
+	}
+	pub := NewBackgroundPublisher(
+		mockStore,
+		fakeProducer,
+		PublisherConfig{
+			BatchSize:   10,
+			Destination: "rabbitmq",
+		},
+		slog.Default(),
+	)
+
+	// Pre-set gauge to an arbitrary positive number to verify it gets marked unavailable (-1)
+	telemetry.OutboxPendingEventsGauge.Set(42)
+
+	ctx := context.Background()
+	_ = pub.ProcessBatch(ctx)
+
+	metricsOutput := telemetry.DefaultRegistry.Gather()
+	if !strings.Contains(metricsOutput, "outbox_pending_events_gauge -1") {
+		t.Errorf("expected outbox_pending_events_gauge to be marked -1 on count error, got:\n%s", metricsOutput)
+	}
+	if !strings.Contains(metricsOutput, `outbox_count_errors_total{destination="rabbitmq"} 1`) {
+		t.Errorf("expected outbox_count_errors_total to increment, got:\n%s", metricsOutput)
 	}
 }
