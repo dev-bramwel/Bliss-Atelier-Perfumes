@@ -327,3 +327,81 @@ func TestDrillResponder_TestSinkMockUpstream(t *testing.T) {
 		t.Fatalf("expected 502 Bad Gateway when test sink fails with 500, got %d", recFail.Code)
 	}
 }
+
+func TestDrillResponder_InduceMetricLabelValidation(t *testing.T) {
+	responder := NewDrillResponder("test-drill-token")
+	handler := responder.Handler()
+
+	// 1. Rejects invalid payment exception labels
+	invalidExceptionPayloads := []string{
+		`{"metric":"payment_exceptions_total","label":"UNKNOWN_EXCEPTION"}`,
+		`{"metric":"payment_exceptions_total","label":"user_phone_0712345678"}`,
+		`{"metric":"payment_exceptions_total","label":"token_12345"}`,
+	}
+	for _, p := range invalidExceptionPayloads {
+		req := httptest.NewRequest(http.MethodPost, "/drill/induce-metric", strings.NewReader(p))
+		req.Header.Set("Authorization", "Bearer test-drill-token")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 Bad Request for payload %s, got %d", p, rec.Code)
+		}
+	}
+
+	// 2. Rejects invalid queue names
+	invalidQueuePayloads := []string{
+		`{"metric":"rabbitmq_dlq_messages_gauge","label":"custom_random_queue","value":3}`,
+		`{"metric":"rabbitmq_dlq_messages_gauge","label":"ord_123456789","value":1}`,
+	}
+	for _, p := range invalidQueuePayloads {
+		req := httptest.NewRequest(http.MethodPost, "/drill/induce-metric", strings.NewReader(p))
+		req.Header.Set("Authorization", "Bearer test-drill-token")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 Bad Request for payload %s, got %d", p, rec.Code)
+		}
+	}
+
+	// 3. Rejects negative values
+	negativeValuePayloads := []string{
+		`{"metric":"rabbitmq_dlq_messages_gauge","label":"notifications","value":-1}`,
+		`{"metric":"unresolved_payments_gauge","value":-5}`,
+	}
+	for _, p := range negativeValuePayloads {
+		req := httptest.NewRequest(http.MethodPost, "/drill/induce-metric", strings.NewReader(p))
+		req.Header.Set("Authorization", "Bearer test-drill-token")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 Bad Request for negative payload %s, got %d", p, rec.Code)
+		}
+	}
+
+	// 4. Rejects invalid queue in /drill/clear-metric
+	clearInvalidReq := httptest.NewRequest(http.MethodPost, "/drill/clear-metric", strings.NewReader(`{"metric":"rabbitmq_dlq_messages_gauge","label":"invalid_queue"}`))
+	clearInvalidReq.Header.Set("Authorization", "Bearer test-drill-token")
+	clearInvalidRec := httptest.NewRecorder()
+	handler.ServeHTTP(clearInvalidRec, clearInvalidReq)
+	if clearInvalidRec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request from /drill/clear-metric with invalid queue, got %d", clearInvalidRec.Code)
+	}
+
+	// 5. Accepts valid whitelisted labels
+	validPayloads := []string{
+		`{"metric":"payment_exceptions_total","label":"AMOUNT_MISMATCH"}`,
+		`{"metric":"payment_exceptions_total","label":"UNMAPPED_TRANSACTION"}`,
+		`{"metric":"rabbitmq_dlq_messages_gauge","label":"notifications","value":2}`,
+		`{"metric":"rabbitmq_dlq_messages_gauge","label":"dead_letter","value":1}`,
+		`{"metric":"unresolved_payments_gauge","value":0}`,
+	}
+	for _, p := range validPayloads {
+		req := httptest.NewRequest(http.MethodPost, "/drill/induce-metric", strings.NewReader(p))
+		req.Header.Set("Authorization", "Bearer test-drill-token")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 OK for valid payload %s, got %d", p, rec.Code)
+		}
+	}
+}
