@@ -433,6 +433,7 @@ var (
 
 	// Outbox & Queue
 	OutboxPendingEventsGauge      = DefaultRegistry.NewGauge("outbox_pending_events_gauge", "Number of pending events in transactional outbox.", nil)
+	OutboxCountErrorsTotal        = DefaultRegistry.NewCounter("outbox_count_errors_total", "Total errors attempting to count pending outbox events.", []string{"destination"})
 	OutboxEventsPublishedTotal    = DefaultRegistry.NewCounter("outbox_events_published_total", "Total events published from transactional outbox.", []string{"destination"})
 	RabbitMQMessagesConsumedTotal = DefaultRegistry.NewCounter("rabbitmq_messages_consumed_total", "Total RabbitMQ messages consumed by background workers.", []string{"queue", "status"})
 	RabbitMQDLQMessagesGauge      = DefaultRegistry.NewGauge("rabbitmq_dlq_messages_gauge", "Dead letter queue messages detected.", []string{"queue"})
