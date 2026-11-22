@@ -191,6 +191,9 @@ services:
     command: [responder, "0.0.0.0:9099"]
     environment:
       GO_DRILL_RESPONDER_TOKEN_FILE: /run/secrets/drill_responder_token
+      GO_ESCALATION_FORWARD_URL: ${GO_ESCALATION_FORWARD_URL:-}
+      GO_PLATFORM_ESCALATION_URL: ${GO_PLATFORM_ESCALATION_URL:-}
+      GO_FINANCE_ESCALATION_URL: ${GO_FINANCE_ESCALATION_URL:-}
     secrets: [drill_responder_token]
     ports: ["127.0.0.1:9099:9099"]
     networks: [edge, private]
