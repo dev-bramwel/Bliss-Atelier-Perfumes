@@ -168,6 +168,12 @@ if ($dockerAvailable) {
         $prevPlatformUrl = $env:GO_PLATFORM_ESCALATION_URL
         $prevFinanceUrl = $env:GO_FINANCE_ESCALATION_URL
 
+        # Inspect actively running observability services so they can be restored rather than removed
+        $runningServices = @(docker compose --profile observability ps --services --filter "status=running" 2>$null)
+        $wasResponderRunning = $runningServices -contains "drill-responder"
+        $wasAlertmanagerRunning = $runningServices -contains "alertmanager"
+        $wasPrometheusRunning = $runningServices -contains "prometheus"
+
         function Post-DrillJson {
             param([string]$Url, [string]$Json, [string]$Token)
             $tmpFile = [System.IO.Path]::GetTempFileName()
@@ -210,15 +216,6 @@ if ($dockerAvailable) {
             return $false
         }
 
-        function Cleanup-DrillContainers {
-            $prev = $ErrorActionPreference
-            $ErrorActionPreference = "Continue"
-            # Targeted stop and container removal; preserves project named volumes (database, rabbitmq_data, etc.)
-            docker compose stop drill-responder alertmanager prometheus 2>&1 | Out-Null
-            docker compose rm -f -s drill-responder alertmanager prometheus 2>&1 | Out-Null
-            $ErrorActionPreference = $prev
-        }
-
         try {
             # Isolate drill execution to in-container mock test sink, preventing accidental real pages
             $env:GO_ESCALATION_FORWARD_URL = "http://127.0.0.1:9099/test-sink"
@@ -226,7 +223,6 @@ if ($dockerAvailable) {
             $env:GO_FINANCE_ESCALATION_URL = "http://127.0.0.1:9099/test-sink"
 
             Write-Host "    Starting drill-responder, alertmanager, and prometheus containers..." -ForegroundColor Gray
-            Cleanup-DrillContainers
             docker compose --profile observability up -d --force-recreate --no-deps drill-responder alertmanager prometheus | Out-Null
 
             $ready = $false
@@ -244,12 +240,16 @@ if ($dockerAvailable) {
                 throw "Prometheus, Alertmanager, or Drill-Responder container failed to become ready within timeout"
             }
 
-            # 1. Assert unauthenticated query rejected with 401
+            # 1. Assert unauthenticated queries are rejected with 401
             $unauthCode = curl.exe -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/alerts
             if ($unauthCode -ne "401") {
                 throw "Expected 401 Unauthorized without bearer token on GET /alerts, got $unauthCode"
             }
-            Write-Host "    ✓ Unauthorized access to responder rejected with 401" -ForegroundColor Green
+            $unauthSinkCode = curl.exe -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/test-sink
+            if ($unauthSinkCode -ne "401") {
+                throw "Expected 401 Unauthorized without bearer token on GET /test-sink, got $unauthSinkCode"
+            }
+            Write-Host "    ✓ Unauthorized access to responder and test sink rejected with 401" -ForegroundColor Green
 
             # 2. Verify Prometheus scrape target health evaluation (ServiceTargetDown)
             Write-Host "    Awaiting live Prometheus scrape rule evaluation (ServiceTargetDown)..." -ForegroundColor Gray
@@ -337,15 +337,86 @@ if ($dockerAvailable) {
             }
             Write-Host "    ✓ Prometheus cleared metric, evaluated recovery, and Alertmanager delivered resolved alert" -ForegroundColor Green
 
-            # 5. Verify isolated mock upstream test sink captured both platform-sre and finance-ops escalations
+            # 5. Live Unresolved Payment Spikes Rule Delivery through Prometheus Scrape Pipeline
+            Write-Host "    Inducing unresolved payments gauge via responder /drill/induce-metric..." -ForegroundColor Gray
+            $induceUnresolvedBody = '{"metric":"unresolved_payments_gauge","value":5}'
+            $induceUnresolvedCode = Post-DrillJson -Url "http://127.0.0.1:9099/drill/induce-metric" -Json $induceUnresolvedBody -Token $secretToken
+            if ($induceUnresolvedCode -ne "200") {
+                throw "Failed to induce unresolved_payments_gauge metric, got HTTP $induceUnresolvedCode"
+            }
+
+            Write-Host "    Awaiting Prometheus scrape and rule evaluation for UnresolvedPaymentSpike -> finance-ops..." -ForegroundColor Gray
+            $unresolvedDelivered = $false
+            for ($u = 0; $u -lt 40; $u++) {
+                Start-Sleep -Seconds 1
+                $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
+                if (Find-MatchingAlert -RawJson $responderAlerts -AlertName "UnresolvedPaymentSpike" -Receiver "finance_operations_escalation") {
+                    $unresolvedDelivered = $true
+                    break
+                }
+            }
+            if (-not $unresolvedDelivered) {
+                throw "Prometheus did not fire UnresolvedPaymentSpike to Alertmanager and Responder within 40s. Responder output: $responderAlerts"
+            }
+            Write-Host "    ✓ Prometheus scraped unresolved payments gauge and fired UnresolvedPaymentSpike" -ForegroundColor Green
+            Write-Host "    ✓ Alertmanager routed UnresolvedPaymentSpike to /escalations/finance-ops" -ForegroundColor Green
+
+            $clearUnresolvedBody = '{"metric":"unresolved_payments_gauge"}'
+            $null = Post-DrillJson -Url "http://127.0.0.1:9099/drill/clear-metric" -Json $clearUnresolvedBody -Token $secretToken
+
+            # 6. Live API 5xx Surge Rule Delivery through Prometheus Scrape Pipeline
+            Write-Host "    Inducing HTTP 5xx error rate spike via responder /drill/induce-metric..." -ForegroundColor Gray
+            $null = Post-DrillJson -Url "http://127.0.0.1:9099/drill/induce-metric" -Json '{"metric":"http_requests_total","label":"200","value":10}' -Token $secretToken
+            $induce5xxCode = Post-DrillJson -Url "http://127.0.0.1:9099/drill/induce-metric" -Json '{"metric":"http_requests_total","label":"500","value":100}' -Token $secretToken
+            if ($induce5xxCode -ne "200") {
+                throw "Failed to induce http_requests_total metric, got HTTP $induce5xxCode"
+            }
+
+            Write-Host "    Awaiting Prometheus scrape and rule evaluation for ApiHigh5xxRate -> platform-sre..." -ForegroundColor Gray
+            $api5xxDelivered = $false
+            for ($a = 0; $a -lt 40; $a++) {
+                Start-Sleep -Seconds 1
+                $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
+                if (Find-MatchingAlert -RawJson $responderAlerts -AlertName "ApiHigh5xxRate" -Receiver "platform_sre_escalation") {
+                    $api5xxDelivered = $true
+                    break
+                }
+            }
+            if (-not $api5xxDelivered) {
+                throw "Prometheus did not fire ApiHigh5xxRate to Alertmanager and Responder within 40s. Responder output: $responderAlerts"
+            }
+            Write-Host "    ✓ Prometheus scraped HTTP 5xx error surge and fired ApiHigh5xxRate" -ForegroundColor Green
+            Write-Host "    ✓ Alertmanager routed ApiHigh5xxRate to /escalations/platform-sre" -ForegroundColor Green
+
+            $null = Post-DrillJson -Url "http://127.0.0.1:9099/drill/clear-metric" -Json '{"metric":"http_requests_total"}' -Token $secretToken
+
+            # 7. Verify isolated mock upstream test sink captured both platform-sre and finance-ops escalations
             Write-Host "    Verifying isolated mock upstream test sink captured forwarded escalations..." -ForegroundColor Gray
-            $testSinkAlerts = curl.exe -s http://127.0.0.1:9099/test-sink
+            $testSinkAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/test-sink
             if ($testSinkAlerts -notmatch "platform_sre_escalation" -or $testSinkAlerts -notmatch "finance_operations_escalation") {
                 throw "Mock upstream test sink (/test-sink) did not receive both platform and finance escalations. Test sink output: $testSinkAlerts"
             }
             Write-Host "    ✓ Mock upstream test sink verified live synchronous forwarding without real paging" -ForegroundColor Green
         } finally {
-            Cleanup-DrillContainers
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+
+            # Restore the services that were actively running before the drill; stop services that were not running
+            $servicesToRestore = @()
+            $servicesToStop = @()
+
+            if ($wasResponderRunning) { $servicesToRestore += "drill-responder" } else { $servicesToStop += "drill-responder" }
+            if ($wasAlertmanagerRunning) { $servicesToRestore += "alertmanager" } else { $servicesToStop += "alertmanager" }
+            if ($wasPrometheusRunning) { $servicesToRestore += "prometheus" } else { $servicesToStop += "prometheus" }
+
+            if ($servicesToStop.Count -gt 0) {
+                docker compose --profile observability stop $servicesToStop 2>&1 | Out-Null
+            }
+            if ($servicesToRestore.Count -gt 0) {
+                docker compose --profile observability up -d --no-deps $servicesToRestore 2>&1 | Out-Null
+            }
+            $ErrorActionPreference = $prevEAP
+
             $env:GO_ESCALATION_FORWARD_URL = $prevForwardUrl
             $env:GO_PLATFORM_ESCALATION_URL = $prevPlatformUrl
             $env:GO_FINANCE_ESCALATION_URL = $prevFinanceUrl
