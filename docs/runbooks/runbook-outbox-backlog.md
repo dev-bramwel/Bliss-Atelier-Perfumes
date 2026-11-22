@@ -84,7 +84,9 @@ If PostgreSQL and RabbitMQ are healthy but `outbox_pending_events_gauge` is flat
    # Or query API metrics directly from host (on port 5001):
    curl -s "http://127.0.0.1:5001/metrics" | grep outbox_pending_events_gauge
    ```
-3. Confirm gauge returns to `< 5`.
+3. Confirm gauge returns to a valid non-negative count below 5 (`0 <= outbox_pending_events_gauge < 5`).
+   > [!WARNING] Gauge Sentinel Accounting
+   > A gauge reading of `-1` indicates that the outbox backlog count query failed (database error) and the metric is in an unavailable state. A reading of `-1` does **not** indicate recovery. True recovery requires an active, non-negative count below 5 with zero `outbox_count_errors_total` increments.
 
 ### Scenario C: Poison Outbox Record (Serialization or Schema Error)
 If a specific event fails repeatedly with `retry_count >= 5`:
@@ -110,6 +112,6 @@ If a specific event fails repeatedly with `retry_count >= 5`:
 
 ## 4. Verification & Recovery Sign-Off
 
-1. **Gauge Restored**: `outbox_pending_events_gauge` remains below 5 for 5 consecutive minutes.
+1. **Gauge Restored**: `outbox_pending_events_gauge` is non-negative and remains below 5 (`0 <= outbox_pending_events_gauge < 5`) for 5 consecutive minutes with zero `outbox_count_errors_total` increments.
 2. **Alert Cleared**: Alertmanager confirms `OutboxBacklogGrowing` is in `resolved` state.
 3. **Audit Logged**: Record any manual intervention in `docs/evidence/` or the team incident log.
