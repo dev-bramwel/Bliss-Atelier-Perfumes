@@ -322,6 +322,16 @@ Alertmanager routes notifications to the drill responder and external operationa
 - **Upstream Rejection / Outage**: When upstream delivery fails (connection refused, network timeout, or HTTP non-2xx), the responder returns HTTP 502 Bad Gateway to Alertmanager, preserving Alertmanager's built-in retry and backoff mechanism.
 - **Local Fallback**: If no upstream URL is configured, notifications are logged with `slog.Info("operational_escalation_received")` and retained in memory for verification.
 
+#### Downstream Paging Integration & Contract Compatibility:
+- **Forwarded Payload Contract**: The forwarder delivers the exact Alertmanager Webhook Payload v4 JSON received from Alertmanager without lossy conversion.
+- **Direct Integration Compatibility**: The v4 webhook contract is natively supported by:
+  - **PagerDuty**: Configured via the PagerDuty Prometheus Integration (`/integration/prometheus/enqueue`).
+  - **Grafana OnCall**: Configured via the Alertmanager Webhook Integration.
+  - **Opsgenie**: Configured via the Opsgenie Prometheus Integration.
+  - **Slack / Teams**: Configured via standard Alertmanager Webhook receiver bridges (e.g. `prometheus-msteams` or `slack-webhook`).
+- **Adapter Requirements**: Custom or proprietary on-call systems expecting a non-Alertmanager JSON schema require a dedicated translation adapter service between Alertmanager/Drill-Responder and the downstream API.
+- **Drill Isolation & Safety**: Automated incident drills (`scripts/test-synthetic-incident-drills.ps1`) automatically isolate forwarding destinations to `http://127.0.0.1:9099/test-sink` (the responder's in-memory mock upstream), guaranteeing that automated test runs never generate accidental pages or on-call interruptions while synchronously validating external forwarding over HTTP.
+
 ### Configuration Accounting
 
 | Variable | Target Subsystem | Default Value | Description |
@@ -397,6 +407,13 @@ If observability services or instrumentation need to be reverted:
   - Finding 4: Outbox count failure tracked via `outbox_count_errors_total` and gauge marked `-1` unavailable.
   - Finding 5: Team-specific escalation endpoints (`platform-sre`, `finance-ops`, `default`) with rejection, failure, and success tests.
   - Finding 6: Request-to-worker correlation ID tracing scope documented and verified with zero unredacted PII.
+- [x] All Round 9 follow-up review suggestions resolved and verified:
+  - Finding 1: Correlation ID validation strictly limited to canonical RFC 4122 UUIDs (`[0-9a-fA-F-]{36}`) and internal format (`c_[0-9a-fA-F]{24}`), strictly rejecting arbitrary tokens (`gt_...`), street addresses, words, or phone numbers, replacing invalid inputs with locally generated opaque IDs.
+  - Finding 2: Outbox runbook recovery criteria updated to require a non-negative backlog below 5 (`0 <= outbox_pending_events_gauge < 5`), explicitly treating `-1` as an error sentinel rather than backlog recovery.
+  - Finding 3: Publisher post-publish count failure consolidated via `updatePendingGauge`, setting gauge to `-1` and incrementing `outbox_count_errors_total` if the post-publish count fails.
+  - Finding 4: Containerized incident drills exercise genuine application metrics (`payment_exceptions_total` $\to$ `PaymentExceptionDetected` $\to$ `/escalations/finance-ops`, and `rabbitmq_dlq_messages_gauge` $\to$ `DlqPoisonMessagesDetected` $\to$ `/escalations/platform-sre` firing and resolution) scraped by Prometheus, rather than direct Alertmanager API injection.
+  - Finding 5: Incident drills isolate external escalation URLs to the responder's mock upstream test sink (`http://127.0.0.1:9099/test-sink`), preventing accidental paging on host machines while synchronously verifying HTTP delivery.
+  - Finding 6: Documented Alertmanager Webhook v4 contract compatibility with downstream paging providers (PagerDuty, Grafana OnCall, Opsgenie, Slack bridges) and noted adapter service requirements for proprietary schemas.
 - [x] All unit and integration tests passing (`go test -v ./...`).
 - [x] Telemetry endpoint `GET /metrics` emits valid Prometheus 0.0.4 text format under 2ms.
 - [x] Zero high-cardinality labels and zero PII verified via automated audit.
