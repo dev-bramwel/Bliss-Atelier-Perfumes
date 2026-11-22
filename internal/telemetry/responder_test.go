@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -437,4 +438,76 @@ func TestDrillResponder_InduceMetricLabelValidation(t *testing.T) {
 			t.Errorf("expected 200 OK for valid payload %s, got %d", p, rec.Code)
 		}
 	}
+}
+
+func TestDrillResponder_EscalationCredentialIsolation(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		lastAuth string
+	)
+
+	externalProviderMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		lastAuth = r.Header.Get("Authorization")
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer externalProviderMock.Close()
+
+	responder := NewDrillResponder("responder-internal-secret-token")
+	responder.SetTeamForwardURL("platform-sre", externalProviderMock.URL+"/webhook")
+	handler := responder.Handler()
+
+	payload := `{"receiver":"platform_sre_escalation","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"DbPoolSaturation"}}]}`
+
+	// 1. Without provider token configured, external provider must NOT receive the responder's internal secret
+	req1 := httptest.NewRequest(http.MethodPost, "/escalations/platform-sre", strings.NewReader(payload))
+	req1.Header.Set("Authorization", "Bearer responder-internal-secret-token")
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	if rec1.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec1.Code)
+	}
+
+	mu.Lock()
+	if lastAuth != "" {
+		t.Errorf("security violation: responder internal token was leaked to external provider: %q", lastAuth)
+	}
+	mu.Unlock()
+
+	// 2. With team-specific provider token configured, external provider receives that specific token
+	responder.SetTeamForwardAuthToken("platform-sre", "platform-provider-key-456")
+	req2 := httptest.NewRequest(http.MethodPost, "/escalations/platform-sre", strings.NewReader(payload))
+	req2.Header.Set("Authorization", "Bearer responder-internal-secret-token")
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec2.Code)
+	}
+
+	mu.Lock()
+	if lastAuth != "Bearer platform-provider-key-456" {
+		t.Errorf("expected provider-specific token 'Bearer platform-provider-key-456', got: %q", lastAuth)
+	}
+	mu.Unlock()
+
+	// 3. Fallback to default forward auth token when team token is unset
+	responder.SetTeamForwardAuthToken("platform-sre", "")
+	responder.SetForwardAuthToken("default-provider-key-789")
+	req3 := httptest.NewRequest(http.MethodPost, "/escalations/platform-sre", strings.NewReader(payload))
+	req3.Header.Set("Authorization", "Bearer responder-internal-secret-token")
+	rec3 := httptest.NewRecorder()
+	handler.ServeHTTP(rec3, req3)
+
+	if rec3.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", rec3.Code)
+	}
+
+	mu.Lock()
+	if lastAuth != "Bearer default-provider-key-789" {
+		t.Errorf("expected default provider token 'Bearer default-provider-key-789', got: %q", lastAuth)
+	}
+	mu.Unlock()
 }
