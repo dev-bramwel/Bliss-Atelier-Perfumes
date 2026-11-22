@@ -14,6 +14,21 @@
 .shopper-profile a {
   color: var(--gold-soft);
 }
+.shopper-deactivate-btn {
+  background: transparent;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  color: #f87171;
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.shopper-deactivate-btn:hover {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.6);
+  color: #fca5a5;
+}
 .shopper-checkout {
   max-width: 66rem;
   margin: 2rem auto;
@@ -166,6 +181,93 @@
 #attemptsHistory li {
   margin: 1rem 0;
   overflow-wrap: anywhere;
+}
+.deactivate-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 8, 6, 0.75);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 1rem;
+}
+.deactivate-modal-panel {
+  background: #1c1815;
+  border: 1px solid #4a3e31;
+  border-radius: 1rem;
+  max-width: 28rem;
+  width: 100%;
+  padding: 2rem;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  color: #f5ede0;
+}
+.deactivate-modal-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.7rem;
+  color: var(--gold-soft);
+  display: block;
+  margin-bottom: 0.5rem;
+}
+.deactivate-modal-panel h2 {
+  font: 1.5rem "Playfair Display", serif;
+  color: #fff;
+  margin: 0 0 1rem;
+}
+.deactivate-modal-panel p {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #c4b5a2;
+  margin-bottom: 1.5rem;
+}
+.deactivate-warning {
+  color: #fca5a5 !important;
+  font-weight: 500;
+}
+.deactivate-error {
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  color: #fca5a5;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.8rem;
+  margin-bottom: 1rem;
+}
+.deactivate-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+.deactivate-btn-cancel {
+  background: transparent;
+  border: 1px solid #746449;
+  color: #f5ede0;
+  padding: 0.5rem 1rem;
+  border-radius: 9999px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.deactivate-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: #a89472;
+}
+.deactivate-btn-confirm {
+  background: #dc2626;
+  border: 1px solid #b91c1c;
+  color: #ffffff;
+  padding: 0.5rem 1.25rem;
+  border-radius: 9999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.deactivate-btn-confirm:hover {
+  background: #ef4444;
+  border-color: #dc2626;
 }
 @media (max-width: 640px) {
   .checkout-columns {
