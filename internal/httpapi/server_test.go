@@ -131,33 +131,34 @@ func TestShutdownDeadlineClosesConnections(t *testing.T) {
 }
 
 type mockOrderService struct {
-	createFn         func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
-	getFn            func(ctx context.Context, orderID string) (*orders.Order, error)
-	statusFn         func(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
-	releaseFn        func(ctx context.Context, now time.Time) (int, error)
-	recentFn         func(ctx context.Context, limit int) ([]orders.Order, error)
-	validateAccessFn func(ctx context.Context, orderID string, rawToken string) (bool, error)
-	issueTokenFn     func(ctx context.Context, orderID string) (string, error)
-	beginIdempFn     func(ctx context.Context, key, callerScope, operation, requestHash string, ttl time.Duration) (*orders.IdempotencyRecord, bool, error)
-	completeIdempFn  func(ctx context.Context, key, callerScope, operation string, statusCode int, headers map[string]string, responseBody, resourceID string) error
-	failIdempFn      func(ctx context.Context, key, callerScope, operation string) error
-	createAttemptFn  func(ctx context.Context, orderID, phone string, amountKes int, provider string) (*orders.PaymentAttempt, error)
-	getLatestAttFn   func(ctx context.Context, orderID string) (*orders.PaymentAttempt, error)
-	getAttemptsFn    func(ctx context.Context, orderID string) ([]orders.PaymentAttempt, error)
-	confirmPayFn     func(ctx context.Context, orderID string, receiptNumber string, paidAmountKes ...int) error
-	updateAttemptFn  func(ctx context.Context, attemptID, status, providerTxID, providerRefID, errorMsg string) error
-	findByProvTxFn   func(ctx context.Context, providerTxID string) (*orders.PaymentAttempt, error)
-	findInFlightFn   func(ctx context.Context, phone string, amountKes int, within time.Duration) (*orders.PaymentAttempt, error)
-	findReceiptOrdFn func(ctx context.Context, receiptNumber string) (string, error)
-	recordExcFn      func(ctx context.Context, exc orders.PaymentException) (*orders.PaymentException, error)
-	getExceptionsFn  func(ctx context.Context, filter orders.ExceptionFilter) ([]orders.PaymentException, error)
-	getExcByIDFn     func(ctx context.Context, id string) (*orders.PaymentException, error)
-	resolveExcFn     func(ctx context.Context, id string, req orders.ResolveExceptionRequest) error
-	manualSettleFn   func(ctx context.Context, req orders.ManualSettlementRequest) (*orders.Order, *orders.PaymentAuditRecord, error)
-	correctionFn     func(ctx context.Context, req orders.PaymentCorrectionRequest) (*orders.PaymentAuditRecord, error)
-	listAuditFn      func(ctx context.Context, orderID string) ([]orders.PaymentAuditRecord, error)
-	listUnresolvedFn func(ctx context.Context, staleThreshold time.Duration, limit int) ([]orders.PaymentAttempt, error)
-	updateScheduleFn func(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error
+	createFn          func(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error)
+	getFn             func(ctx context.Context, orderID string) (*orders.Order, error)
+	statusFn          func(ctx context.Context, orderID string) (*orders.PaymentStatusResponse, error)
+	releaseFn         func(ctx context.Context, now time.Time) (int, error)
+	recentFn          func(ctx context.Context, limit int) ([]orders.Order, error)
+	validateAccessFn  func(ctx context.Context, orderID string, rawToken string) (bool, error)
+	issueTokenFn      func(ctx context.Context, orderID string) (string, error)
+	beginIdempFn      func(ctx context.Context, key, callerScope, operation, requestHash string, ttl time.Duration) (*orders.IdempotencyRecord, bool, error)
+	completeIdempFn   func(ctx context.Context, key, callerScope, operation string, statusCode int, headers map[string]string, responseBody, resourceID string) error
+	failIdempFn       func(ctx context.Context, key, callerScope, operation string) error
+	createAttemptFn   func(ctx context.Context, orderID, phone string, amountKes int, provider string) (*orders.PaymentAttempt, error)
+	getLatestAttFn    func(ctx context.Context, orderID string) (*orders.PaymentAttempt, error)
+	getAttemptsFn     func(ctx context.Context, orderID string) ([]orders.PaymentAttempt, error)
+	confirmPayFn      func(ctx context.Context, orderID string, receiptNumber string, paidAmountKes ...int) error
+	updateAttemptFn   func(ctx context.Context, attemptID, status, providerTxID, providerRefID, errorMsg string) error
+	findByProvTxFn    func(ctx context.Context, providerTxID string) (*orders.PaymentAttempt, error)
+	findInFlightFn    func(ctx context.Context, phone string, amountKes int, within time.Duration) (*orders.PaymentAttempt, error)
+	findReceiptOrdFn  func(ctx context.Context, receiptNumber string) (string, error)
+	recordExcFn       func(ctx context.Context, exc orders.PaymentException) (*orders.PaymentException, error)
+	getExceptionsFn   func(ctx context.Context, filter orders.ExceptionFilter) ([]orders.PaymentException, error)
+	getExcByIDFn      func(ctx context.Context, id string) (*orders.PaymentException, error)
+	resolveExcFn      func(ctx context.Context, id string, req orders.ResolveExceptionRequest) error
+	manualSettleFn    func(ctx context.Context, req orders.ManualSettlementRequest) (*orders.Order, *orders.PaymentAuditRecord, error)
+	correctionFn      func(ctx context.Context, req orders.PaymentCorrectionRequest) (*orders.PaymentAuditRecord, error)
+	listAuditFn       func(ctx context.Context, orderID string) ([]orders.PaymentAuditRecord, error)
+	listUnresolvedFn  func(ctx context.Context, staleThreshold time.Duration, limit int) ([]orders.PaymentAttempt, error)
+	countUnresolvedFn func(ctx context.Context, staleThreshold time.Duration) (int, error)
+	updateScheduleFn  func(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error
 }
 
 func (m *mockOrderService) CreateOrder(ctx context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
@@ -356,6 +357,13 @@ func (m *mockOrderService) ListUnresolvedPaymentAttempts(ctx context.Context, st
 		return m.listUnresolvedFn(ctx, staleThreshold, limit)
 	}
 	return nil, nil
+}
+
+func (m *mockOrderService) CountUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration) (int, error) {
+	if m.countUnresolvedFn != nil {
+		return m.countUnresolvedFn(ctx, staleThreshold)
+	}
+	return 0, nil
 }
 
 func (m *mockOrderService) UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error {

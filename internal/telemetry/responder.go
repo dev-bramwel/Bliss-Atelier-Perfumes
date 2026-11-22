@@ -1,0 +1,651 @@
+package telemetry
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+	"time"
+)
+
+// MaxAlertBodyBytes enforces a strict 64 KiB payload bound on Alertmanager webhooks.
+const MaxAlertBodyBytes = 64 * 1024
+
+// MaxRetainedAlerts bounds in-memory alert history to prevent heap exhaustion.
+const MaxRetainedAlerts = 50
+
+var (
+	// Bounded-cardinality label whitelists for metric induction during drills
+	allowedPaymentExceptions = map[string]bool{
+		"AMOUNT_MISMATCH":            true,
+		"UNMAPPED_TRANSACTION":       true,
+		"DUPLICATE_RECEIPT":          true,
+		"STALE_ATTEMPT_UNRESOLVED":   true,
+		"LATE_PAYMENT":               true,
+		"MANUAL_RESOLUTION_REQUIRED": true,
+	}
+
+	allowedQueues = map[string]bool{
+		"notifications":               true,
+		"dead_letter":                 true,
+		"bliss.notifications.v1":      true,
+		"bliss.notifications.v1.dead": true,
+	}
+
+	allowedHTTPStatuses = map[string]bool{
+		"200": true,
+		"201": true,
+		"400": true,
+		"401": true,
+		"403": true,
+		"404": true,
+		"500": true,
+		"502": true,
+		"503": true,
+	}
+)
+
+// ResponderAlert represents a single alert within an Alertmanager notification payload.
+type ResponderAlert struct {
+	Status      string            `json:"status"`
+	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:"annotations"`
+	StartsAt    string            `json:"startsAt,omitempty"`
+	EndsAt      string            `json:"endsAt,omitempty"`
+}
+
+// AlertNotification represents the payload sent by Alertmanager to the designated responder webhook.
+type AlertNotification struct {
+	Receiver string           `json:"receiver"`
+	Status   string           `json:"status"`
+	Alerts   []ResponderAlert `json:"alerts"`
+}
+
+// readSecretEnv returns the trimmed string from an env variable or its _FILE companion.
+func readSecretEnv(envKey, fileEnvKey string) string {
+	if val := os.Getenv(envKey); val != "" {
+		return strings.TrimSpace(val)
+	}
+	if fileKey := os.Getenv(fileEnvKey); fileKey != "" {
+		if b, err := os.ReadFile(fileKey); err == nil {
+			return strings.TrimSpace(string(b))
+		}
+	}
+	return ""
+}
+
+// DrillResponder is a bounded, authenticated receiver that captures incoming Alertmanager
+// notifications, dispatches operational escalations, and exposes liveness endpoints.
+type DrillResponder struct {
+	mu             sync.RWMutex
+	authToken      string
+	forwardURL     string
+	forwardToken   string
+	platformURL    string
+	platformToken  string
+	financeURL     string
+	financeToken   string
+	receivedAlerts []AlertNotification
+	testSinkAlerts []AlertNotification
+}
+
+// NewDrillResponder initializes an in-memory alert recipient store with token validation
+// and optional operational escalation webhook forwarding.
+func NewDrillResponder(authToken ...string) *DrillResponder {
+	var token string
+	if len(authToken) > 0 && authToken[0] != "" {
+		token = authToken[0]
+	} else {
+		token = readSecretEnv("GO_DRILL_RESPONDER_TOKEN", "GO_DRILL_RESPONDER_TOKEN_FILE")
+	}
+
+	forwardURL := os.Getenv("GO_ESCALATION_FORWARD_URL")
+	forwardToken := readSecretEnv("GO_ESCALATION_FORWARD_TOKEN", "GO_ESCALATION_FORWARD_TOKEN_FILE")
+	if forwardToken == "" {
+		forwardToken = readSecretEnv("GO_ESCALATION_FORWARD_BEARER_TOKEN", "GO_ESCALATION_FORWARD_BEARER_TOKEN_FILE")
+	}
+
+	platformURL := os.Getenv("GO_PLATFORM_ESCALATION_URL")
+	platformToken := readSecretEnv("GO_PLATFORM_ESCALATION_TOKEN", "GO_PLATFORM_ESCALATION_TOKEN_FILE")
+	if platformToken == "" {
+		platformToken = readSecretEnv("GO_PLATFORM_ESCALATION_BEARER_TOKEN", "GO_PLATFORM_ESCALATION_BEARER_TOKEN_FILE")
+	}
+
+	financeURL := os.Getenv("GO_FINANCE_ESCALATION_URL")
+	financeToken := readSecretEnv("GO_FINANCE_ESCALATION_TOKEN", "GO_FINANCE_ESCALATION_TOKEN_FILE")
+	if financeToken == "" {
+		financeToken = readSecretEnv("GO_FINANCE_ESCALATION_BEARER_TOKEN", "GO_FINANCE_ESCALATION_BEARER_TOKEN_FILE")
+	}
+
+	// Initialize default metric series so initial Prometheus scrapes establish 0 baselines
+	PaymentExceptionsTotal.Set(0, "AMOUNT_MISMATCH")
+	PaymentExceptionsTotal.Set(0, "UNMAPPED_TRANSACTION")
+	PaymentExceptionsTotal.Set(0, "DUPLICATE_RECEIPT")
+	RabbitMQDLQMessagesGauge.Set(0, "notifications")
+	UnresolvedPaymentsGauge.Set(0)
+	HTTPRequestsTotal.Set(0, "GET", "/api/orders", "200")
+	HTTPRequestsTotal.Set(0, "GET", "/api/orders", "500")
+
+	return &DrillResponder{
+		authToken:      token,
+		forwardURL:     forwardURL,
+		forwardToken:   forwardToken,
+		platformURL:    platformURL,
+		platformToken:  platformToken,
+		financeURL:     financeURL,
+		financeToken:   financeToken,
+		receivedAlerts: make([]AlertNotification, 0, MaxRetainedAlerts),
+	}
+}
+
+// SetForwardURL sets the upstream operational escalation destination URL (e.g., PagerDuty, Opsgenie, Slack).
+func (r *DrillResponder) SetForwardURL(url string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.forwardURL = url
+}
+
+// SetForwardAuthToken sets the upstream operational escalation bearer credential for the default destination.
+func (r *DrillResponder) SetForwardAuthToken(token string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.forwardToken = token
+}
+
+// SetTeamForwardURL sets a team-specific upstream operational escalation destination URL.
+func (r *DrillResponder) SetTeamForwardURL(team, url string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch team {
+	case "platform-sre":
+		r.platformURL = url
+	case "finance-ops":
+		r.financeURL = url
+	default:
+		r.forwardURL = url
+	}
+}
+
+// SetTeamForwardAuthToken sets a team-specific upstream operational escalation bearer credential.
+func (r *DrillResponder) SetTeamForwardAuthToken(team, token string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch team {
+	case "platform-sre":
+		r.platformToken = token
+	case "finance-ops":
+		r.financeToken = token
+	default:
+		r.forwardToken = token
+	}
+}
+
+// Alerts returns a thread-safe snapshot of all captured alert notifications.
+func (r *DrillResponder) Alerts() []AlertNotification {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	copied := make([]AlertNotification, len(r.receivedAlerts))
+	copy(copied, r.receivedAlerts)
+	return copied
+}
+
+// TestSinkAlerts returns a thread-safe snapshot of all alerts forwarded to the /test-sink mock upstream.
+func (r *DrillResponder) TestSinkAlerts() []AlertNotification {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	copied := make([]AlertNotification, len(r.testSinkAlerts))
+	copy(copied, r.testSinkAlerts)
+	return copied
+}
+
+// Reset clears retained alerts (useful in multi-stage drill suites).
+func (r *DrillResponder) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.receivedAlerts = r.receivedAlerts[:0]
+	r.testSinkAlerts = r.testSinkAlerts[:0]
+}
+
+func (r *DrillResponder) isAuthorized(req *http.Request) bool {
+	if r.authToken == "" {
+		return false
+	}
+	authHeader := strings.TrimSpace(req.Header.Get("Authorization"))
+	expectedBearer := "Bearer " + r.authToken
+	customToken := strings.TrimSpace(req.Header.Get("X-Drill-Token"))
+	return authHeader == expectedBearer || customToken == r.authToken
+}
+
+// isLocalTestSink determines whether an escalation destination points to the local mock /test-sink.
+// Under no circumstances should the responder's internal bearer token be dispatched to external third parties.
+func isLocalTestSink(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	if strings.TrimSuffix(u.Path, "/") != "/test-sink" {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if host == "" || host == "localhost" || host == "drill-responder" || host == "127.0.0.1" || host == "0.0.0.0" || host == "::1" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) {
+		return true
+	}
+	return false
+}
+
+// Handler returns the HTTP router serving /alerts, /health/live, and operational escalation endpoints.
+func (r *DrillResponder) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health/live", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	handleAlertEndpoint := func(escalationTarget string) http.HandlerFunc {
+		return func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				if !r.isAuthorized(req) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusUnauthorized)
+					_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(r.Alerts())
+				return
+			}
+
+			if req.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			// Enforce authentication via Bearer token or X-Drill-Token header
+			if !r.isAuthorized(req) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+				return
+			}
+
+			// Enforce strict 64 KiB request body limit
+			req.Body = http.MaxBytesReader(w, req.Body, MaxAlertBodyBytes)
+			body, err := io.ReadAll(req.Body)
+			if err != nil {
+				var maxBytesErr *http.MaxBytesError
+				if errors.As(err, &maxBytesErr) {
+					http.Error(w, "request entity too large", http.StatusRequestEntityTooLarge)
+					return
+				}
+				http.Error(w, "failed to read body", http.StatusBadRequest)
+				return
+			}
+			body = bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
+
+			var notif AlertNotification
+			if err := json.Unmarshal(body, &notif); err != nil {
+				http.Error(w, "invalid json payload", http.StatusBadRequest)
+				return
+			}
+
+			// Operational escalation dispatch & structured audit
+			if escalationTarget != "" {
+				slog.Warn("operational_alert_escalated",
+					"channel", escalationTarget,
+					"receiver", notif.Receiver,
+					"status", notif.Status,
+					"alert_count", len(notif.Alerts),
+				)
+				for _, a := range notif.Alerts {
+					slog.Warn("operational_escalation_incident",
+						"channel", escalationTarget,
+						"alertname", a.Labels["alertname"],
+						"severity", a.Labels["severity"],
+						"team", a.Labels["team"],
+						"owner", a.Annotations["owner"],
+						"escalation", a.Annotations["escalation"],
+						"runbook_url", a.Annotations["runbook_url"],
+					)
+				}
+			}
+
+			// Determine external webhook forward destination and provider credential
+			var targetURL, targetAuthToken string
+			r.mu.RLock()
+			switch escalationTarget {
+			case "platform-sre":
+				if r.platformURL != "" {
+					targetURL = r.platformURL
+					targetAuthToken = r.platformToken
+				} else {
+					targetURL = r.forwardURL
+					targetAuthToken = r.forwardToken
+				}
+				if targetAuthToken == "" {
+					targetAuthToken = r.forwardToken
+				}
+			case "finance-ops":
+				if r.financeURL != "" {
+					targetURL = r.financeURL
+					targetAuthToken = r.financeToken
+				} else {
+					targetURL = r.forwardURL
+					targetAuthToken = r.forwardToken
+				}
+				if targetAuthToken == "" {
+					targetAuthToken = r.forwardToken
+				}
+			default:
+				targetURL = r.forwardURL
+				targetAuthToken = r.forwardToken
+			}
+			r.mu.RUnlock()
+
+			if targetURL != "" {
+				client := &http.Client{Timeout: 5 * time.Second}
+				postReq, pErr := http.NewRequestWithContext(req.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
+				if pErr != nil {
+					slog.Error("operational_escalation_forward_request_error", "channel", escalationTarget, "url", targetURL, "error", pErr.Error())
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					_ = json.NewEncoder(w).Encode(map[string]string{
+						"error":   "failed to create upstream escalation request",
+						"channel": escalationTarget,
+					})
+					return
+				}
+				postReq.Header.Set("Content-Type", "application/json")
+
+				// Attach authorization credential:
+				// 1. If a dedicated provider credential is configured for this destination, attach it.
+				// 2. Otherwise, attach the responder's internal drill token ONLY when forwarding to the local test sink.
+				// Under no circumstances is the responder's internal secret leaked to external escalation providers.
+				if targetAuthToken != "" {
+					postReq.Header.Set("Authorization", "Bearer "+targetAuthToken)
+				} else if isLocalTestSink(targetURL) && r.authToken != "" {
+					postReq.Header.Set("Authorization", "Bearer "+r.authToken)
+				}
+				resp, dErr := client.Do(postReq)
+				if dErr != nil {
+					slog.Error("operational_escalation_forward_network_error", "channel", escalationTarget, "url", targetURL, "error", dErr.Error())
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					_ = json.NewEncoder(w).Encode(map[string]string{
+						"error":   "upstream escalation delivery failed",
+						"channel": escalationTarget,
+					})
+					return
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+					slog.Error("operational_escalation_upstream_rejected", "channel", escalationTarget, "url", targetURL, "status", resp.StatusCode, "response", string(respBody))
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"error":           "upstream escalation rejected notification",
+						"channel":         escalationTarget,
+						"upstream_status": resp.StatusCode,
+					})
+					return
+				}
+				slog.Info("operational_escalation_forward_succeeded", "channel", escalationTarget, "url", targetURL, "status", resp.StatusCode)
+			}
+
+			// Retain alerts with bounded ring buffer semantics
+			r.mu.Lock()
+			if len(r.receivedAlerts) >= MaxRetainedAlerts {
+				r.receivedAlerts = r.receivedAlerts[1:]
+			}
+			r.receivedAlerts = append(r.receivedAlerts, notif)
+			r.mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"received"}`))
+		}
+	}
+
+	mux.HandleFunc("/alerts", handleAlertEndpoint(""))
+	mux.HandleFunc("/escalations/platform-sre", handleAlertEndpoint("platform-sre"))
+	mux.HandleFunc("/escalations/finance-ops", handleAlertEndpoint("finance-ops"))
+	mux.HandleFunc("/escalations/default", handleAlertEndpoint("default"))
+
+	// Expose standard Prometheus exposition on /metrics so Prometheus can scrape responder in drills
+	mux.Handle("/metrics", Handler())
+
+	// Authenticated endpoint to induce application metrics during automated synthetic drills
+	mux.HandleFunc("/drill/induce-metric", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !r.isAuthorized(req) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(req.Body, MaxAlertBodyBytes))
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+		body = bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
+		var payload struct {
+			Metric string  `json:"metric"`
+			Label  string  `json:"label"`
+			Value  float64 `json:"value"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			http.Error(w, "invalid json payload", http.StatusBadRequest)
+			return
+		}
+		switch payload.Metric {
+		case "payment_exceptions_total":
+			typeLabel := payload.Label
+			if typeLabel == "" {
+				typeLabel = "AMOUNT_MISMATCH"
+			}
+			if !allowedPaymentExceptions[typeLabel] {
+				http.Error(w, "invalid label for payment_exceptions_total: must be a known payment exception type", http.StatusBadRequest)
+				return
+			}
+			PaymentExceptionsTotal.Inc(typeLabel)
+		case "rabbitmq_dlq_messages_gauge":
+			if payload.Value < 0 {
+				http.Error(w, "metric value must be non-negative", http.StatusBadRequest)
+				return
+			}
+			queueLabel := payload.Label
+			if queueLabel == "" {
+				queueLabel = "notifications"
+			}
+			if !allowedQueues[queueLabel] {
+				http.Error(w, "invalid label for rabbitmq_dlq_messages_gauge: must be a known queue name", http.StatusBadRequest)
+				return
+			}
+			RabbitMQDLQMessagesGauge.Set(payload.Value, queueLabel)
+		case "unresolved_payments_gauge":
+			if payload.Value < 0 {
+				http.Error(w, "metric value must be non-negative", http.StatusBadRequest)
+				return
+			}
+			UnresolvedPaymentsGauge.Set(payload.Value)
+		case "http_requests_total":
+			statusLabel := payload.Label
+			if statusLabel == "" {
+				statusLabel = "500"
+			}
+			if !allowedHTTPStatuses[statusLabel] {
+				http.Error(w, "invalid status label for http_requests_total: must be a known HTTP status code", http.StatusBadRequest)
+				return
+			}
+			val := payload.Value
+			if val <= 0 {
+				val = 1
+			}
+			HTTPRequestsTotal.Add(val, "GET", "/api/orders", statusLabel)
+		default:
+			http.Error(w, "unknown metric name", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"induced"}`))
+	})
+
+	// Authenticated endpoint to clear/reset induced application metrics during recovery drills
+	mux.HandleFunc("/drill/clear-metric", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !r.isAuthorized(req) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(req.Body, MaxAlertBodyBytes))
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+		body = bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
+		var payload struct {
+			Metric string `json:"metric"`
+			Label  string `json:"label"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			http.Error(w, "invalid json payload", http.StatusBadRequest)
+			return
+		}
+		switch payload.Metric {
+		case "rabbitmq_dlq_messages_gauge":
+			queueLabel := payload.Label
+			if queueLabel == "" {
+				queueLabel = "notifications"
+			}
+			if !allowedQueues[queueLabel] {
+				http.Error(w, "invalid label for rabbitmq_dlq_messages_gauge: must be a known queue name", http.StatusBadRequest)
+				return
+			}
+			RabbitMQDLQMessagesGauge.Set(0, queueLabel)
+		case "unresolved_payments_gauge":
+			UnresolvedPaymentsGauge.Set(0)
+		case "http_requests_total":
+			HTTPRequestsTotal.Set(0, "GET", "/api/orders", "200")
+			HTTPRequestsTotal.Set(0, "GET", "/api/orders", "500")
+		default:
+			http.Error(w, "unknown metric name", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"cleared"}`))
+	})
+
+	// Isolated mock upstream paging endpoint (/test-sink) to verify escalation forwarding without paging on-call
+	mux.HandleFunc("/test-sink", func(w http.ResponseWriter, req *http.Request) {
+		if !r.isAuthorized(req) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+
+		if req.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(r.TestSinkAlerts())
+			return
+		}
+		if req.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if req.URL.Query().Get("fail") == "500" {
+			http.Error(w, "simulated upstream paging provider internal failure", http.StatusInternalServerError)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(req.Body, MaxAlertBodyBytes))
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+		body = bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
+		var notif AlertNotification
+		if err := json.Unmarshal(body, &notif); err != nil {
+			http.Error(w, "invalid json payload", http.StatusBadRequest)
+			return
+		}
+		r.mu.Lock()
+		if len(r.testSinkAlerts) >= MaxRetainedAlerts {
+			r.testSinkAlerts = r.testSinkAlerts[1:]
+		}
+		r.testSinkAlerts = append(r.testSinkAlerts, notif)
+		r.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"captured_by_test_sink"}`))
+	})
+
+	return mux
+}
+
+// RunResponder serves the drill responder over HTTP until ctx is cancelled.
+func RunResponder(ctx context.Context, addr string, authToken ...string) error {
+	if addr == "" {
+		addr = ":9099"
+	}
+	responder := NewDrillResponder(authToken...)
+	if responder.authToken == "" {
+		return errors.New("drill responder token required: configure authToken, GO_DRILL_RESPONDER_TOKEN, or GO_DRILL_RESPONDER_TOKEN_FILE")
+	}
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           responder.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      5 * time.Second,
+	}
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("drill responder listener unavailable on %s: %w", addr, err)
+	}
+	defer listener.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- server.Serve(listener)
+	}()
+
+	select {
+	case err := <-done:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		drainCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(drainCtx)
+		<-done
+		return nil
+	}
+}

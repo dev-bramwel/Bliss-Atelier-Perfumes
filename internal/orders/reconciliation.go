@@ -15,6 +15,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // RecordPaymentException records an actionable payment exception into the durable payment_exception ledger.
@@ -383,6 +384,23 @@ func (s *Store) UnresolvedPage(ctx context.Context, staleThreshold time.Duration
 	return attempts, nil
 }
 
+// CountUnresolvedPaymentAttempts returns the total count of payment attempts in 'accepted' or 'unknown' status
+// that remain unresolved, including in-flight retries and terminal unknown attempts awaiting operator action.
+func (s *Store) CountUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration) (int, error) {
+	cutoff := time.Now().Add(-staleThreshold)
+	var count int
+	err := s.Pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM public.payment_attempt
+		WHERE status IN ('accepted', 'unknown')
+			AND (status = 'unknown' OR created_at <= $1)
+	`, cutoff).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count unresolved payment attempts: %w", err)
+	}
+	return count, nil
+}
+
 // UpdatePaymentAttemptQuerySchedule updates an attempt's query count and schedules the next query retry.
 func (s *Store) UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error {
 	var errStr *string
@@ -663,7 +681,7 @@ func (s *Store) RecordManualSettlement(ctx context.Context, req ManualSettlement
 	`, "Resolved via authorized manual settlement", req.AuthorizedBy, req.Evidence, req.OrderID, req.ReceiptNumber)
 
 	// 12. Enqueue transactional outbox event
-	evt, err := events.NewEvent(events.TypeOrderPaid, req.OrderID, 2, "", events.OrderPaidPayload{
+	evt, err := events.NewEvent(events.TypeOrderPaid, req.OrderID, 2, telemetry.FromContext(ctx), events.OrderPaidPayload{
 		OrderID:       req.OrderID,
 		ReceiptNumber: req.ReceiptNumber,
 		AmountKes:     req.AmountKes,

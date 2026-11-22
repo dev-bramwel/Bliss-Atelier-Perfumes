@@ -13,21 +13,35 @@ SET custom.runtime_password = :'runtime_password';
 SET custom.catalog_password = :'catalog_password';
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_migrator') THEN
-    EXECUTE format('CREATE ROLE bliss_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', current_setting('custom.migrator_password'));
-  ELSE
+  BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_migrator') THEN
+      EXECUTE format('CREATE ROLE bliss_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', current_setting('custom.migrator_password'));
+    ELSE
+      EXECUTE format('ALTER ROLE bliss_migrator WITH PASSWORD %L', current_setting('custom.migrator_password'));
+    END IF;
+  EXCEPTION WHEN duplicate_object THEN
     EXECUTE format('ALTER ROLE bliss_migrator WITH PASSWORD %L', current_setting('custom.migrator_password'));
-  END IF;
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_runtime') THEN
-    EXECUTE format('CREATE ROLE bliss_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', current_setting('custom.runtime_password'));
-  ELSE
+  END;
+
+  BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_runtime') THEN
+      EXECUTE format('CREATE ROLE bliss_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', current_setting('custom.runtime_password'));
+    ELSE
+      EXECUTE format('ALTER ROLE bliss_runtime WITH PASSWORD %L', current_setting('custom.runtime_password'));
+    END IF;
+  EXCEPTION WHEN duplicate_object THEN
     EXECUTE format('ALTER ROLE bliss_runtime WITH PASSWORD %L', current_setting('custom.runtime_password'));
-  END IF;
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_catalog') THEN
-    EXECUTE format('CREATE ROLE bliss_catalog LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', current_setting('custom.catalog_password'));
-  ELSE
+  END;
+
+  BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_catalog') THEN
+      EXECUTE format('CREATE ROLE bliss_catalog LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', current_setting('custom.catalog_password'));
+    ELSE
+      EXECUTE format('ALTER ROLE bliss_catalog WITH PASSWORD %L', current_setting('custom.catalog_password'));
+    END IF;
+  EXCEPTION WHEN duplicate_object THEN
     EXECUTE format('ALTER ROLE bliss_catalog WITH PASSWORD %L', current_setting('custom.catalog_password'));
-  END IF;
+  END;
 END $$;
 ALTER DATABASE bliss_dev OWNER TO bliss_migrator;
 REVOKE ALL ON DATABASE bliss_dev FROM PUBLIC;

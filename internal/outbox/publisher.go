@@ -9,6 +9,7 @@ import (
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 // PublisherConfig configures the outbox dispatcher.
@@ -29,16 +30,24 @@ func DefaultPublisherConfig() PublisherConfig {
 	}
 }
 
+// EventStore defines persistence operations required by the outbox dispatcher.
+type EventStore interface {
+	FetchPending(ctx context.Context, batchSize int, destination string) ([]EventRecord, error)
+	CountPending(ctx context.Context, destination string) (int, error)
+	MarkPublished(ctx context.Context, ids []string) error
+	MarkFailed(ctx context.Context, id string, reason string, maxRetries int) error
+}
+
 // BackgroundPublisher polls the outbox store for pending events and publishes them with publisher confirms.
 type BackgroundPublisher struct {
-	store    *Store
+	store    EventStore
 	producer messaging.Publisher
 	cfg      PublisherConfig
 	logger   *slog.Logger
 }
 
 // NewBackgroundPublisher creates an outbox background publisher.
-func NewBackgroundPublisher(store *Store, producer messaging.Publisher, cfg PublisherConfig, logger *slog.Logger) *BackgroundPublisher {
+func NewBackgroundPublisher(store EventStore, producer messaging.Publisher, cfg PublisherConfig, logger *slog.Logger) *BackgroundPublisher {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = 500 * time.Millisecond
 	}
@@ -65,7 +74,7 @@ func NewBackgroundPublisher(store *Store, producer messaging.Publisher, cfg Publ
 
 // Start runs the polling loop until the context is canceled.
 func (p *BackgroundPublisher) Start(ctx context.Context) error {
-	p.logger.Info("outbox_publisher_started", "destination", p.cfg.Destination, "poll_interval", p.cfg.PollInterval)
+	p.logger.InfoContext(ctx, "outbox_publisher_started", "destination", p.cfg.Destination, "poll_interval", p.cfg.PollInterval)
 	ticker := time.NewTicker(p.cfg.PollInterval)
 	defer ticker.Stop()
 
@@ -75,18 +84,31 @@ func (p *BackgroundPublisher) Start(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			p.logger.Info("outbox_publisher_stopped")
+			p.logger.InfoContext(ctx, "outbox_publisher_stopped")
 			return ctx.Err()
 		case <-ticker.C:
 			if err := p.ProcessBatch(ctx); err != nil && ctx.Err() == nil {
-				p.logger.Error("outbox_process_batch_failed", "error", err.Error())
+				p.logger.ErrorContext(ctx, "outbox_process_batch_failed", "error", err.Error())
 			}
 		}
 	}
 }
 
+// updatePendingGauge queries current outbox depth, updating the gauge or marking -1 and counting on error.
+func (p *BackgroundPublisher) updatePendingGauge(ctx context.Context) {
+	if count, countErr := p.store.CountPending(ctx, p.cfg.Destination); countErr == nil {
+		telemetry.OutboxPendingEventsGauge.Set(float64(count))
+	} else {
+		p.logger.ErrorContext(ctx, "outbox_count_pending_failed", "destination", p.cfg.Destination, "error", countErr.Error())
+		telemetry.OutboxCountErrorsTotal.Inc(p.cfg.Destination)
+		telemetry.OutboxPendingEventsGauge.Set(-1)
+	}
+}
+
 // ProcessBatch fetches a single batch of pending outbox events and publishes them with confirms.
 func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
+	p.updatePendingGauge(ctx)
+
 	records, err := p.store.FetchPending(ctx, p.cfg.BatchSize, p.cfg.Destination)
 	if err != nil {
 		return err
@@ -99,6 +121,11 @@ func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 	for _, rec := range records {
 		if ctx.Err() != nil {
 			break
+		}
+
+		msgCtx := ctx
+		if rec.CorrelationID != "" {
+			msgCtx = telemetry.WithCorrelationID(ctx, rec.CorrelationID)
 		}
 
 		// Build canonical envelope to publish
@@ -115,7 +142,7 @@ func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 
 		body, err := json.Marshal(env)
 		if err != nil {
-			p.logger.Error("outbox_marshal_envelope_failed", "event_id", rec.ID, "error", err.Error())
+			p.logger.ErrorContext(msgCtx, "outbox_marshal_envelope_failed", "event_id", rec.ID, "error", err.Error())
 			_ = p.store.MarkFailed(ctx, rec.ID, err.Error(), p.cfg.MaxRetries)
 			continue
 		}
@@ -124,7 +151,7 @@ func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 		routingKey := toRoutingKey(rec.EventType)
 
 		if err := p.producer.Publish(ctx, routingKey, rec.ID, body); err != nil {
-			p.logger.Warn("outbox_publish_unconfirmed", "event_id", rec.ID, "routing_key", routingKey, "error", err.Error())
+			p.logger.WarnContext(msgCtx, "outbox_publish_unconfirmed", "event_id", rec.ID, "routing_key", routingKey, "error", err.Error())
 			_ = p.store.MarkFailed(ctx, rec.ID, err.Error(), p.cfg.MaxRetries)
 			continue
 		}
@@ -134,10 +161,12 @@ func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 
 	if len(publishedIDs) > 0 {
 		if err := p.store.MarkPublished(ctx, publishedIDs); err != nil {
-			p.logger.Error("outbox_mark_published_failed", "count", len(publishedIDs), "error", err.Error())
+			p.logger.ErrorContext(ctx, "outbox_mark_published_failed", "count", len(publishedIDs), "error", err.Error())
 			return err
 		}
-		p.logger.Debug("outbox_events_published", "count", len(publishedIDs))
+		telemetry.OutboxEventsPublishedTotal.Add(float64(len(publishedIDs)), p.cfg.Destination)
+		p.logger.DebugContext(ctx, "outbox_events_published", "count", len(publishedIDs))
+		p.updatePendingGauge(ctx)
 	}
 
 	return nil

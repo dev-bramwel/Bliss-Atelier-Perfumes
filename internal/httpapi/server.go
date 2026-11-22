@@ -21,6 +21,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reconciliation"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 )
 
 func respond(w http.ResponseWriter, code int, body any) {
@@ -89,6 +90,7 @@ type OrderService interface {
 	RecordPaymentCorrection(ctx context.Context, req orders.PaymentCorrectionRequest) (*orders.PaymentAuditRecord, error)
 	ListPaymentAuditRecords(ctx context.Context, orderID string) ([]orders.PaymentAuditRecord, error)
 	ListUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration, limit int) ([]orders.PaymentAttempt, error)
+	CountUnresolvedPaymentAttempts(ctx context.Context, staleThreshold time.Duration) (int, error)
 	UpdatePaymentAttemptQuerySchedule(ctx context.Context, attemptID string, nextQueryAt *time.Time, lastError string) error
 }
 
@@ -269,7 +271,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		}
 		products, err := catalogStore.Products(ctx)
 		if err != nil {
-			slog.Warn("catalog_unavailable", "reason", err.Error())
+			slog.WarnContext(ctx, "catalog_unavailable", "reason", err.Error())
 			respond(w, 503, map[string]string{"error": "catalog unavailable"})
 			return
 		}
@@ -307,7 +309,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		defer cancel()
 		if catalogCache != nil {
 			if err := catalogCache.Invalidate(ctx); err != nil {
-				slog.Warn("catalog_cache_invalidation_failed", "error", err.Error())
+				slog.WarnContext(ctx, "catalog_cache_invalidation_failed", "error", err.Error())
 				respond(w, 503, map[string]string{"error": "Cache could not be invalidated. Please retry when the connection is restored."})
 				return
 			}
@@ -422,7 +424,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 						"error": "idempotency key reused with different request payload",
 					})
 				default:
-					slog.Error("idempotency_begin_failed", "reason", err.Error())
+					slog.ErrorContext(ctx, "idempotency_begin_failed", "reason", err.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 				}
 				return
@@ -480,7 +482,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					errors.Is(err, orders.ErrInvalidDeliveryOption):
 					respond(w, 400, map[string]string{"error": err.Error()})
 				default:
-					slog.Error("create_order_failed", "reason", err.Error())
+					slog.ErrorContext(ctx, "create_order_failed", "reason", err.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 				}
 				return
@@ -498,6 +500,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					AmountKes: order.TotalKes,
 				})
 				if stkErr == nil && stkResp != nil {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "accepted")
 					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptAccepted, stkResp.TransactionID, stkResp.ReferenceID, "")
 					order.LatestAttempt.Status = orders.AttemptAccepted
 					order.LatestAttempt.ProviderTransactionID = stkResp.TransactionID
@@ -508,11 +511,13 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 						"responseDescription": stkResp.StatusDescription,
 					}
 				} else if errors.Is(stkErr, provider.ErrProviderTimeout) {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "timeout")
 					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptUnknown, "", "", "provider initiation timed out")
 					order.LatestAttempt.Status = orders.AttemptUnknown
 					order.LatestAttempt.ErrorMessage = "provider initiation timed out"
 					orderWarning = "Payment confirmation is pending. Check this order before trying again."
 				} else if stkErr != nil {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 					_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptFailed, "", "", stkErr.Error())
 					order.LatestAttempt.Status = orders.AttemptFailed
 					order.LatestAttempt.ErrorMessage = stkErr.Error()
@@ -520,6 +525,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				}
 			}
 			if isPickup && paymentProv == nil && order.LatestAttempt != nil {
+				telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 				_ = orderStore.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, orders.AttemptFailed, "", "", "Payment service is temporarily unavailable")
 				order.LatestAttempt.Status = orders.AttemptFailed
 				order.LatestAttempt.ErrorMessage = "Payment service is temporarily unavailable"
@@ -537,7 +543,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 			respBytes, err := json.Marshal(respData)
 			if err != nil {
-				slog.Error("marshal_create_order_response_failed", "reason", err.Error())
+				slog.ErrorContext(ctx, "marshal_create_order_response_failed", "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -556,13 +562,13 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 			cachedRespBytes, err := json.Marshal(cachedRespData)
 			if err != nil {
-				slog.Error("marshal_cached_order_response_failed", "reason", err.Error())
+				slog.ErrorContext(ctx, "marshal_cached_order_response_failed", "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
 
 			if err := orderStore.CompleteIdempotent(ctx, idempotencyKey, callerScope, "create_order", http.StatusCreated, map[string]string{"Content-Type": "application/json"}, string(cachedRespBytes), order.ID); err != nil {
-				slog.Error("complete_idempotent_failed", "key", idempotencyKey, "reason", err.Error())
+				slog.ErrorContext(ctx, "complete_idempotent_failed", "key", idempotencyKey, "reason", err.Error())
 				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "create_order")
 				respond(w, 500, map[string]string{"error": "internal error; please retry order submission"})
 				return
@@ -596,7 +602,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			ok, err := authorizeOrder(ctx, r, id, w)
 			if err != nil {
-				slog.Error("authorize_payment_status_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "authorize_payment_status_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -615,7 +621,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					respond(w, 404, map[string]string{"error": "order not found"})
 					return
 				}
-				slog.Error("payment_status_failed", "reason", err.Error())
+				slog.ErrorContext(ctx, "payment_status_failed", "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -645,7 +651,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			ok, err := authorizeOrder(ctx, r, id, w)
 			if err != nil {
-				slog.Error("authorize_get_order_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "authorize_get_order_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -664,7 +670,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					respond(w, 404, map[string]string{"error": "order not found"})
 					return
 				}
-				slog.Error("get_order_failed", "reason", err.Error())
+				slog.ErrorContext(ctx, "get_order_failed", "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -756,7 +762,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			ok, err := authorizeOrder(ctx, r, id, w)
 			if err != nil {
-				slog.Error("authorize_retry_payment_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "authorize_retry_payment_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -819,7 +825,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 						"error": "idempotency key reused with different request payload",
 					})
 				default:
-					slog.Error("idempotency_retry_begin_failed", "reason", err.Error())
+					slog.ErrorContext(ctx, "idempotency_retry_begin_failed", "reason", err.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 				}
 				return
@@ -839,7 +845,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					respond(w, 404, map[string]string{"error": "order not found"})
 					return
 				}
-				slog.Error("get_order_for_retry_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "get_order_for_retry_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -857,7 +863,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 						})
 						return
 					}
-					slog.Error("get_active_quote_for_retry_failed", "order_id", id, "reason", qErr.Error())
+					slog.ErrorContext(ctx, "get_active_quote_for_retry_failed", "order_id", id, "reason", qErr.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 					return
 				}
@@ -902,7 +908,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				case errors.Is(err, orders.ErrOrderNotFound):
 					respond(w, 404, map[string]string{"error": "order not found"})
 				default:
-					slog.Error("create_payment_attempt_failed", "order_id", id, "reason", err.Error())
+					slog.ErrorContext(ctx, "create_payment_attempt_failed", "order_id", id, "reason", err.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 				}
 				return
@@ -919,6 +925,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					AmountKes: payableAmount,
 				})
 				if stkErr == nil && stkResp != nil {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "accepted")
 					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptAccepted, stkResp.TransactionID, stkResp.ReferenceID, "")
 					attempt.Status = orders.AttemptAccepted
 					attempt.ProviderTransactionID = stkResp.TransactionID
@@ -929,11 +936,13 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 						"responseDescription": stkResp.StatusDescription,
 					}
 				} else if errors.Is(stkErr, provider.ErrProviderTimeout) {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "timeout")
 					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptUnknown, "", "", "provider initiation timed out")
 					attempt.Status = orders.AttemptUnknown
 					attempt.ErrorMessage = "provider initiation timed out"
 					retryWarning = "Payment confirmation is pending. Check this order before trying again."
 				} else if stkErr != nil {
+					telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 					_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, "", "", stkErr.Error())
 					attempt.Status = orders.AttemptFailed
 					attempt.ErrorMessage = stkErr.Error()
@@ -942,6 +951,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			}
 
 			if paymentProv == nil {
+				telemetry.PaymentAttemptsTotal.Inc("mpesa", "failed")
 				_ = orderStore.UpdatePaymentAttempt(ctx, attempt.ID, orders.AttemptFailed, "", "", "Payment service is temporarily unavailable")
 				attempt.Status = orders.AttemptFailed
 				attempt.ErrorMessage = "Payment service is temporarily unavailable"
@@ -962,13 +972,13 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			respBytes, err := json.Marshal(respData)
 			if err != nil {
 				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
-				slog.Error("marshal_retry_payment_response_failed", "reason", err.Error())
+				slog.ErrorContext(ctx, "marshal_retry_payment_response_failed", "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
 
 			if err := orderStore.CompleteIdempotent(ctx, idempotencyKey, callerScope, "retry_payment", http.StatusCreated, map[string]string{"Content-Type": "application/json"}, string(respBytes), attempt.ID); err != nil {
-				slog.Error("complete_idempotent_retry_failed", "key", idempotencyKey, "reason", err.Error())
+				slog.ErrorContext(ctx, "complete_idempotent_retry_failed", "key", idempotencyKey, "reason", err.Error())
 				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "retry_payment")
 				respond(w, 500, map[string]string{"error": "internal error; please retry payment submission"})
 				return
@@ -1002,7 +1012,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			ok, err := authorizeOrder(ctx, r, id, w)
 			if err != nil {
-				slog.Error("authorize_get_attempts_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "authorize_get_attempts_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -1017,7 +1027,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			attempts, err := orderStore.GetPaymentAttempts(ctx, id)
 			if err != nil {
-				slog.Error("get_payment_attempts_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "get_payment_attempts_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -1369,7 +1379,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				case errors.Is(err, delivery.ErrInvalidQuote):
 					respond(w, 400, map[string]string{"error": err.Error()})
 				default:
-					slog.Error("create_delivery_quote_failed", "order_id", id, "reason", err.Error())
+					slog.ErrorContext(ctx, "create_delivery_quote_failed", "order_id", id, "reason", err.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 				}
 				return
@@ -1393,7 +1403,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			ok, err := authorizeOrder(ctx, r, id, w)
 			if err != nil {
-				slog.Error("authorize_get_quote_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "authorize_get_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -1412,7 +1422,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 					respond(w, 404, map[string]string{"error": "delivery quote not found"})
 					return
 				}
-				slog.Error("get_delivery_quote_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "get_delivery_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -1445,7 +1455,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			ok, err := authorizeOrder(ctx, r, id, w)
 			if err != nil {
-				slog.Error("authorize_accept_quote_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "authorize_accept_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -1491,7 +1501,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				case errors.Is(err, delivery.ErrInvalidQuote):
 					respond(w, 400, map[string]string{"error": err.Error()})
 				default:
-					slog.Error("accept_delivery_quote_failed", "order_id", id, "reason", err.Error())
+					slog.ErrorContext(ctx, "accept_delivery_quote_failed", "order_id", id, "reason", err.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 				}
 				return
@@ -1515,7 +1525,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			ok, err := authorizeOrder(ctx, r, id, w)
 			if err != nil {
-				slog.Error("authorize_reject_quote_failed", "order_id", id, "reason", err.Error())
+				slog.ErrorContext(ctx, "authorize_reject_quote_failed", "order_id", id, "reason", err.Error())
 				respond(w, 500, map[string]string{"error": "internal error"})
 				return
 			}
@@ -1560,7 +1570,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				case errors.Is(err, delivery.ErrInvalidQuote):
 					respond(w, 400, map[string]string{"error": err.Error()})
 				default:
-					slog.Error("reject_delivery_quote_failed", "order_id", id, "reason", err.Error())
+					slog.ErrorContext(ctx, "reject_delivery_quote_failed", "order_id", id, "reason", err.Error())
 					respond(w, 500, map[string]string{"error": "internal error"})
 				}
 				return
@@ -1579,6 +1589,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		mux.HandleFunc("POST /api/orders/{id}/delivery-quote/reject", handleRejectQuote)
 	}
 
+	mux.Handle("GET /metrics", telemetry.Handler())
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, map[string]string{"status": "Bliss Atelier API running"})
 	})
@@ -1609,9 +1620,11 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 		mux.ServeHTTP(w, r)
 	})
 
+	telemetryWrapped := telemetry.HTTPMiddleware(administrativeSessions(innerHandler, authService, proxyChecker))
+
 	a.server = &http.Server{
 		Addr:              address,
-		Handler:           CORSHandler(secConfig.AllowedOrigins, administrativeSessions(innerHandler, authService, proxyChecker)),
+		Handler:           CORSHandler(secConfig.AllowedOrigins, telemetryWrapped),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      timeout + 5*time.Second,

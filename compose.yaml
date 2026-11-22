@@ -135,12 +135,152 @@ services:
       timeout: 4s
       retries: 15
 
+  rabbitmq:
+    image: rabbitmq:3-alpine
+    profiles: ["observability"]
+    user: "100:101"
+    entrypoint: ["/bin/sh", "/usr/local/bin/bliss-rabbitmq-entrypoint.sh"]
+    command: ["rabbitmq-server"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 1024
+    mem_limit: 512m
+    cpus: 1.0
+    networks: [private]
+    environment:
+      RABBITMQ_DEFAULT_USER: bliss
+    secrets: [rabbitmq_password]
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./infra/observability/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./infra/observability/rabbitmq/entrypoint.sh:/usr/local/bin/bliss-rabbitmq-entrypoint.sh:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+      start_period: 10s
+
+  worker:
+    <<: *app
+    profiles: ["observability"]
+    entrypoint: [/app/worker]
+    environment:
+      GO_WORKER_METRICS_ADDR: 0.0.0.0:5002
+      GO_DATABASE_URL_FILE: /run/secrets/runtime_url
+      GO_REQUIRE_SCHEMA: "true"
+      GO_IO_TIMEOUT: 15s
+      GO_DB_MAX_CONNECTIONS: "4"
+      GO_REDIS_URL: "redis://redis:6379/0"
+      GO_RABBITMQ_URL_FILE: /run/secrets/rabbitmq_url
+    secrets: [runtime_url, rabbitmq_url]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      fake-provider: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, /app/probe, "http://127.0.0.1:5002/health/live"]
+      interval: 3s
+      timeout: 4s
+      retries: 15
+
+  drill-responder:
+    <<: *app
+    profiles: ["observability"]
+    entrypoint: [/app/devstack]
+    command: [responder, "0.0.0.0:9099"]
+    environment:
+      GO_DRILL_RESPONDER_TOKEN_FILE: /run/secrets/drill_responder_token
+      GO_ESCALATION_FORWARD_URL: ${GO_ESCALATION_FORWARD_URL:-}
+      GO_ESCALATION_FORWARD_TOKEN: ${GO_ESCALATION_FORWARD_TOKEN:-}
+      GO_PLATFORM_ESCALATION_URL: ${GO_PLATFORM_ESCALATION_URL:-}
+      GO_PLATFORM_ESCALATION_TOKEN: ${GO_PLATFORM_ESCALATION_TOKEN:-}
+      GO_FINANCE_ESCALATION_URL: ${GO_FINANCE_ESCALATION_URL:-}
+      GO_FINANCE_ESCALATION_TOKEN: ${GO_FINANCE_ESCALATION_TOKEN:-}
+    secrets: [drill_responder_token]
+    ports: ["127.0.0.1:9099:9099"]
+    networks: [edge, private]
+    healthcheck:
+      test: [CMD, /app/probe, "http://127.0.0.1:9099/health/live"]
+      interval: 3s
+      timeout: 4s
+      retries: 15
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: ["observability"]
+    user: "65534:65534"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports: ["127.0.0.1:9090:9090"]
+    networks: [edge, private]
+    mem_limit: 128m
+    cpus: 0.5
+    depends_on:
+      api: { condition: service_healthy }
+      worker: { condition: service_healthy }
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    profiles: ["observability"]
+    user: "65534:65534"
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--cluster.listen-address="
+      - "--log.level=debug"
+    volumes:
+      - ./infra/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    secrets: [drill_responder_token]
+    ports: ["127.0.0.1:9093:9093"]
+    networks: [edge, private]
+    mem_limit: 64m
+    cpus: 0.25
+    depends_on:
+      drill-responder: { condition: service_healthy }
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: ["observability"]
+    user: "472:472"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-bliss_sre_dev}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+    volumes:
+      - ./infra/observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./infra/observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infra/observability/grafana/dashboards:/etc/grafana/provisioning/dashboards/json:ro
+      - grafana_data:/var/lib/grafana
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [edge, private]
+    mem_limit: 128m
+    cpus: 0.5
+    depends_on:
+      - prometheus
+
 networks:
   edge: {}
   private:
     internal: true
 volumes:
   database: {}
+  prometheus_data: {}
+  alertmanager_data: {}
+  grafana_data: {}
+  rabbitmq_data: {}
 secrets:
   admin_password:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/admin_password
@@ -156,3 +296,9 @@ secrets:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/runtime_url
   catalog_url:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/catalog_url
+  drill_responder_token:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/drill_responder_token
+  rabbitmq_password:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/rabbitmq_password
+  rabbitmq_url:
+    file: ${BLISS_SECRET_DIR:-./.local/dev}/rabbitmq_url

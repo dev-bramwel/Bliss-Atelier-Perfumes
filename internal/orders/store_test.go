@@ -1007,3 +1007,52 @@ func TestFindPaymentAttemptHelpers(t *testing.T) {
 		t.Fatalf("expected receipt order ID %q, got %q (err: %v)", order.ID, receiptOrder, err)
 	}
 }
+
+func TestStore_InitializeActiveReservationsTelemetry_NilSafe(t *testing.T) {
+	var s *Store
+	if err := s.InitializeActiveReservationsTelemetry(context.Background()); err != nil {
+		t.Fatalf("expected nil error for nil store, got %v", err)
+	}
+	emptyStore := &Store{}
+	if err := emptyStore.InitializeActiveReservationsTelemetry(context.Background()); err != nil {
+		t.Fatalf("expected nil error for empty store, got %v", err)
+	}
+}
+
+func TestStore_InitializeActiveReservationsTelemetry(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	for _, ordID := range []string{"ord-tel-1", "ord-tel-2", "ord-tel-3", "ord-tel-4"} {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO public."Order" (id, "customerName", "customerPhone", "deliveryLocation", "totalKes", items, "updatedAt")
+			VALUES ($1, 'Test Customer', '254712345678', 'Nairobi', 1000, '[]'::jsonb, now())
+		`, ordID)
+		if err != nil {
+			t.Fatalf("failed to insert prerequisite order %s: %v", ordID, err)
+		}
+	}
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO public.stock_reservation (id, order_id, status, expires_at, created_at)
+		VALUES
+			(gen_random_uuid(), 'ord-tel-1', 'active', $1, $2),
+			(gen_random_uuid(), 'ord-tel-2', 'active', $3, $4),
+			(gen_random_uuid(), 'ord-tel-3', 'active', $5, $6),
+			(gen_random_uuid(), 'ord-tel-4', 'released', $7, $8)
+	`,
+		now.Add(10*time.Minute), now,
+		now.Add(5*time.Minute), now,
+		now.Add(-2*time.Minute), now.Add(-10*time.Minute),
+		now.Add(10*time.Minute), now,
+	)
+	if err != nil {
+		t.Fatalf("failed to insert test reservations: %v", err)
+	}
+
+	if err := store.InitializeActiveReservationsTelemetry(ctx); err != nil {
+		t.Fatalf("InitializeActiveReservationsTelemetry failed: %v", err)
+	}
+}

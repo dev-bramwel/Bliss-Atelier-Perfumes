@@ -44,7 +44,7 @@ NOISE FILTER:
 
 [pr_code_suggestions]
 suggestions_score_threshold = 7
-max_suggestions = 4
+max_suggestions = 7
 focus_only_on_problems = true
 
 extra_instructions = """

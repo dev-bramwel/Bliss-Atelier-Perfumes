@@ -1,0 +1,66 @@
+global:
+  resolve_timeout: 1m
+
+route:
+  group_by: ["alertname", "severity", "team"]
+  group_wait: 2s
+  group_interval: 5s
+  repeat_interval: 1h
+  receiver: "operational_escalation_default"
+  routes:
+    # 1. Synthetic drills and local automated verification route directly to authenticated drill responder
+    - match_re:
+        alertname: "^(Synthetic.*|Test.*)"
+      receiver: "drill_responder_webhook"
+      continue: false
+
+    # 2. Critical financial and payment exceptions escalate to Finance Operations
+    - match:
+        team: "finance-ops"
+      receiver: "finance_operations_escalation"
+      continue: false
+
+    # 3. Platform & Infrastructure issues escalate to Platform SRE
+    - match:
+        team: "platform-sre"
+      receiver: "platform_sre_escalation"
+      continue: false
+
+receivers:
+  # Automated testing and drill verification receiver
+  - name: "drill_responder_webhook"
+    webhook_configs:
+      - url: "http://drill-responder:9099/alerts"
+        send_resolved: true
+        http_config:
+          bearer_token_file: "/run/secrets/drill_responder_token"
+
+  # Production/Operational primary escalation target
+  # Routes to designated operational escalation dispatcher which logs structured incident metadata
+  # and forwards to upstream paging systems (Opsgenie / PagerDuty / Slack) when GO_ESCALATION_FORWARD_URL is set.
+  - name: "operational_escalation_default"
+    webhook_configs:
+      - url: "http://drill-responder:9099/escalations/default"
+        send_resolved: true
+        http_config:
+          bearer_token_file: "/run/secrets/drill_responder_token"
+
+  # Finance Operations escalation receiver:
+  # Dedicated channel for unmapped payments, payment exceptions, and reconciliation backlogs.
+  - name: "finance_operations_escalation"
+    webhook_configs:
+      - url: "http://drill-responder:9099/escalations/finance-ops"
+        send_resolved: true
+        http_config:
+          bearer_token_file: "/run/secrets/drill_responder_token"
+
+  # Platform SRE escalation receiver:
+  # Dedicated channel for high 5xx error surges, DB connection exhaustion, and DLQ poison message alerts.
+  - name: "platform_sre_escalation"
+    webhook_configs:
+      - url: "http://drill-responder:9099/escalations/platform-sre"
+        send_resolved: true
+        http_config:
+          bearer_token_file: "/run/secrets/drill_responder_token"
+
+

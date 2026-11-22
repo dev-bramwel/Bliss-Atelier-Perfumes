@@ -46,11 +46,14 @@ type Config struct {
 	GoogleClientSecret  string
 	GoogleRedirectURL   string
 	BootstrapOwnerEmail string
+
+	// Background worker telemetry configuration
+	WorkerMetricsAddr string
 }
 
 // Load uses separate GO_ settings so the legacy backend remains independent.
 func Load(get func(string) string) (Config, error) {
-	c := Config{Address: "127.0.0.1:5001", IOTimeout: 5 * time.Second, ShutdownTimeout: 10 * time.Second, MaxConnections: 4}
+	c := Config{Address: "127.0.0.1:5001", WorkerMetricsAddr: "127.0.0.1:5002", IOTimeout: 5 * time.Second, ShutdownTimeout: 10 * time.Second, MaxConnections: 4}
 	if v := get("GO_HTTP_ADDR"); v != "" {
 		c.Address = v
 	}
@@ -58,6 +61,15 @@ func Load(get func(string) string) (Config, error) {
 	n, portErr := strconv.Atoi(port)
 	if err != nil || portErr != nil || n < 1 || n > 65535 || (host != "localhost" && net.ParseIP(host) == nil) {
 		return Config{}, errors.New("GO_HTTP_ADDR must contain an IP or localhost and a valid port")
+	}
+
+	if v := get("GO_WORKER_METRICS_ADDR"); v != "" {
+		c.WorkerMetricsAddr = v
+	}
+	wHost, wPort, wErr := net.SplitHostPort(c.WorkerMetricsAddr)
+	wN, wPortErr := strconv.Atoi(wPort)
+	if wErr != nil || wPortErr != nil || wN < 0 || wN > 65535 || (wHost != "localhost" && net.ParseIP(wHost) == nil) {
+		return Config{}, errors.New("GO_WORKER_METRICS_ADDR must contain an IP or localhost and a valid port")
 	}
 	for _, entry := range []struct {
 		key    string
