@@ -57,6 +57,7 @@ func steps() []step {
 		{9, normalized(read("sql/0009_admin_identity_sessions_audit.sql"))},
 		{10, normalized(read("sql/0010_order_assignment.sql"))},
 		{11, normalized(read("sql/0011_customer_order_access.sql"))},
+		{12, normalized(read("sql/0012_drop_manager_role.sql"))},
 	}
 }
 
