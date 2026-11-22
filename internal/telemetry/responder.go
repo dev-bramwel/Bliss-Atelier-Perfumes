@@ -39,6 +39,18 @@ var (
 		"bliss.notifications.v1":      true,
 		"bliss.notifications.v1.dead": true,
 	}
+
+	allowedHTTPStatuses = map[string]bool{
+		"200": true,
+		"201": true,
+		"400": true,
+		"401": true,
+		"403": true,
+		"404": true,
+		"500": true,
+		"502": true,
+		"503": true,
+	}
 )
 
 // ResponderAlert represents a single alert within an Alertmanager notification payload.
@@ -92,6 +104,9 @@ func NewDrillResponder(authToken ...string) *DrillResponder {
 	PaymentExceptionsTotal.Set(0, "UNMAPPED_TRANSACTION")
 	PaymentExceptionsTotal.Set(0, "DUPLICATE_RECEIPT")
 	RabbitMQDLQMessagesGauge.Set(0, "notifications")
+	UnresolvedPaymentsGauge.Set(0)
+	HTTPRequestsTotal.Set(0, "GET", "/api/orders", "200")
+	HTTPRequestsTotal.Set(0, "GET", "/api/orders", "500")
 
 	return &DrillResponder{
 		authToken:      token,
@@ -271,6 +286,9 @@ func (r *DrillResponder) Handler() http.Handler {
 					return
 				}
 				postReq.Header.Set("Content-Type", "application/json")
+				if r.authToken != "" {
+					postReq.Header.Set("Authorization", "Bearer "+r.authToken)
+				}
 				resp, dErr := client.Do(postReq)
 				if dErr != nil {
 					slog.Error("operational_escalation_forward_network_error", "channel", escalationTarget, "url", targetURL, "error", dErr.Error())
@@ -378,6 +396,20 @@ func (r *DrillResponder) Handler() http.Handler {
 				return
 			}
 			UnresolvedPaymentsGauge.Set(payload.Value)
+		case "http_requests_total":
+			statusLabel := payload.Label
+			if statusLabel == "" {
+				statusLabel = "500"
+			}
+			if !allowedHTTPStatuses[statusLabel] {
+				http.Error(w, "invalid status label for http_requests_total: must be a known HTTP status code", http.StatusBadRequest)
+				return
+			}
+			val := payload.Value
+			if val <= 0 {
+				val = 1
+			}
+			HTTPRequestsTotal.Add(val, "GET", "/api/orders", statusLabel)
 		default:
 			http.Error(w, "unknown metric name", http.StatusBadRequest)
 			return
@@ -426,6 +458,9 @@ func (r *DrillResponder) Handler() http.Handler {
 			RabbitMQDLQMessagesGauge.Set(0, queueLabel)
 		case "unresolved_payments_gauge":
 			UnresolvedPaymentsGauge.Set(0)
+		case "http_requests_total":
+			HTTPRequestsTotal.Set(0, "GET", "/api/orders", "200")
+			HTTPRequestsTotal.Set(0, "GET", "/api/orders", "500")
 		default:
 			http.Error(w, "unknown metric name", http.StatusBadRequest)
 			return
@@ -437,6 +472,13 @@ func (r *DrillResponder) Handler() http.Handler {
 
 	// Isolated mock upstream paging endpoint (/test-sink) to verify escalation forwarding without paging on-call
 	mux.HandleFunc("/test-sink", func(w http.ResponseWriter, req *http.Request) {
+		if !r.isAuthorized(req) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+
 		if req.Method == http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(r.TestSinkAlerts())
