@@ -11,11 +11,8 @@ import (
 
 func TestRoleHierarchyAndIsolation(t *testing.T) {
 	// 1. Role Rank checks
-	if RoleRank(RoleOwner) <= RoleRank(RoleManager) {
-		t.Fatal("owner should outrank manager")
-	}
-	if RoleRank(RoleManager) <= RoleRank(RoleEmployee) {
-		t.Fatal("manager should outrank employee")
+	if RoleRank(RoleOwner) <= RoleRank(RoleEmployee) {
+		t.Fatal("owner should outrank employee")
 	}
 	if RoleRank(RoleEmployee) <= RoleRank(RoleCustomer) {
 		t.Fatal("employee should outrank customer")
@@ -23,54 +20,50 @@ func TestRoleHierarchyAndIsolation(t *testing.T) {
 
 	// 2. Upward Visibility & Downward Isolation in Role Management
 	// Only Owner (Apex Admin) can manage roles (create, promote, demote)
-	if !CanManageRole(RoleOwner, RoleManager) || !CanManageRole(RoleOwner, RoleEmployee) || !CanManageRole(RoleOwner, RoleCustomer) || !CanManageRole(RoleOwner, RoleOwner) {
+	if !CanManageRole(RoleOwner, RoleEmployee) || !CanManageRole(RoleOwner, RoleCustomer) || !CanManageRole(RoleOwner, RoleOwner) {
 		t.Fatal("owner should be able to manage all roles")
 	}
-	// Subordinate roles (Manager, Employee, Customer) must have zero role management capability
-	if CanManageRole(RoleManager, RoleEmployee) || CanManageRole(RoleManager, RoleCustomer) || CanManageRole(RoleManager, RoleManager) || CanManageRole(RoleManager, RoleOwner) {
-		t.Fatal("manager must not have role management authority; only owner can manage roles")
+	// Subordinate roles (Employee, Customer) must have zero role management capability
+	if CanManageRole(RoleEmployee, RoleEmployee) || CanManageRole(RoleEmployee, RoleCustomer) || CanManageRole(RoleEmployee, RoleOwner) {
+		t.Fatal("employee must not have role management authority; only owner can manage roles")
 	}
-	if CanManageRole(RoleEmployee, RoleCustomer) || CanManageRole(RoleCustomer, RoleCustomer) {
-		t.Fatal("employee and customer must not have role management authority")
+	if CanManageRole(RoleCustomer, RoleCustomer) || CanManageRole(RoleCustomer, RoleEmployee) || CanManageRole(RoleCustomer, RoleOwner) {
+		t.Fatal("customer must not have role management authority")
 	}
 
-	// User status management isolation: Owner can manage all statuses; Manager can manage employee and customer
-	if !CanManageUserStatus(RoleOwner, RoleManager) || !CanManageUserStatus(RoleOwner, RoleEmployee) {
-		t.Fatal("owner should be able to manage all user statuses")
+	// User status management isolation: Only Owner can manage user status
+	if !CanManageUserStatus(RoleOwner, RoleEmployee) || !CanManageUserStatus(RoleOwner, RoleCustomer) {
+		t.Fatal("owner should be able to manage user statuses")
 	}
-	if !CanManageUserStatus(RoleManager, RoleEmployee) || !CanManageUserStatus(RoleManager, RoleCustomer) {
-		t.Fatal("manager should be able to manage employee and customer statuses")
+	if CanManageUserStatus(RoleEmployee, RoleEmployee) || CanManageUserStatus(RoleEmployee, RoleCustomer) || CanManageUserStatus(RoleEmployee, RoleOwner) {
+		t.Fatal("employee must not manage user status")
 	}
-	if CanManageUserStatus(RoleManager, RoleOwner) || CanManageUserStatus(RoleManager, RoleManager) {
-		t.Fatal("manager must not manage owner or peer manager status")
+	if CanManageUserStatus(RoleCustomer, RoleCustomer) || CanManageUserStatus(RoleCustomer, RoleOwner) {
+		t.Fatal("customer must not manage user status")
 	}
 
 	// 3. Audit Log Visibility
 	// Owner can inspect all
-	if !CanInspectAuditLogs(RoleOwner, RoleOwner) || !CanInspectAuditLogs(RoleOwner, RoleManager) || !CanInspectAuditLogs(RoleOwner, RoleEmployee) {
+	if !CanInspectAuditLogs(RoleOwner, RoleOwner) || !CanInspectAuditLogs(RoleOwner, RoleEmployee) || !CanInspectAuditLogs(RoleOwner, RoleCustomer) {
 		t.Fatal("owner must have upward visibility over all audit logs")
 	}
-	// Manager can inspect manager, employee, customer; ISOLATED from owner
-	if !CanInspectAuditLogs(RoleManager, RoleManager) || !CanInspectAuditLogs(RoleManager, RoleEmployee) || !CanInspectAuditLogs(RoleManager, RoleCustomer) {
-		t.Fatal("manager should be able to inspect operational logs")
-	}
-	if CanInspectAuditLogs(RoleManager, RoleOwner) {
-		t.Fatal("downward isolation violation: manager must not inspect owner audit logs")
-	}
 	// Employee and customer cannot inspect audit logs
-	if CanInspectAuditLogs(RoleEmployee, RoleEmployee) || CanInspectAuditLogs(RoleCustomer, RoleCustomer) {
-		t.Fatal("employee and customer must not inspect audit logs")
+	if CanInspectAuditLogs(RoleEmployee, RoleEmployee) || CanInspectAuditLogs(RoleEmployee, RoleCustomer) || CanInspectAuditLogs(RoleEmployee, RoleOwner) {
+		t.Fatal("employee must not inspect audit logs")
+	}
+	if CanInspectAuditLogs(RoleCustomer, RoleCustomer) || CanInspectAuditLogs(RoleCustomer, RoleOwner) {
+		t.Fatal("customer must not inspect audit logs")
 	}
 
 	// 4. Critical Business Invariants
-	if !CanMutateCatalogPricing(RoleOwner) || CanMutateCatalogPricing(RoleManager) || CanMutateCatalogPricing(RoleEmployee) {
+	if !CanMutateCatalogPricing(RoleOwner) || CanMutateCatalogPricing(RoleEmployee) || CanMutateCatalogPricing(RoleCustomer) {
 		t.Fatal("only owner can alter base catalog pricing")
 	}
-	if !CanApproveOpeningStock(RoleOwner) || CanApproveOpeningStock(RoleManager) || CanApproveOpeningStock(RoleEmployee) {
+	if !CanApproveOpeningStock(RoleOwner) || CanApproveOpeningStock(RoleEmployee) || CanApproveOpeningStock(RoleCustomer) {
 		t.Fatal("only owner can approve inventory opening stock counts")
 	}
-	if !CanReviewPaymentExceptions(RoleOwner) || !CanReviewPaymentExceptions(RoleManager) || CanReviewPaymentExceptions(RoleEmployee) {
-		t.Fatal("only owner and manager can review payment exceptions")
+	if !CanReviewPaymentExceptions(RoleOwner) || CanReviewPaymentExceptions(RoleEmployee) || CanReviewPaymentExceptions(RoleCustomer) {
+		t.Fatal("only owner can review payment exceptions")
 	}
 }
 
@@ -487,44 +480,22 @@ func TestAuthServiceFullFlow(t *testing.T) {
 		t.Fatalf("expected role employee, got %s", empUpdated.Role)
 	}
 
-	// Manager candidate
-	mgrProfile := &GoogleProfile{
-		Subject: "google-sub-mgr",
-		Email:   "manager@blissatelier.com",
-		Name:    "Store Manager",
-	}
-	mgrUser, _ := store.UpsertUserByGoogleSub(ctx, mgrProfile.Subject, mgrProfile.Email, mgrProfile.Name, "")
-	_ = service.UpdateUserRole(ctx, updatedUser, mgrUser.ID, RoleManager, "127.0.0.1")
-	mgrUpdated, _ := store.GetUserByID(ctx, mgrUser.ID)
-
-	// Downward Isolation: Manager cannot promote anyone to owner
-	err = service.UpdateUserRole(ctx, mgrUpdated, empUser.ID, RoleOwner, "127.0.0.1")
+	// Downward Isolation: Employee cannot promote anyone to owner
+	err = service.UpdateUserRole(ctx, empUpdated, empUser.ID, RoleOwner, "127.0.0.1")
 	if !errors.Is(err, ErrPermissionDenied) {
-		t.Fatalf("expected permission denied when manager attempts to promote to owner, got %v", err)
+		t.Fatalf("expected permission denied when employee attempts to promote to owner, got %v", err)
 	}
 
-	// Downward Isolation: Manager cannot demote employee to customer (only owner/admin has role management)
-	err = service.UpdateUserRole(ctx, mgrUpdated, empUser.ID, RoleCustomer, "127.0.0.1")
+	// Downward Isolation: Employee cannot demote anyone (only owner has role management)
+	err = service.UpdateUserRole(ctx, empUpdated, empUser.ID, RoleCustomer, "127.0.0.1")
 	if !errors.Is(err, ErrPermissionDenied) {
-		t.Fatalf("expected permission denied when manager attempts to demote employee, got %v", err)
+		t.Fatalf("expected permission denied when employee attempts role change, got %v", err)
 	}
 
-	// Downward Isolation: Manager cannot modify owner's role
-	err = service.UpdateUserRole(ctx, mgrUpdated, updatedUser.ID, RoleCustomer, "127.0.0.1")
+	// Downward Isolation: Employee cannot modify owner's role
+	err = service.UpdateUserRole(ctx, empUpdated, updatedUser.ID, RoleCustomer, "127.0.0.1")
 	if !errors.Is(err, ErrPermissionDenied) {
-		t.Fatalf("expected permission denied when manager attempts to modify owner, got %v", err)
-	}
-
-	// 7. Audit log downward isolation
-	// Manager inspecting audit logs should see employee/manager events, but not owner-exclusive events
-	logs, err := service.InspectAuditLogs(ctx, mgrUpdated, 10, 0)
-	if err != nil {
-		t.Fatalf("failed to inspect audit logs: %v", err)
-	}
-	for _, l := range logs {
-		if l.ActorRole == RoleOwner {
-			t.Fatalf("downward isolation breach: manager saw owner audit log: %v", l)
-		}
+		t.Fatalf("expected permission denied when employee attempts to modify owner, got %v", err)
 	}
 
 	// Downward Isolation: Employee cannot inspect audit logs
@@ -533,23 +504,28 @@ func TestAuthServiceFullFlow(t *testing.T) {
 		t.Fatalf("expected permission denied when employee attempts to inspect audit logs, got %v", err)
 	}
 
+	// Downward Isolation: Employee cannot list users
+	_, err = service.ListUsers(ctx, empUpdated, "")
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected permission denied when employee attempts to list users, got %v", err)
+	}
+
+	// Owner can inspect audit logs
+	ownerLogs, err := service.InspectAuditLogs(ctx, updatedUser, 10, 0)
+	if err != nil {
+		t.Fatalf("owner failed to inspect audit logs: %v", err)
+	}
+	if len(ownerLogs) == 0 {
+		t.Fatal("expected audit logs for owner inspection")
+	}
+
 	// Owner listing sees all tiers
 	ownerVisibleUsers, err := service.ListUsers(ctx, updatedUser, "")
 	if err != nil {
 		t.Fatalf("owner failed to list users: %v", err)
 	}
-	if len(ownerVisibleUsers) < 3 {
-		t.Fatalf("owner should see at least 3 users, got %d", len(ownerVisibleUsers))
-	}
-
-	// 9. Exclusive Owner Authority: Owner CAN demote manager to employee
-	err = service.UpdateUserRole(ctx, updatedUser, mgrUser.ID, RoleEmployee, "127.0.0.1")
-	if err != nil {
-		t.Fatalf("owner failed to demote manager to employee: %v", err)
-	}
-	mgrDemoted, _ := store.GetUserByID(ctx, mgrUser.ID)
-	if mgrDemoted.Role != RoleEmployee {
-		t.Fatalf("expected role employee after demotion, got %s", mgrDemoted.Role)
+	if len(ownerVisibleUsers) < 2 {
+		t.Fatalf("owner should see at least 2 users, got %d", len(ownerVisibleUsers))
 	}
 
 	// Exclusive Owner Authority: Owner CAN demote employee to customer
