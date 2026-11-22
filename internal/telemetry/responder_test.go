@@ -308,8 +308,24 @@ func TestDrillResponder_TestSinkMockUpstream(t *testing.T) {
 		t.Fatalf("expected test sink to capture alert, got: %+v", sinkAlerts)
 	}
 
-	// Verify GET /test-sink returns captured alert
+	// Verify unauthenticated access to /test-sink is rejected with 401
+	unauthGet := httptest.NewRequest(http.MethodGet, "/test-sink", nil)
+	unauthGetRec := httptest.NewRecorder()
+	handler.ServeHTTP(unauthGetRec, unauthGet)
+	if unauthGetRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated GET /test-sink, got %d", unauthGetRec.Code)
+	}
+
+	unauthPost := httptest.NewRequest(http.MethodPost, "/test-sink", strings.NewReader(payload))
+	unauthPostRec := httptest.NewRecorder()
+	handler.ServeHTTP(unauthPostRec, unauthPost)
+	if unauthPostRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for unauthenticated POST /test-sink, got %d", unauthPostRec.Code)
+	}
+
+	// Verify authenticated GET /test-sink returns captured alert
 	reqGetSink := httptest.NewRequest(http.MethodGet, "/test-sink", nil)
+	reqGetSink.Header.Set("Authorization", "Bearer test-drill-token")
 	recGetSink := httptest.NewRecorder()
 	handler.ServeHTTP(recGetSink, reqGetSink)
 	if recGetSink.Code != http.StatusOK || !strings.Contains(recGetSink.Body.String(), "ServiceTargetDown") {
@@ -363,6 +379,21 @@ func TestDrillResponder_InduceMetricLabelValidation(t *testing.T) {
 		}
 	}
 
+	// 2b. Rejects invalid HTTP status codes for http_requests_total
+	invalidStatusPayloads := []string{
+		`{"metric":"http_requests_total","label":"999","value":1}`,
+		`{"metric":"http_requests_total","label":"unknown_status","value":1}`,
+	}
+	for _, p := range invalidStatusPayloads {
+		req := httptest.NewRequest(http.MethodPost, "/drill/induce-metric", strings.NewReader(p))
+		req.Header.Set("Authorization", "Bearer test-drill-token")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 Bad Request for status payload %s, got %d", p, rec.Code)
+		}
+	}
+
 	// 3. Rejects negative values
 	negativeValuePayloads := []string{
 		`{"metric":"rabbitmq_dlq_messages_gauge","label":"notifications","value":-1}`,
@@ -394,6 +425,8 @@ func TestDrillResponder_InduceMetricLabelValidation(t *testing.T) {
 		`{"metric":"rabbitmq_dlq_messages_gauge","label":"notifications","value":2}`,
 		`{"metric":"rabbitmq_dlq_messages_gauge","label":"dead_letter","value":1}`,
 		`{"metric":"unresolved_payments_gauge","value":0}`,
+		`{"metric":"http_requests_total","label":"500","value":10}`,
+		`{"metric":"http_requests_total","label":"200","value":5}`,
 	}
 	for _, p := range validPayloads {
 		req := httptest.NewRequest(http.MethodPost, "/drill/induce-metric", strings.NewReader(p))
