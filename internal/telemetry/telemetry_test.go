@@ -105,12 +105,12 @@ func TestCorrelationIDContextAndPropagation(t *testing.T) {
 		t.Errorf("expected context to hold %s, got %s", id1, FromContext(req1WithCtx.Context()))
 	}
 
-	// 2. Preserve incoming valid correlation ID
+	// 2. Preserve incoming valid opaque correlation ID
 	req2 := httptest.NewRequest("GET", "/api/catalog", nil)
-	req2.Header.Set("X-Correlation-ID", "custom-trace-uuid-12345")
+	req2.Header.Set("X-Correlation-ID", "c_0123456789abcdef01234567")
 	id2, _ := EnsureCorrelationID(req2)
-	if id2 != "custom-trace-uuid-12345" {
-		t.Errorf("expected custom-trace-uuid-12345, got %s", id2)
+	if id2 != "c_0123456789abcdef01234567" {
+		t.Errorf("expected c_0123456789abcdef01234567, got %s", id2)
 	}
 
 	// 3. Attr output
@@ -141,27 +141,32 @@ func TestCorrelationIDContextAndPropagation(t *testing.T) {
 	}
 }
 
-func TestCorrelationID_RejectsPIIAndPhoneNumbers(t *testing.T) {
-	piiInputs := []string{
-		"254712345678",       // Kenyan phone with country code
-		"0712345678",         // Local Kenyan phone
-		"0112345678",         // Local 01... phone
-		"123456789012",       // Pure numeric sequence
-		"phone_254712345678", // String embedding phone number
-		"customer@test.com",  // Email
-		"user-0712-345-678",  // Kenyan phone with hyphen separators
-		"254-712-345-678",    // Kenyan phone with country code and hyphens
-		"corr_0712.345.678",  // Phone with dot separators
-		"user-0112-345-678",  // 01... phone with hyphens
-		"123-456-7890",       // Segmented numeric phone sequence
+func TestCorrelationID_RejectsPIIAndNonOpaqueTokens(t *testing.T) {
+	rejectedInputs := []string{
+		"gt_deadbeefcafebabe",      // Guest token format
+		"123_Main_Street",          // Street address format
+		"custom-trace-uuid-12345",  // Non-hex arbitrary identifier
+		"req_valid_transaction_abc",// Non-opaque string
+		"trace-order-checkout-v1",  // Route-like string
+		"254712345678",             // Kenyan phone with country code
+		"0712345678",               // Local Kenyan phone
+		"0112345678",               // Local 01... phone
+		"123456789012",             // Pure numeric sequence
+		"phone_254712345678",       // String embedding phone number
+		"customer@test.com",        // Email
+		"user-0712-345-678",        // Kenyan phone with hyphen separators
+		"254-712-345-678",          // Kenyan phone with country code and hyphens
+		"corr_0712.345.678",        // Phone with dot separators
+		"user-0112-345-678",        // 01... phone with hyphens
+		"123-456-7890",             // Segmented numeric phone sequence
 	}
 
-	for _, input := range piiInputs {
+	for _, input := range rejectedInputs {
 		req := httptest.NewRequest("GET", "/api/catalog", nil)
 		req.Header.Set("X-Correlation-ID", input)
 		id, _ := EnsureCorrelationID(req)
 		if id == input {
-			t.Errorf("expected caller PII %q to be rejected, but it was accepted", input)
+			t.Errorf("expected non-opaque input %q to be rejected, but it was accepted", input)
 		}
 		if !strings.HasPrefix(id, "c_") {
 			t.Errorf("expected safe generated ID starting with c_, got %s", id)
@@ -169,17 +174,17 @@ func TestCorrelationID_RejectsPIIAndPhoneNumbers(t *testing.T) {
 	}
 
 	validInputs := []string{
-		"custom-trace-uuid-12345",
-		"req_valid_transaction_abc",
 		"550e8400-e29b-41d4-a716-446655440000",
-		"trace-order-checkout-v1",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		"c_0123456789abcdef01234567",
+		"c_abcdef0123456789abcdef01",
 	}
 	for _, input := range validInputs {
 		req := httptest.NewRequest("GET", "/api/catalog", nil)
 		req.Header.Set("X-Correlation-ID", input)
 		id, _ := EnsureCorrelationID(req)
 		if id != input {
-			t.Errorf("expected valid correlation ID %q to be preserved, got %q", input, id)
+			t.Errorf("expected valid opaque correlation ID %q to be preserved, got %q", input, id)
 		}
 	}
 }
