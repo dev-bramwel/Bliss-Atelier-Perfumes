@@ -148,9 +148,9 @@ if ($dockerAvailable) {
         Write-Host "  ✓ amtool route test (synthetic drill): alerts route to $($amRouteDrill.Trim())" -ForegroundColor Green
 
         # ----------------------------------------------------------------------
-        # Live Containerized Alertmanager -> Drill-Responder Delivery Drill
+        # Live Containerized Prometheus -> Alertmanager -> Responder Pipeline Drill
         # ----------------------------------------------------------------------
-        Write-Host "`n  [4b] Verifying Live Containerized Alertmanager -> Responder Delivery..." -ForegroundColor Yellow
+        Write-Host "`n  [4b] Verifying Live Containerized Prometheus -> Alertmanager -> Responder Delivery Pipeline..." -ForegroundColor Yellow
 
         $secretDir = Join-Path $baseDir ".local/dev"
         $secretPath = Join-Path $secretDir "drill_responder_token"
@@ -163,21 +163,22 @@ if ($dockerAvailable) {
         }
         $secretToken = (Get-Content $secretPath -Raw).Trim()
 
-        Write-Host "    Starting drill-responder and alertmanager containers..." -ForegroundColor Gray
-        docker compose --profile observability up -d drill-responder alertmanager | Out-Null
+        Write-Host "    Starting drill-responder, alertmanager, and prometheus containers..." -ForegroundColor Gray
+        docker compose --profile observability up -d --no-deps drill-responder alertmanager prometheus | Out-Null
         try {
             $ready = $false
-            for ($i = 0; $i -lt 15; $i++) {
+            for ($i = 0; $i -lt 20; $i++) {
                 $liveCode = curl.exe -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health/live
                 $amReadyCode = curl.exe -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9093/-/ready
-                if ($liveCode -eq "200" -and $amReadyCode -eq "200") {
+                $promReadyCode = curl.exe -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9090/-/ready
+                if ($liveCode -eq "200" -and $amReadyCode -eq "200" -and $promReadyCode -eq "200") {
                     $ready = $true
                     break
                 }
                 Start-Sleep -Seconds 1
             }
             if (-not $ready) {
-                throw "Alertmanager or Drill-Responder container failed to become ready within timeout"
+                throw "Prometheus, Alertmanager, or Drill-Responder container failed to become ready within timeout"
             }
 
             # 1. Assert unauthenticated query rejected with 401
@@ -187,7 +188,24 @@ if ($dockerAvailable) {
             }
             Write-Host "    ✓ Unauthorized access to responder rejected with 401" -ForegroundColor Green
 
-            # 2. Post synthetic firing alert to Alertmanager with unique drill run ID
+            # 2. Verify complete Prometheus scrape -> rule evaluation -> Alertmanager routing -> Responder escalation pipeline
+            Write-Host "    Awaiting live Prometheus scrape rule evaluation (ServiceTargetDown)..." -ForegroundColor Gray
+            $promDelivered = $false
+            for ($p = 0; $p -lt 30; $p++) {
+                Start-Sleep -Seconds 1
+                $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
+                if ($responderAlerts -match "ServiceTargetDown" -and $responderAlerts -match "platform_sre_escalation") {
+                    $promDelivered = $true
+                    break
+                }
+            }
+            if (-not $promDelivered) {
+                throw "Prometheus did not fire ServiceTargetDown to Alertmanager and Responder within 30s. Responder output: $responderAlerts"
+            }
+            Write-Host "    ✓ Live Prometheus scrape pipeline evaluated target status and triggered ServiceTargetDown" -ForegroundColor Green
+            Write-Host "    ✓ Alertmanager routed ServiceTargetDown to responder escalation channel (/escalations/platform-sre)" -ForegroundColor Green
+
+            # 3. Post synthetic firing alert to Alertmanager with unique drill run ID to verify incident lifecycle
             $drillId = [System.Guid]::NewGuid().ToString("N").Substring(0, 8)
             $alertName = "SyntheticPaymentDrill_$drillId"
             $startsAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -228,7 +246,7 @@ if ($dockerAvailable) {
             }
             Write-Host "    ✓ Alertmanager delivered firing alert ($alertName) to responder with Docker secret auth" -ForegroundColor Green
 
-            # 3. Post synthetic resolved alert to Alertmanager
+            # 4. Post synthetic resolved alert to Alertmanager
             $endsAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
             $resolvedPayload = @"
 [
@@ -268,7 +286,7 @@ if ($dockerAvailable) {
             }
             Write-Host "    ✓ Alertmanager delivered resolved alert ($alertName) to responder with Docker secret auth" -ForegroundColor Green
         } finally {
-            docker compose --profile observability stop drill-responder alertmanager | Out-Null
+            docker compose --profile observability stop drill-responder alertmanager prometheus | Out-Null
         }
 
         # ----------------------------------------------------------------------
