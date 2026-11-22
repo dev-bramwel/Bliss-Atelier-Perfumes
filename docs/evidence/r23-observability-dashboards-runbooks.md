@@ -419,6 +419,10 @@ If observability services or instrumentation need to be reverted:
   - Finding 2: Restricted `/drill/induce-metric` and `/drill/clear-metric` endpoints to strict whitelists of known bounded labels (`allowedPaymentExceptions` and `allowedQueues`) and non-negative values, rejecting unbounded or caller-controlled labels with HTTP 400 to maintain strict bounded-cardinality invariants.
   - Finding 3: Moved setup and startup (`$env:GO_*_ESCALATION_URL` assignments and container orchestration) inside the protected `try { ... } finally { ... }` scope, ensuring that escalation environment variables are guaranteed to be restored even if startup or container initialization fails.
   - Finding 4: Replaced loose string matching in alert resolution assertions with strict JSON deserialization (`Find-MatchingAlert`), verifying that the same alert object in the notification payload contains both `status == "resolved"` and the expected `alertname` label (`DlqPoisonMessagesDetected`).
+- [x] All Round 11 follow-up review suggestions resolved and verified:
+  - Finding 1: Prior active Compose services are inspected at startup (`$wasResponderRunning`, `$wasAlertmanagerRunning`, `$wasPrometheusRunning`) and restored in `finally` without unconditional `rm`, ensuring that running development services remain active and undisturbed.
+  - Finding 2: Protected `/test-sink` endpoint with bearer token authentication (`r.isAuthorized(req)`), gated unauthenticated requests with HTTP 401, and injected authorization header into forwarded escalation requests.
+  - Finding 3: Extended live end-to-end integration drills to induce and verify `UnresolvedPaymentSpike` (routing to `/escalations/finance-ops`) and `ApiHigh5xxRate` (routing to `/escalations/platform-sre`) through the full Prometheus scrape $\to$ rule evaluation $\to$ Alertmanager dispatch pipeline.
 - [x] All unit and integration tests passing (`go test -v ./...`).
 - [x] Telemetry endpoint `GET /metrics` emits valid Prometheus 0.0.4 text format under 2ms.
 - [x] Zero high-cardinality labels and zero PII verified via automated audit.
