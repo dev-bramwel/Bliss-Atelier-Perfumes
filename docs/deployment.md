@@ -70,9 +70,9 @@ On fresh production deployments with an empty `app_user` table, the initial busi
    - Even if the owner account is subsequently deactivated, `CountOwners()` counts all owner records, preventing bootstrap re-arming.
    - The operator can safely remove or unset `GO_BOOTSTRAP_OWNER_EMAIL` from production environment configurations.
 2. **Staff Onboarding via Downward Isolation**:
-   - Subsequent employees or managers sign in via Google OIDC, creating default `customer` accounts.
-   - The authenticated **Owner** promotes them to `manager` or `employee` via `POST /api/admin/users/{id}/role` using their session cookie and `X-CSRF-Token`.
-   - Downward Isolation strictly prevents Managers from viewing, altering, or promoting anyone to the Owner role (returns `403 Forbidden`).
+   - Subsequent employees sign in via Google OIDC, creating default `customer` accounts.
+   - The authenticated **Owner** promotes them to `employee` via `POST /api/admin/users/{id}/role` using their session cookie and `X-CSRF-Token`.
+   - Downward Isolation strictly prevents employees and customers from accessing administrative endpoints or promoting/demoting accounts (returns `403 Forbidden`).
    - Audit logs capture every role modification, status toggle, and administrative action immutably.
 
 ## Rollback procedure
