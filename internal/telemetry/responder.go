@@ -182,6 +182,7 @@ func (r *DrillResponder) Handler() http.Handler {
 				http.Error(w, "failed to read body", http.StatusBadRequest)
 				return
 			}
+			body = bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
 
 			var notif AlertNotification
 			if err := json.Unmarshal(body, &notif); err != nil {
@@ -306,12 +307,18 @@ func (r *DrillResponder) Handler() http.Handler {
 			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 			return
 		}
+		body, err := io.ReadAll(io.LimitReader(req.Body, MaxAlertBodyBytes))
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+		body = bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
 		var payload struct {
 			Metric string  `json:"metric"`
 			Label  string  `json:"label"`
 			Value  float64 `json:"value"`
 		}
-		if err := json.NewDecoder(io.LimitReader(req.Body, MaxAlertBodyBytes)).Decode(&payload); err != nil {
+		if err := json.Unmarshal(body, &payload); err != nil {
 			http.Error(w, "invalid json payload", http.StatusBadRequest)
 			return
 		}
@@ -351,11 +358,17 @@ func (r *DrillResponder) Handler() http.Handler {
 			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 			return
 		}
+		body, err := io.ReadAll(io.LimitReader(req.Body, MaxAlertBodyBytes))
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+		body = bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
 		var payload struct {
 			Metric string `json:"metric"`
 			Label  string `json:"label"`
 		}
-		if err := json.NewDecoder(io.LimitReader(req.Body, MaxAlertBodyBytes)).Decode(&payload); err != nil {
+		if err := json.Unmarshal(body, &payload); err != nil {
 			http.Error(w, "invalid json payload", http.StatusBadRequest)
 			return
 		}
@@ -392,8 +405,14 @@ func (r *DrillResponder) Handler() http.Handler {
 			http.Error(w, "simulated upstream paging provider internal failure", http.StatusInternalServerError)
 			return
 		}
+		body, err := io.ReadAll(io.LimitReader(req.Body, MaxAlertBodyBytes))
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+		body = bytes.TrimPrefix(body, []byte("\xef\xbb\xbf"))
 		var notif AlertNotification
-		if err := json.NewDecoder(io.LimitReader(req.Body, MaxAlertBodyBytes)).Decode(&notif); err != nil {
+		if err := json.Unmarshal(body, &notif); err != nil {
 			http.Error(w, "invalid json payload", http.StatusBadRequest)
 			return
 		}
