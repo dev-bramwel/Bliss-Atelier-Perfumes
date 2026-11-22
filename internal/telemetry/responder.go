@@ -44,6 +44,8 @@ type DrillResponder struct {
 	mu             sync.RWMutex
 	authToken      string
 	forwardURL     string
+	platformURL    string
+	financeURL     string
 	receivedAlerts []AlertNotification
 }
 
@@ -62,10 +64,14 @@ func NewDrillResponder(authToken ...string) *DrillResponder {
 	}
 
 	forwardURL := os.Getenv("GO_ESCALATION_FORWARD_URL")
+	platformURL := os.Getenv("GO_PLATFORM_ESCALATION_URL")
+	financeURL := os.Getenv("GO_FINANCE_ESCALATION_URL")
 
 	return &DrillResponder{
 		authToken:      token,
 		forwardURL:     forwardURL,
+		platformURL:    platformURL,
+		financeURL:     financeURL,
 		receivedAlerts: make([]AlertNotification, 0, MaxRetainedAlerts),
 	}
 }
@@ -75,6 +81,20 @@ func (r *DrillResponder) SetForwardURL(url string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.forwardURL = url
+}
+
+// SetTeamForwardURL sets a team-specific upstream operational escalation destination URL.
+func (r *DrillResponder) SetTeamForwardURL(team, url string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch team {
+	case "platform-sre":
+		r.platformURL = url
+	case "finance-ops":
+		r.financeURL = url
+	default:
+		r.forwardURL = url
+	}
 }
 
 // Alerts returns a thread-safe snapshot of all captured alert notifications.
@@ -179,21 +199,66 @@ func (r *DrillResponder) Handler() http.Handler {
 				}
 			}
 
-			// Optional external webhook forwarder (PagerDuty, Opsgenie, Slack)
+			// Determine external webhook forward destination
+			var targetURL string
 			r.mu.RLock()
-			fwd := r.forwardURL
+			switch escalationTarget {
+			case "platform-sre":
+				if r.platformURL != "" {
+					targetURL = r.platformURL
+				} else {
+					targetURL = r.forwardURL
+				}
+			case "finance-ops":
+				if r.financeURL != "" {
+					targetURL = r.financeURL
+				} else {
+					targetURL = r.forwardURL
+				}
+			default:
+				targetURL = r.forwardURL
+			}
 			r.mu.RUnlock()
-			if fwd != "" {
-				go func(target string, payload []byte) {
-					client := &http.Client{Timeout: 5 * time.Second}
-					postReq, pErr := http.NewRequestWithContext(context.Background(), http.MethodPost, target, bytes.NewReader(payload))
-					if pErr == nil {
-						postReq.Header.Set("Content-Type", "application/json")
-						if resp, dErr := client.Do(postReq); dErr == nil {
-							_ = resp.Body.Close()
-						}
-					}
-				}(fwd, body)
+
+			if targetURL != "" {
+				client := &http.Client{Timeout: 5 * time.Second}
+				postReq, pErr := http.NewRequestWithContext(req.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
+				if pErr != nil {
+					slog.Error("operational_escalation_forward_request_error", "channel", escalationTarget, "url", targetURL, "error", pErr.Error())
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					_ = json.NewEncoder(w).Encode(map[string]string{
+						"error":   "failed to create upstream escalation request",
+						"channel": escalationTarget,
+					})
+					return
+				}
+				postReq.Header.Set("Content-Type", "application/json")
+				resp, dErr := client.Do(postReq)
+				if dErr != nil {
+					slog.Error("operational_escalation_forward_network_error", "channel", escalationTarget, "url", targetURL, "error", dErr.Error())
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					_ = json.NewEncoder(w).Encode(map[string]string{
+						"error":   "upstream escalation delivery failed",
+						"channel": escalationTarget,
+					})
+					return
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+					slog.Error("operational_escalation_upstream_rejected", "channel", escalationTarget, "url", targetURL, "status", resp.StatusCode, "response", string(respBody))
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadGateway)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"error":           "upstream escalation rejected notification",
+						"channel":         escalationTarget,
+						"upstream_status": resp.StatusCode,
+					})
+					return
+				}
+				slog.Info("operational_escalation_forward_succeeded", "channel", escalationTarget, "url", targetURL, "status", resp.StatusCode)
 			}
 
 			// Retain alerts with bounded ring buffer semantics
