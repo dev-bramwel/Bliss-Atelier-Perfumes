@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -193,6 +194,22 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 
 		user, ses, rawToken, csrfToken, returnURL, err := authService.CompleteLogin(r.Context(), state, code, txCookie.Value, clientIP, r.UserAgent())
 		if err != nil {
+			if errors.Is(err, auth.ErrAccountDeactivated) {
+				w.Header().Set("Cache-Control", "no-store")
+				if strings.Contains(r.Header.Get("Accept"), "application/json") || r.URL.Query().Get("format") == "json" {
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.WriteHeader(http.StatusForbidden)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"error":   "account is deactivated",
+						"message": "Your account has been deactivated. Please contact support to reactivate your account.",
+					})
+					return
+				}
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(deactivatedHTMLNotice))
+				return
+			}
 			http.Error(w, `{"error":"authentication failed: `+err.Error()+`"}`, http.StatusUnauthorized)
 			return
 		}
@@ -365,4 +382,153 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 	}
 	mux.HandleFunc("POST /auth/revoke-all", handleRevokeAll)
 	mux.HandleFunc("POST /api/auth/revoke-all", handleRevokeAll)
+
+	// 6. POST /auth/deactivate & /api/auth/deactivate - Deactivate own account, purge sessions, and write audit trail
+	handleDeactivate := func(w http.ResponseWriter, r *http.Request) {
+		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
+		if err != nil {
+			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
+			return
+		}
+
+		if !RequireCSRF(r, ses) {
+			http.Error(w, `{"error":"invalid csrf token"}`, http.StatusForbidden)
+			return
+		}
+
+		clientIP := SafeClientIP(r, checker)
+		if err := authService.DeactivateSelf(r.Context(), user, clientIP); err != nil {
+			if errors.Is(err, auth.ErrCannotDeactivateSoleOwner) {
+				http.Error(w, `{"error":"cannot deactivate the sole owner of the store"}`, http.StatusConflict)
+				return
+			}
+			http.Error(w, `{"error":"failed to deactivate account: `+err.Error()+`"}`, http.StatusInternalServerError)
+			return
+		}
+
+		// Clear cookies
+		http.SetCookie(w, &http.Cookie{
+			Name:     "bliss_session",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		http.SetCookie(w, &http.Cookie{
+			Name:     "bliss_csrf",
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: false,
+			SameSite: http.SameSiteLaxMode,
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":  "deactivated",
+			"message": "Account successfully deactivated. All active sessions have been revoked.",
+			"user_id": user.ID,
+		})
+	}
+	mux.HandleFunc("POST /auth/deactivate", handleDeactivate)
+	mux.HandleFunc("POST /api/auth/deactivate", handleDeactivate)
 }
+
+const deactivatedHTMLNotice = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Account Deactivated — Bliss Atelier</title>
+  <style>
+    :root {
+      --bg: #0d0c0a;
+      --gold: #cfb991;
+      --gold-soft: #eadec4;
+      --card-bg: rgba(26, 24, 21, 0.85);
+      --border: rgba(207, 185, 145, 0.25);
+      --text: #f5f2eb;
+      --muted: #a8a29e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .panel {
+      max-width: 480px;
+      width: 100%;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2.5rem 2rem;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      backdrop-filter: blur(16px);
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 1rem;
+    }
+    h1 {
+      font-family: "Cinzel", "Cormorant Garamond", Georgia, serif;
+      font-size: 1.75rem;
+      font-weight: 500;
+      color: #fff;
+      margin-bottom: 1rem;
+    }
+    p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+    .support-box {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 2rem;
+      font-size: 0.875rem;
+      color: var(--text);
+    }
+    .support-box strong { color: var(--gold-soft); }
+    .btn {
+      display: inline-block;
+      width: 100%;
+      padding: 0.85rem 1.5rem;
+      border-radius: 14px;
+      background: var(--gold);
+      color: #12100e;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: opacity 0.2s ease;
+    }
+    .btn:hover { opacity: 0.9; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <span class="badge">Bliss Atelier · Access Notice</span>
+    <h1>Account Deactivated</h1>
+    <p>Your Bliss Atelier account is currently deactivated and all active sessions have been securely purged.</p>
+    <div class="support-box">
+      To restore access or request reactivation, please contact atelier support at <strong>support@blissatelier.com</strong> or call <strong>+254 700 000 000</strong>.
+    </div>
+    <a href="/" class="btn">Return to Collection</a>
+  </div>
+</body>
+</html>`
+
