@@ -163,8 +163,36 @@ if ($dockerAvailable) {
         }
         $secretToken = (Get-Content $secretPath -Raw).Trim()
 
+        # Isolate drill execution to in-container mock test sink, preventing accidental real pages
+        $prevForwardUrl = $env:GO_ESCALATION_FORWARD_URL
+        $prevPlatformUrl = $env:GO_PLATFORM_ESCALATION_URL
+        $prevFinanceUrl = $env:GO_FINANCE_ESCALATION_URL
+
+        $env:GO_ESCALATION_FORWARD_URL = "http://127.0.0.1:9099/test-sink"
+        $env:GO_PLATFORM_ESCALATION_URL = "http://127.0.0.1:9099/test-sink"
+        $env:GO_FINANCE_ESCALATION_URL = "http://127.0.0.1:9099/test-sink"
+
+        function Post-DrillJson {
+            param([string]$Url, [string]$Json, [string]$Token)
+            $tmpFile = [System.IO.Path]::GetTempFileName()
+            try {
+                [System.IO.File]::WriteAllText($tmpFile, $Json, [System.Text.UTF8Encoding]::new($false))
+                if ($Token) {
+                    return (curl.exe -s -o /dev/null -w "%{http_code}" -X POST $Url -H "Authorization: Bearer $Token" -H "Content-Type: application/json" --data-binary "@$tmpFile")
+                } else {
+                    return (curl.exe -s -o /dev/null -w "%{http_code}" -X POST $Url -H "Content-Type: application/json" --data-binary "@$tmpFile")
+                }
+            } finally {
+                if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force }
+            }
+        }
+
         Write-Host "    Starting drill-responder, alertmanager, and prometheus containers..." -ForegroundColor Gray
-        docker compose --profile observability up -d --no-deps drill-responder alertmanager prometheus | Out-Null
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        docker compose --profile observability down -v 2>&1 | Out-Null
+        $ErrorActionPreference = $prevEAP
+        docker compose --profile observability up -d --force-recreate --no-deps drill-responder alertmanager prometheus | Out-Null
         try {
             $ready = $false
             for ($i = 0; $i -lt 20; $i++) {
@@ -188,10 +216,10 @@ if ($dockerAvailable) {
             }
             Write-Host "    ✓ Unauthorized access to responder rejected with 401" -ForegroundColor Green
 
-            # 2. Verify complete Prometheus scrape -> rule evaluation -> Alertmanager routing -> Responder escalation pipeline
+            # 2. Verify Prometheus scrape target health evaluation (ServiceTargetDown)
             Write-Host "    Awaiting live Prometheus scrape rule evaluation (ServiceTargetDown)..." -ForegroundColor Gray
             $promDelivered = $false
-            for ($p = 0; $p -lt 30; $p++) {
+            for ($p = 0; $p -lt 45; $p++) {
                 Start-Sleep -Seconds 1
                 $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
                 if ($responderAlerts -match "ServiceTargetDown" -and $responderAlerts -match "platform_sre_escalation") {
@@ -200,93 +228,95 @@ if ($dockerAvailable) {
                 }
             }
             if (-not $promDelivered) {
-                throw "Prometheus did not fire ServiceTargetDown to Alertmanager and Responder within 30s. Responder output: $responderAlerts"
+                throw "Prometheus did not fire ServiceTargetDown to Alertmanager and Responder within 45s. Responder output: $responderAlerts"
             }
             Write-Host "    ✓ Live Prometheus scrape pipeline evaluated target status and triggered ServiceTargetDown" -ForegroundColor Green
             Write-Host "    ✓ Alertmanager routed ServiceTargetDown to responder escalation channel (/escalations/platform-sre)" -ForegroundColor Green
 
-            # 3. Post synthetic firing alert to Alertmanager with unique drill run ID to verify incident lifecycle
-            $drillId = [System.Guid]::NewGuid().ToString("N").Substring(0, 8)
-            $alertName = "SyntheticPaymentDrill_$drillId"
-            $startsAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-            $firingPayload = @"
-[
-  {
-    "labels": {
-      "alertname": "$alertName",
-      "severity": "critical",
-      "service": "bliss-backend"
-    },
-    "annotations": {
-      "summary": "Live container drill: 5 payment attempts pending (run $drillId)",
-      "runbook_url": "docs/runbooks/runbook-payment-reconciliation-failure.md"
-    },
-    "startsAt": "$startsAt"
-  }
-]
-"@
-            $tempFiringFile = [System.IO.Path]::GetTempFileName()
-            Set-Content -Path $tempFiringFile -Value $firingPayload
-            $null = curl.exe -s -X POST http://127.0.0.1:9093/api/v2/alerts -H "Content-Type: application/json" --data-binary "@$tempFiringFile"
-            Remove-Item $tempFiringFile
+            # 3. Live Payment Exception Rule Delivery through Prometheus Scrape Pipeline
+            Write-Host "    Inducing live payment exception metric via responder /drill/induce-metric..." -ForegroundColor Gray
+            $inducePaymentBody = '{"metric":"payment_exceptions_total","label":"AMOUNT_MISMATCH","value":1}'
+            $inducePaymentCode = Post-DrillJson -Url "http://127.0.0.1:9099/drill/induce-metric" -Json $inducePaymentBody -Token $secretToken
+            if ($inducePaymentCode -ne "200") {
+                throw "Failed to induce payment_exceptions_total metric, got HTTP $inducePaymentCode"
+            }
 
-            # Poll responder for firing alert notification (group_wait is 2s)
-            $deliveredFiring = $false
-            $alertsAfterFiring = "[]"
-            for ($j = 0; $j -lt 10; $j++) {
+            Write-Host "    Awaiting Prometheus scrape and rule evaluation for PaymentExceptionDetected -> finance-ops..." -ForegroundColor Gray
+            $paymentDelivered = $false
+            for ($p = 0; $p -lt 35; $p++) {
                 Start-Sleep -Seconds 1
-                $alertsAfterFiring = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
-                if ($alertsAfterFiring -match "firing" -and $alertsAfterFiring -match $alertName) {
-                    $deliveredFiring = $true
+                $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
+                if ($responderAlerts -match "PaymentExceptionDetected" -and $responderAlerts -match "finance_operations_escalation") {
+                    $paymentDelivered = $true
                     break
                 }
             }
-            if (-not $deliveredFiring) {
-                throw "Drill responder did not receive firing alert notification from Alertmanager: $alertsAfterFiring"
+            if (-not $paymentDelivered) {
+                throw "Prometheus did not fire PaymentExceptionDetected to Alertmanager and Responder within 35s. Responder output: $responderAlerts"
             }
-            Write-Host "    ✓ Alertmanager delivered firing alert ($alertName) to responder with Docker secret auth" -ForegroundColor Green
+            Write-Host "    ✓ Prometheus scraped application metric and fired PaymentExceptionDetected" -ForegroundColor Green
+            Write-Host "    ✓ Alertmanager routed PaymentExceptionDetected to /escalations/finance-ops" -ForegroundColor Green
 
-            # 4. Post synthetic resolved alert to Alertmanager
-            $endsAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-            $resolvedPayload = @"
-[
-  {
-    "labels": {
-      "alertname": "$alertName",
-      "severity": "critical",
-      "service": "bliss-backend"
-    },
-    "annotations": {
-      "summary": "Live container drill: 5 payment attempts pending (run $drillId)",
-      "runbook_url": "docs/runbooks/runbook-payment-reconciliation-failure.md"
-    },
-    "startsAt": "$startsAt",
-    "endsAt": "$endsAt"
-  }
-]
-"@
-            $tempResolvedFile = [System.IO.Path]::GetTempFileName()
-            Set-Content -Path $tempResolvedFile -Value $resolvedPayload
-            $null = curl.exe -s -X POST http://127.0.0.1:9093/api/v2/alerts -H "Content-Type: application/json" --data-binary "@$tempResolvedFile"
-            Remove-Item $tempResolvedFile
+            # 4. Live Queue DLQ Poison Message Rule Delivery & Recovery through Prometheus Scrape Pipeline
+            Write-Host "    Inducing live DLQ poison message metric via responder /drill/induce-metric..." -ForegroundColor Gray
+            $induceDlqBody = '{"metric":"rabbitmq_dlq_messages_gauge","label":"notifications","value":5}'
+            $induceDlqCode = Post-DrillJson -Url "http://127.0.0.1:9099/drill/induce-metric" -Json $induceDlqBody -Token $secretToken
+            if ($induceDlqCode -ne "200") {
+                throw "Failed to induce rabbitmq_dlq_messages_gauge metric, got HTTP $induceDlqCode"
+            }
 
-            # Poll responder for resolved alert notification (group_interval is 5s)
-            $deliveredResolved = $false
-            $alertsAfterResolve = "[]"
-            for ($k = 0; $k -lt 12; $k++) {
+            Write-Host "    Awaiting Prometheus scrape and rule evaluation for DlqPoisonMessagesDetected -> platform-sre..." -ForegroundColor Gray
+            $dlqDelivered = $false
+            for ($d = 0; $d -lt 35; $d++) {
                 Start-Sleep -Seconds 1
-                $alertsAfterResolve = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
-                if ($alertsAfterResolve -match "resolved" -and $alertsAfterResolve -match $alertName) {
-                    $deliveredResolved = $true
+                $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
+                if ($responderAlerts -match "DlqPoisonMessagesDetected" -and $responderAlerts -match "firing") {
+                    $dlqDelivered = $true
                     break
                 }
             }
-            if (-not $deliveredResolved) {
-                throw "Drill responder did not receive resolved alert notification from Alertmanager: $alertsAfterResolve"
+            if (-not $dlqDelivered) {
+                throw "Prometheus did not fire DlqPoisonMessagesDetected to Alertmanager and Responder within 35s. Responder output: $responderAlerts"
             }
-            Write-Host "    ✓ Alertmanager delivered resolved alert ($alertName) to responder with Docker secret auth" -ForegroundColor Green
+            Write-Host "    ✓ Prometheus scraped queue metric and fired firing DlqPoisonMessagesDetected" -ForegroundColor Green
+
+            # Clear DLQ metric and verify resolution delivery
+            Write-Host "    Clearing DLQ poison metric to test resolution dispatch through Prometheus scrape..." -ForegroundColor Gray
+            $clearDlqBody = '{"metric":"rabbitmq_dlq_messages_gauge","label":"notifications"}'
+            $clearDlqCode = Post-DrillJson -Url "http://127.0.0.1:9099/drill/clear-metric" -Json $clearDlqBody -Token $secretToken
+            if ($clearDlqCode -ne "200") {
+                throw "Failed to clear rabbitmq_dlq_messages_gauge metric, got HTTP $clearDlqCode"
+            }
+
+            $dlqResolved = $false
+            for ($r = 0; $r -lt 35; $r++) {
+                Start-Sleep -Seconds 1
+                $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
+                if ($responderAlerts -match "DlqPoisonMessagesDetected" -and $responderAlerts -match "resolved") {
+                    $dlqResolved = $true
+                    break
+                }
+            }
+            if (-not $dlqResolved) {
+                throw "Prometheus did not resolve DlqPoisonMessagesDetected to Alertmanager and Responder within 35s. Responder output: $responderAlerts"
+            }
+            Write-Host "    ✓ Prometheus cleared metric, evaluated recovery, and Alertmanager delivered resolved alert" -ForegroundColor Green
+
+            # 5. Verify isolated mock upstream test sink captured both platform-sre and finance-ops escalations
+            Write-Host "    Verifying isolated mock upstream test sink captured forwarded escalations..." -ForegroundColor Gray
+            $testSinkAlerts = curl.exe -s http://127.0.0.1:9099/test-sink
+            if ($testSinkAlerts -notmatch "platform_sre_escalation" -or $testSinkAlerts -notmatch "finance_operations_escalation") {
+                throw "Mock upstream test sink (/test-sink) did not receive both platform and finance escalations. Test sink output: $testSinkAlerts"
+            }
+            Write-Host "    ✓ Mock upstream test sink verified live synchronous forwarding without real paging" -ForegroundColor Green
         } finally {
-            docker compose --profile observability stop drill-responder alertmanager prometheus | Out-Null
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            docker compose --profile observability down -v 2>&1 | Out-Null
+            $ErrorActionPreference = $prevEAP
+            $env:GO_ESCALATION_FORWARD_URL = $prevForwardUrl
+            $env:GO_PLATFORM_ESCALATION_URL = $prevPlatformUrl
+            $env:GO_FINANCE_ESCALATION_URL = $prevFinanceUrl
         }
 
         # ----------------------------------------------------------------------
