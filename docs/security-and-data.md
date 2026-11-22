@@ -4,7 +4,7 @@ Status: target requirements, not a completed security audit. Applies to Go rewri
 
 ## Trust and access boundaries
 
-Browser inputs, provider callbacks and broker messages are untrusted until validated. Never trust client totals, quantities, roles or payment status. Administrative use cases enforce owner/manager permissions server-side, including object ownership and audited mutations. Guest order references alone are not sufficient authorization; use scoped high-entropy tokens with expiry/rotation policy and store only token hashes where appropriate. Avoid tokens in URLs/logs where possible.
+Browser inputs, provider callbacks and broker messages are untrusted until validated. Never trust client totals, quantities, roles or payment status. Administrative use cases enforce owner permissions server-side, including object ownership and audited mutations. Guest order references alone are not sufficient authorization; use scoped high-entropy tokens with expiry/rotation policy and store only token hashes where appropriate. Avoid tokens in URLs/logs where possible.
 
 ### Guest token lifecycle and customer recovery
 
@@ -27,7 +27,7 @@ Browser inputs, provider callbacks and broker messages are untrusted until valid
      - M-Pesa transaction receipt number (`mpesaReceiptNumber`).
      - Customer phone number matched to order.
      - Approximate order timestamp and items ordered.
-   - Once verified, support managers inspect the order using authenticated manager credentials (`Authorization: Bearer <manager_secret>`, `Authorization: Manager <manager_secret>`, `X-Manager-Secret`, and optional `X-Manager-Id`) and assist the customer directly with order fulfillment status or quote acceptance. Manager interfaces never disclose raw or hashed tokens. Unauthenticated requests supplying an unverified `X-Manager-Id` header without valid manager credentials are strictly rejected with HTTP 401 Unauthorized.
+   - Once verified, support operators inspect the order using an authenticated staff session or legacy manager credentials (`Authorization: Bearer <manager_secret>`, `Authorization: Manager <manager_secret>`, `X-Manager-Secret`, and optional `X-Manager-Id`) and assist the customer directly with order fulfillment status or quote acceptance. Operator interfaces never disclose raw or hashed tokens. Unauthenticated requests supplying an unverified `X-Manager-Id` header without valid credentials are strictly rejected with HTTP 401 Unauthorized.
 
 Choose admin authentication/session mechanism in an ADR before implementing it. For cookies: Secure, HttpOnly, appropriate SameSite, CSRF protection for mutations, logout/revocation and inactivity limits. Hash passwords with a reviewed modern password hashing library and parameters; no custom cryptography. Rate-limit login, order creation, payment prompts and lookup without allowing arbitrary client headers to bypass identity/IP controls. Only trust forwarded headers from known proxy hops.
 
