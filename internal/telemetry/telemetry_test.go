@@ -143,22 +143,22 @@ func TestCorrelationIDContextAndPropagation(t *testing.T) {
 
 func TestCorrelationID_RejectsPIIAndNonOpaqueTokens(t *testing.T) {
 	rejectedInputs := []string{
-		"gt_deadbeefcafebabe",      // Guest token format
-		"123_Main_Street",          // Street address format
-		"custom-trace-uuid-12345",  // Non-hex arbitrary identifier
-		"req_valid_transaction_abc",// Non-opaque string
-		"trace-order-checkout-v1",  // Route-like string
-		"254712345678",             // Kenyan phone with country code
-		"0712345678",               // Local Kenyan phone
-		"0112345678",               // Local 01... phone
-		"123456789012",             // Pure numeric sequence
-		"phone_254712345678",       // String embedding phone number
-		"customer@test.com",        // Email
-		"user-0712-345-678",        // Kenyan phone with hyphen separators
-		"254-712-345-678",          // Kenyan phone with country code and hyphens
-		"corr_0712.345.678",        // Phone with dot separators
-		"user-0112-345-678",        // 01... phone with hyphens
-		"123-456-7890",             // Segmented numeric phone sequence
+		"gt_deadbeefcafebabe",       // Guest token format
+		"123_Main_Street",           // Street address format
+		"custom-trace-uuid-12345",   // Non-hex arbitrary identifier
+		"req_valid_transaction_abc", // Non-opaque string
+		"trace-order-checkout-v1",   // Route-like string
+		"254712345678",              // Kenyan phone with country code
+		"0712345678",                // Local Kenyan phone
+		"0112345678",                // Local 01... phone
+		"123456789012",              // Pure numeric sequence
+		"phone_254712345678",        // String embedding phone number
+		"customer@test.com",         // Email
+		"user-0712-345-678",         // Kenyan phone with hyphen separators
+		"254-712-345-678",           // Kenyan phone with country code and hyphens
+		"corr_0712.345.678",         // Phone with dot separators
+		"user-0112-345-678",         // 01... phone with hyphens
+		"123-456-7890",              // Segmented numeric phone sequence
 	}
 
 	for _, input := range rejectedInputs {
