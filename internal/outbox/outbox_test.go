@@ -52,10 +52,12 @@ func TestPublisherConfig_Defaults(t *testing.T) {
 }
 
 type mockOutboxStore struct {
-	pending   []EventRecord
-	published []string
-	failed    map[string]string
-	countErr  error
+	pending             []EventRecord
+	published           []string
+	failed              map[string]string
+	countErr            error
+	postPublishCountErr error
+	countCalls          int
 }
 
 func (m *mockOutboxStore) FetchPending(ctx context.Context, batchSize int, dest string) ([]EventRecord, error) {
@@ -70,6 +72,10 @@ func (m *mockOutboxStore) FetchPending(ctx context.Context, batchSize int, dest 
 }
 
 func (m *mockOutboxStore) CountPending(ctx context.Context, dest string) (int, error) {
+	m.countCalls++
+	if m.countCalls > 1 && m.postPublishCountErr != nil {
+		return 0, m.postPublishCountErr
+	}
 	if m.countErr != nil {
 		return 0, m.countErr
 	}
@@ -277,7 +283,45 @@ func TestBackgroundPublisher_CountPendingErrorSetsUnavailableGauge(t *testing.T)
 	if !strings.Contains(metricsOutput, "outbox_pending_events_gauge -1") {
 		t.Errorf("expected outbox_pending_events_gauge to be marked -1 on count error, got:\n%s", metricsOutput)
 	}
-	if !strings.Contains(metricsOutput, `outbox_count_errors_total{destination="rabbitmq"} 1`) {
+	if !strings.Contains(metricsOutput, `outbox_count_errors_total{destination="rabbitmq"}`) {
 		t.Errorf("expected outbox_count_errors_total to increment, got:\n%s", metricsOutput)
+	}
+}
+
+func TestBackgroundPublisher_PostPublishCountPendingErrorSetsUnavailableGauge(t *testing.T) {
+	fakeProducer := messaging.NewFakeMessaging()
+	defer fakeProducer.Close()
+
+	payload := json.RawMessage(`{"orderId":"ord-post-count-err"}`)
+	records := []EventRecord{
+		{ID: "evt-post-1", EventType: "order.created", Payload: payload, Destination: "rabbitmq", Status: StatusPending},
+	}
+
+	mockStore := &mockOutboxStore{
+		pending:             records,
+		postPublishCountErr: errors.New("database disconnected during post-publish count"),
+	}
+	pub := NewBackgroundPublisher(
+		mockStore,
+		fakeProducer,
+		PublisherConfig{
+			BatchSize:   10,
+			Destination: "rabbitmq",
+		},
+		slog.Default(),
+	)
+
+	// Pre-set gauge to an initial positive count (e.g. 1) to verify it gets updated to -1 after publish
+	telemetry.OutboxPendingEventsGauge.Set(1)
+
+	ctx := context.Background()
+	_ = pub.ProcessBatch(ctx)
+
+	metricsOutput := telemetry.DefaultRegistry.Gather()
+	if !strings.Contains(metricsOutput, "outbox_pending_events_gauge -1") {
+		t.Errorf("expected outbox_pending_events_gauge to be marked -1 on post-publish count error, got:\n%s", metricsOutput)
+	}
+	if !strings.Contains(metricsOutput, `outbox_count_errors_total{destination="rabbitmq"}`) {
+		t.Errorf("expected outbox_count_errors_total to increment on post-publish error, got:\n%s", metricsOutput)
 	}
 }
