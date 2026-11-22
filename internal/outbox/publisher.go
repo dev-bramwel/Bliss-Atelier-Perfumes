@@ -94,8 +94,8 @@ func (p *BackgroundPublisher) Start(ctx context.Context) error {
 	}
 }
 
-// ProcessBatch fetches a single batch of pending outbox events and publishes them with confirms.
-func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
+// updatePendingGauge queries current outbox depth, updating the gauge or marking -1 and counting on error.
+func (p *BackgroundPublisher) updatePendingGauge(ctx context.Context) {
 	if count, countErr := p.store.CountPending(ctx, p.cfg.Destination); countErr == nil {
 		telemetry.OutboxPendingEventsGauge.Set(float64(count))
 	} else {
@@ -103,6 +103,11 @@ func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 		telemetry.OutboxCountErrorsTotal.Inc(p.cfg.Destination)
 		telemetry.OutboxPendingEventsGauge.Set(-1)
 	}
+}
+
+// ProcessBatch fetches a single batch of pending outbox events and publishes them with confirms.
+func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
+	p.updatePendingGauge(ctx)
 
 	records, err := p.store.FetchPending(ctx, p.cfg.BatchSize, p.cfg.Destination)
 	if err != nil {
@@ -161,9 +166,7 @@ func (p *BackgroundPublisher) ProcessBatch(ctx context.Context) error {
 		}
 		telemetry.OutboxEventsPublishedTotal.Add(float64(len(publishedIDs)), p.cfg.Destination)
 		p.logger.DebugContext(ctx, "outbox_events_published", "count", len(publishedIDs))
-		if count, countErr := p.store.CountPending(ctx, p.cfg.Destination); countErr == nil {
-			telemetry.OutboxPendingEventsGauge.Set(float64(count))
-		}
+		p.updatePendingGauge(ctx)
 	}
 
 	return nil
