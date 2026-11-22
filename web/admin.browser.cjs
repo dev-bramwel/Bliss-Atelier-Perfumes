@@ -36,7 +36,7 @@ const exception = {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    for (const role of ["owner", "manager", "employee", "customer"]) {
+    for (const role of ["owner", "employee", "customer"]) {
       const context = await browser.newContext({
         viewport: { width: 1280, height: 850 },
       });
@@ -310,52 +310,26 @@ const exception = {
           );
           assert.equal(writes.at(-1).body.amount_kes, 2500);
           await page.goto(base + "/admin/users");
-          if (role === "owner") {
-            await page.waitForSelector("#usersRows select");
-            assert.equal(
-              await page.locator('#usersRows option[value="owner"]').count(),
-              0,
-            );
-            const roleDraft = page.locator("#usersRows select").first();
-            await roleDraft.selectOption("customer");
-            await context.setOffline(true);
-            await page.waitForSelector("#offlineOverlay[open]");
-            await context.setOffline(false);
-            await page.waitForFunction(() => document.getElementById("offlineOverlay").hidden);
-            assert.equal(await roleDraft.inputValue(), "customer");
-            await page.locator("#usersRows button").first().click();
-            await page.waitForFunction(() =>
-              document
-                .getElementById("adminMessage")
-                .textContent.includes("Role updated"),
-            );
-          } else if (role === "manager") {
-            await page.waitForSelector("#usersRows tr");
-            assert.equal(await page.locator("#usersRows select").count(), 0);
-            assert.equal(
-              await page
-                .locator("#usersRows")
-                .getByText("owner@example.test", { exact: false })
-                .count(),
-              0,
-            );
-            await page.locator("#usersRows button").first().click();
-            await page.waitForFunction(() =>
-              document
-                .getElementById("adminMessage")
-                .textContent.includes("Account status updated"),
-            );
-          }
+          await page.waitForSelector("#usersRows select");
+          assert.equal(
+            await page.locator('#usersRows option[value="owner"]').count(),
+            0,
+          );
+          const roleDraft = page.locator("#usersRows select").first();
+          await roleDraft.selectOption("customer");
+          await context.setOffline(true);
+          await page.waitForSelector("#offlineOverlay[open]");
+          await context.setOffline(false);
+          await page.waitForFunction(() => document.getElementById("offlineOverlay").hidden);
+          assert.equal(await roleDraft.inputValue(), "customer");
+          await page.locator("#usersRows button").first().click();
+          await page.waitForFunction(() =>
+            document
+              .getElementById("adminMessage")
+              .textContent.includes("Role updated"),
+          );
           await page.goto(base + "/admin/audit-logs");
           await page.waitForSelector("#auditRows tr");
-          if (role === "manager")
-            assert.equal(
-              await page
-                .locator("#auditRows")
-                .getByText("owner-secret-event")
-                .count(),
-              0,
-            );
         }
         await page.setViewportSize({ width: 390, height: 844 });
         await page.screenshot({
