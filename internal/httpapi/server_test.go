@@ -768,8 +768,8 @@ func TestDeliveryQuoteEndpoints(t *testing.T) {
 	if w.Code != 201 {
 		t.Fatalf("expected 201 Created for delivery quote, got %d (body: %s)", w.Code, w.Body.String())
 	}
-	if len(mockDeliv.quotes[orderID]) == 0 || mockDeliv.quotes[orderID][0].CreatedBy != "usr_staff-manager" {
-		t.Fatalf("expected created_by to be derived from authenticated manager identity mgr-1, got %v", mockDeliv.quotes[orderID][0].CreatedBy)
+	if len(mockDeliv.quotes[orderID]) == 0 || mockDeliv.quotes[orderID][0].CreatedBy != "usr_staff-owner" {
+		t.Fatalf("expected created_by to be derived from authenticated staff identity, got %v", mockDeliv.quotes[orderID][0].CreatedBy)
 	}
 
 	var createResp struct {
