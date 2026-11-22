@@ -163,14 +163,10 @@ if ($dockerAvailable) {
         }
         $secretToken = (Get-Content $secretPath -Raw).Trim()
 
-        # Isolate drill execution to in-container mock test sink, preventing accidental real pages
+        # Capture environment state before modifications to guarantee restoration in finally block
         $prevForwardUrl = $env:GO_ESCALATION_FORWARD_URL
         $prevPlatformUrl = $env:GO_PLATFORM_ESCALATION_URL
         $prevFinanceUrl = $env:GO_FINANCE_ESCALATION_URL
-
-        $env:GO_ESCALATION_FORWARD_URL = "http://127.0.0.1:9099/test-sink"
-        $env:GO_PLATFORM_ESCALATION_URL = "http://127.0.0.1:9099/test-sink"
-        $env:GO_FINANCE_ESCALATION_URL = "http://127.0.0.1:9099/test-sink"
 
         function Post-DrillJson {
             param([string]$Url, [string]$Json, [string]$Token)
@@ -187,13 +183,52 @@ if ($dockerAvailable) {
             }
         }
 
-        Write-Host "    Starting drill-responder, alertmanager, and prometheus containers..." -ForegroundColor Gray
-        $prevEAP = $ErrorActionPreference
-        $ErrorActionPreference = "Continue"
-        docker compose --profile observability down -v 2>&1 | Out-Null
-        $ErrorActionPreference = $prevEAP
-        docker compose --profile observability up -d --force-recreate --no-deps drill-responder alertmanager prometheus | Out-Null
+        function Find-MatchingAlert {
+            param([string]$RawJson, [string]$AlertName, [string]$Status, [string]$Receiver)
+            if (-not $RawJson -or -not $RawJson.Trim().StartsWith("[")) {
+                return $false
+            }
+            try {
+                $notifications = $RawJson | ConvertFrom-Json
+                foreach ($n in $notifications) {
+                    if ($Receiver -and $n.receiver -ne $Receiver) {
+                        continue
+                    }
+                    if ($n.alerts) {
+                        foreach ($a in $n.alerts) {
+                            $matchesName = ($a.labels -and $a.labels.alertname -eq $AlertName) -or ($n.commonLabels -and $n.commonLabels.alertname -eq $AlertName)
+                            $matchesStatus = (-not $Status) -or ($a.status -eq $Status)
+                            if ($matchesName -and $matchesStatus) {
+                                return $true
+                            }
+                        }
+                    }
+                }
+            } catch {
+                return $false
+            }
+            return $false
+        }
+
+        function Cleanup-DrillContainers {
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            # Targeted stop and container removal; preserves project named volumes (database, rabbitmq_data, etc.)
+            docker compose stop drill-responder alertmanager prometheus 2>&1 | Out-Null
+            docker compose rm -f -s drill-responder alertmanager prometheus 2>&1 | Out-Null
+            $ErrorActionPreference = $prev
+        }
+
         try {
+            # Isolate drill execution to in-container mock test sink, preventing accidental real pages
+            $env:GO_ESCALATION_FORWARD_URL = "http://127.0.0.1:9099/test-sink"
+            $env:GO_PLATFORM_ESCALATION_URL = "http://127.0.0.1:9099/test-sink"
+            $env:GO_FINANCE_ESCALATION_URL = "http://127.0.0.1:9099/test-sink"
+
+            Write-Host "    Starting drill-responder, alertmanager, and prometheus containers..." -ForegroundColor Gray
+            Cleanup-DrillContainers
+            docker compose --profile observability up -d --force-recreate --no-deps drill-responder alertmanager prometheus | Out-Null
+
             $ready = $false
             for ($i = 0; $i -lt 20; $i++) {
                 $liveCode = curl.exe -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9099/health/live
@@ -222,7 +257,7 @@ if ($dockerAvailable) {
             for ($p = 0; $p -lt 45; $p++) {
                 Start-Sleep -Seconds 1
                 $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
-                if ($responderAlerts -match "ServiceTargetDown" -and $responderAlerts -match "platform_sre_escalation") {
+                if (Find-MatchingAlert -RawJson $responderAlerts -AlertName "ServiceTargetDown" -Receiver "platform_sre_escalation") {
                     $promDelivered = $true
                     break
                 }
@@ -246,7 +281,7 @@ if ($dockerAvailable) {
             for ($p = 0; $p -lt 35; $p++) {
                 Start-Sleep -Seconds 1
                 $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
-                if ($responderAlerts -match "PaymentExceptionDetected" -and $responderAlerts -match "finance_operations_escalation") {
+                if (Find-MatchingAlert -RawJson $responderAlerts -AlertName "PaymentExceptionDetected" -Receiver "finance_operations_escalation") {
                     $paymentDelivered = $true
                     break
                 }
@@ -270,7 +305,7 @@ if ($dockerAvailable) {
             for ($d = 0; $d -lt 35; $d++) {
                 Start-Sleep -Seconds 1
                 $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
-                if ($responderAlerts -match "DlqPoisonMessagesDetected" -and $responderAlerts -match "firing") {
+                if (Find-MatchingAlert -RawJson $responderAlerts -AlertName "DlqPoisonMessagesDetected" -Status "firing") {
                     $dlqDelivered = $true
                     break
                 }
@@ -292,7 +327,7 @@ if ($dockerAvailable) {
             for ($r = 0; $r -lt 35; $r++) {
                 Start-Sleep -Seconds 1
                 $responderAlerts = curl.exe -s -H "Authorization: Bearer $secretToken" http://127.0.0.1:9099/alerts
-                if ($responderAlerts -match "DlqPoisonMessagesDetected" -and $responderAlerts -match "resolved") {
+                if (Find-MatchingAlert -RawJson $responderAlerts -AlertName "DlqPoisonMessagesDetected" -Status "resolved") {
                     $dlqResolved = $true
                     break
                 }
@@ -310,10 +345,7 @@ if ($dockerAvailable) {
             }
             Write-Host "    ✓ Mock upstream test sink verified live synchronous forwarding without real paging" -ForegroundColor Green
         } finally {
-            $prevEAP = $ErrorActionPreference
-            $ErrorActionPreference = "Continue"
-            docker compose --profile observability down -v 2>&1 | Out-Null
-            $ErrorActionPreference = $prevEAP
+            Cleanup-DrillContainers
             $env:GO_ESCALATION_FORWARD_URL = $prevForwardUrl
             $env:GO_PLATFORM_ESCALATION_URL = $prevPlatformUrl
             $env:GO_FINANCE_ESCALATION_URL = $prevFinanceUrl
