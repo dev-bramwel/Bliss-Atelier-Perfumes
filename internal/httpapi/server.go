@@ -173,12 +173,12 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	proxyChecker := NewTrustedProxyChecker(secConfig.TrustedProxies)
 	extractManager := func(r *http.Request, w ...http.ResponseWriter) string {
 		if authService != nil {
-			if u := UserFromContext(r.Context()); u != nil && (u.Role == auth.RoleOwner || u.Role == auth.RoleManager) {
+			if u := UserFromContext(r.Context()); u != nil && u.Role == auth.RoleOwner {
 				return u.ID
 			}
 			if user, ses, err := AuthenticateRequest(r.Context(), r, authService, proxyChecker); err == nil && user != nil {
-				// Downward Isolation: Only Owner and Manager roles are permitted into manager payment/admin routes
-				if user.Role == auth.RoleOwner || user.Role == auth.RoleManager {
+				// Downward Isolation: Only Owner role is permitted into manager payment/admin routes
+				if user.Role == auth.RoleOwner {
 					if len(w) > 0 && w[0] != nil {
 						RefreshSessionCookie(w[0], r, ses)
 					}
@@ -207,8 +207,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				if len(w) > 0 && w[0] != nil {
 					RefreshSessionCookie(w[0], r, ses)
 				}
-				// Upward Visibility: Owner and Manager oversee all orders
-				if user.Role == auth.RoleOwner || user.Role == auth.RoleManager {
+				// Upward Visibility: Owner oversees all orders
+				if user.Role == auth.RoleOwner {
 					return true, nil
 				}
 				if user.Role == auth.RoleEmployee && operationsStore != nil {
