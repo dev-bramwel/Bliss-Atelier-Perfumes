@@ -149,7 +149,7 @@ func TestDrillResponder_OperationalEscalationRoutingAndForwarding(t *testing.T) 
 	defer upstreamMock.Close()
 
 	responder := NewDrillResponder("test-token-123")
-	responder.SetForwardURL(upstreamMock.URL)
+	responder.SetTeamForwardURL("platform-sre", upstreamMock.URL)
 	handler := responder.Handler()
 
 	platformPayload := `{"receiver":"platform_sre_escalation","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"ApiHigh5xxRate","severity":"critical","team":"platform-sre"},"annotations":{"summary":"High 5xx Rate","owner":"Platform SRE Team","escalation":"platform-oncall","runbook_url":"docs/runbooks/runbook-api-error-surge.md"}}]}`
@@ -175,5 +175,53 @@ func TestDrillResponder_OperationalEscalationRoutingAndForwarding(t *testing.T) 
 	alerts := responder.Alerts()
 	if len(alerts) != 1 || alerts[0].Receiver != "platform_sre_escalation" {
 		t.Fatalf("expected alert retained in responder, got: %+v", alerts)
+	}
+}
+
+func TestDrillResponder_UpstreamEscalationRejectionReturns502(t *testing.T) {
+	rejectingUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "internal incident paging system error", http.StatusInternalServerError)
+	}))
+	defer rejectingUpstream.Close()
+
+	responder := NewDrillResponder("test-token-123")
+	responder.SetForwardURL(rejectingUpstream.URL)
+	handler := responder.Handler()
+
+	payload := `{"receiver":"platform_sre_escalation","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"DbPoolSaturation"}}]}`
+	req := httptest.NewRequest(http.MethodPost, "/escalations/platform-sre", strings.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer test-token-123")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 Bad Gateway when upstream rejects notification, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "upstream escalation rejected notification") {
+		t.Errorf("expected rejection reason in error body, got %s", rec.Body.String())
+	}
+}
+
+func TestDrillResponder_UpstreamEscalationUnavailableReturns502(t *testing.T) {
+	// Start and immediately close server so destination is unavailable
+	closedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	closedURL := closedServer.URL
+	closedServer.Close()
+
+	responder := NewDrillResponder("test-token-123")
+	responder.SetForwardURL(closedURL)
+	handler := responder.Handler()
+
+	payload := `{"receiver":"platform_sre_escalation","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"ServiceTargetDown"}}]}`
+	req := httptest.NewRequest(http.MethodPost, "/escalations/platform-sre", strings.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer test-token-123")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502 Bad Gateway when upstream is unreachable, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "upstream escalation delivery failed") {
+		t.Errorf("expected failure message in error body, got %s", rec.Body.String())
 	}
 }
