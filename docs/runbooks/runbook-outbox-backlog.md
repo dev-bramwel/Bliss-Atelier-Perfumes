@@ -78,10 +78,11 @@ If PostgreSQL and RabbitMQ are healthy but `outbox_pending_events_gauge` is flat
    ```
 2. Monitor outbox gauge drainage:
    ```bash
-   # Query API metrics directly on port 5001:
-   docker compose exec api /app/probe http://127.0.0.1:5001/metrics | grep outbox_pending_events_gauge
-   # Or query Prometheus TSDB on port 9090:
+   # Query Prometheus PromQL API on port 9090:
    curl -s "http://localhost:9090/api/v1/query?query=outbox_pending_events_gauge"
+
+   # Or query API metrics directly from host (on port 5001):
+   curl -s "http://127.0.0.1:5001/metrics" | grep outbox_pending_events_gauge
    ```
 3. Confirm gauge returns to `< 5`.
 
