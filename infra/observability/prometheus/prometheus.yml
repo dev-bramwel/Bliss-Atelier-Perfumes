@@ -35,3 +35,12 @@ scrape_configs:
           service: "bliss-rabbitmq"
           environment: "local-dev"
 
+  - job_name: "bliss-drill-responder"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["drill-responder:9099"]
+        labels:
+          service: "bliss-drill-responder"
+          environment: "local-dev"
+
+
