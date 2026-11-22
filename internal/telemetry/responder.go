@@ -47,6 +47,7 @@ type DrillResponder struct {
 	platformURL    string
 	financeURL     string
 	receivedAlerts []AlertNotification
+	testSinkAlerts []AlertNotification
 }
 
 // NewDrillResponder initializes an in-memory alert recipient store with token validation
@@ -106,11 +107,21 @@ func (r *DrillResponder) Alerts() []AlertNotification {
 	return copied
 }
 
+// TestSinkAlerts returns a thread-safe snapshot of all alerts forwarded to the /test-sink mock upstream.
+func (r *DrillResponder) TestSinkAlerts() []AlertNotification {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	copied := make([]AlertNotification, len(r.testSinkAlerts))
+	copy(copied, r.testSinkAlerts)
+	return copied
+}
+
 // Reset clears retained alerts (useful in multi-stage drill suites).
 func (r *DrillResponder) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.receivedAlerts = r.receivedAlerts[:0]
+	r.testSinkAlerts = r.testSinkAlerts[:0]
 }
 
 func (r *DrillResponder) isAuthorized(req *http.Request) bool {
@@ -279,6 +290,125 @@ func (r *DrillResponder) Handler() http.Handler {
 	mux.HandleFunc("/escalations/platform-sre", handleAlertEndpoint("platform-sre"))
 	mux.HandleFunc("/escalations/finance-ops", handleAlertEndpoint("finance-ops"))
 	mux.HandleFunc("/escalations/default", handleAlertEndpoint("default"))
+
+	// Expose standard Prometheus exposition on /metrics so Prometheus can scrape responder in drills
+	mux.Handle("/metrics", Handler())
+
+	// Authenticated endpoint to induce application metrics during automated synthetic drills
+	mux.HandleFunc("/drill/induce-metric", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !r.isAuthorized(req) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+		var payload struct {
+			Metric string  `json:"metric"`
+			Label  string  `json:"label"`
+			Value  float64 `json:"value"`
+		}
+		if err := json.NewDecoder(io.LimitReader(req.Body, MaxAlertBodyBytes)).Decode(&payload); err != nil {
+			http.Error(w, "invalid json payload", http.StatusBadRequest)
+			return
+		}
+		switch payload.Metric {
+		case "payment_exceptions_total":
+			typeLabel := payload.Label
+			if typeLabel == "" {
+				typeLabel = "AMOUNT_MISMATCH"
+			}
+			PaymentExceptionsTotal.Inc(typeLabel)
+		case "rabbitmq_dlq_messages_gauge":
+			queueLabel := payload.Label
+			if queueLabel == "" {
+				queueLabel = "notifications"
+			}
+			RabbitMQDLQMessagesGauge.Set(queueLabel, payload.Value)
+		case "unresolved_payments_gauge":
+			UnresolvedPaymentsGauge.Set(payload.Value)
+		default:
+			http.Error(w, "unknown metric name", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"induced"}`))
+	})
+
+	// Authenticated endpoint to clear/reset induced application metrics during recovery drills
+	mux.HandleFunc("/drill/clear-metric", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !r.isAuthorized(req) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
+		var payload struct {
+			Metric string `json:"metric"`
+			Label  string `json:"label"`
+		}
+		if err := json.NewDecoder(io.LimitReader(req.Body, MaxAlertBodyBytes)).Decode(&payload); err != nil {
+			http.Error(w, "invalid json payload", http.StatusBadRequest)
+			return
+		}
+		switch payload.Metric {
+		case "rabbitmq_dlq_messages_gauge":
+			queueLabel := payload.Label
+			if queueLabel == "" {
+				queueLabel = "notifications"
+			}
+			RabbitMQDLQMessagesGauge.Set(queueLabel, 0)
+		case "unresolved_payments_gauge":
+			UnresolvedPaymentsGauge.Set(0)
+		default:
+			http.Error(w, "unknown metric name", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"cleared"}`))
+	})
+
+	// Isolated mock upstream paging endpoint (/test-sink) to verify escalation forwarding without paging on-call
+	mux.HandleFunc("/test-sink", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(r.TestSinkAlerts())
+			return
+		}
+		if req.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if req.URL.Query().Get("fail") == "500" {
+			http.Error(w, "simulated upstream paging provider internal failure", http.StatusInternalServerError)
+			return
+		}
+		var notif AlertNotification
+		if err := json.NewDecoder(io.LimitReader(req.Body, MaxAlertBodyBytes)).Decode(&notif); err != nil {
+			http.Error(w, "invalid json payload", http.StatusBadRequest)
+			return
+		}
+		r.mu.Lock()
+		if len(r.testSinkAlerts) >= MaxRetainedAlerts {
+			r.testSinkAlerts = r.testSinkAlerts[1:]
+		}
+		r.testSinkAlerts = append(r.testSinkAlerts, notif)
+		r.mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"captured_by_test_sink"}`))
+	})
+
 	return mux
 }
 
