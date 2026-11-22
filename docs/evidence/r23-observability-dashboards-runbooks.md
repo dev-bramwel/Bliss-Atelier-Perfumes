@@ -341,8 +341,11 @@ Alertmanager routes notifications to the drill responder and external operationa
 | `GO_DRILL_RESPONDER_TOKEN_FILE` | Drill Responder | `/run/secrets/drill_responder_token` | Path to Docker secret file containing the dynamic authentication token. Loaded securely without committed plaintext. |
 | `GO_DRILL_RESPONDER_TOKEN` | Drill Responder | *(unset)* | Environment variable alternative for supplying authentication token (used in tests). |
 | `GO_ESCALATION_FORWARD_URL` | Drill Responder | *(unset)* | Upstream webhook URL for external paging / incident management escalation (default channel). |
+| `GO_ESCALATION_FORWARD_TOKEN` | Drill Responder | *(unset)* | Dedicated upstream authentication Bearer token for default escalation webhook destination (also supports `_FILE`). |
 | `GO_PLATFORM_ESCALATION_URL` | Drill Responder | *(unset)* | Upstream webhook URL for platform-sre escalation paging. |
+| `GO_PLATFORM_ESCALATION_TOKEN` | Drill Responder | *(unset)* | Dedicated upstream authentication Bearer token for platform-sre escalation webhook destination (also supports `_FILE`). |
 | `GO_FINANCE_ESCALATION_URL` | Drill Responder | *(unset)* | Upstream webhook URL for finance-ops escalation paging. |
+| `GO_FINANCE_ESCALATION_TOKEN` | Drill Responder | *(unset)* | Dedicated upstream authentication Bearer token for finance-ops escalation webhook destination (also supports `_FILE`). |
 
 ### Secret Generation & Rotation Procedure
 1. **Initial Provisioning:**
@@ -423,6 +426,8 @@ If observability services or instrumentation need to be reverted:
   - Finding 1: Prior active Compose services are inspected at startup (`$wasResponderRunning`, `$wasAlertmanagerRunning`, `$wasPrometheusRunning`) and restored in `finally` without unconditional `rm`, ensuring that running development services remain active and undisturbed.
   - Finding 2: Protected `/test-sink` endpoint with bearer token authentication (`r.isAuthorized(req)`), gated unauthenticated requests with HTTP 401, and injected authorization header into forwarded escalation requests.
   - Finding 3: Extended live end-to-end integration drills to induce and verify `UnresolvedPaymentSpike` (routing to `/escalations/finance-ops`) and `ApiHigh5xxRate` (routing to `/escalations/platform-sre`) through the full Prometheus scrape $\to$ rule evaluation $\to$ Alertmanager dispatch pipeline.
+- [x] All Round 12 follow-up review suggestions resolved and verified:
+  - Finding 1: Isolated responder internal token (`r.authToken`) from external escalation providers. External paging providers receive only provider-specific credentials configured via `GO_ESCALATION_FORWARD_TOKEN`, `GO_PLATFORM_ESCALATION_TOKEN`, and `GO_FINANCE_ESCALATION_TOKEN` (or their `_FILE` secret counterparts), while `r.authToken` is strictly constrained to local mock `/test-sink` forwarding and internal responder authentication.
 - [x] All unit and integration tests passing (`go test -v ./...`).
 - [x] Telemetry endpoint `GET /metrics` emits valid Prometheus 0.0.4 text format under 2ms.
 - [x] Zero high-cardinality labels and zero PII verified via automated audit.
