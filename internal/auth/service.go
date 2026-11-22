@@ -14,12 +14,13 @@ import (
 
 // Service errors.
 var (
-	ErrSessionNotFound     = errors.New("session not found or revoked")
-	ErrSessionExpired      = errors.New("session has expired")
-	ErrAccountDeactivated  = errors.New("account is deactivated")
-	ErrInvalidCSRF         = errors.New("invalid or expired csrf token")
-	ErrPermissionDenied    = errors.New("permission denied: insufficient authority")
-	ErrBootstrapNotAllowed = errors.New("initial owner bootstrap is already completed or target account not found")
+	ErrSessionNotFound           = errors.New("session not found or revoked")
+	ErrSessionExpired            = errors.New("session has expired")
+	ErrAccountDeactivated        = errors.New("account is deactivated")
+	ErrCannotDeactivateSoleOwner = errors.New("cannot deactivate the sole owner of the store")
+	ErrInvalidCSRF               = errors.New("invalid or expired csrf token")
+	ErrPermissionDenied          = errors.New("permission denied: insufficient authority")
+	ErrBootstrapNotAllowed       = errors.New("initial owner bootstrap is already completed or target account not found")
 )
 
 // Service coordinates authentication, session state, anti-CSRF, and RBAC authorization.
@@ -424,6 +425,57 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 		Metadata: map[string]any{
 			"is_active":    isActive,
 			"target_email": targetUser.Email,
+		},
+	}); err != nil {
+		return fmt.Errorf("failed to record audit log: %w", err)
+	}
+
+	return nil
+}
+
+// DeactivateSelf allows an authenticated user to deactivate their own account, revoking all active sessions.
+// If the user is the sole active store owner, deactivation is rejected to prevent permanent administrative lockout.
+func (s *Service) DeactivateSelf(ctx context.Context, actor *User, ip string) error {
+	if actor == nil {
+		return ErrPermissionDenied
+	}
+
+	// Protect store operations from sole owner lockout
+	if actor.Role == RoleOwner {
+		count, err := s.store.CountOwners(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to count owners: %w", err)
+		}
+		if count <= 1 {
+			return ErrCannotDeactivateSoleOwner
+		}
+	}
+
+	// Update user status to inactive
+	if err := s.store.UpdateUserStatus(ctx, actor.ID, false); err != nil {
+		return fmt.Errorf("failed to deactivate user: %w", err)
+	}
+
+	// Revoke all active sessions across all devices
+	revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, actor.ID)
+	if err != nil {
+		return fmt.Errorf("failed to revoke sessions for self-deactivated user: %w", err)
+	}
+	for _, h := range revokedHashes {
+		s.evictCachedSession(ctx, h)
+	}
+
+	// Append-only audit record per Issue #87
+	if err := s.store.RecordAuditLog(ctx, AuditLogEntry{
+		UserID:     &actor.ID,
+		ActorRole:  actor.Role,
+		Action:     "user.self_deactivate",
+		Resource:   "app_user",
+		ResourceID: actor.ID,
+		IPAddress:  ip,
+		Metadata: map[string]any{
+			"email":  actor.Email,
+			"reason": "user_requested",
 		},
 	}); err != nil {
 		return fmt.Errorf("failed to record audit log: %w", err)
