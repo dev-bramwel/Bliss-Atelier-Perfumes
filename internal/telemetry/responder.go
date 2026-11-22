@@ -68,6 +68,12 @@ func NewDrillResponder(authToken ...string) *DrillResponder {
 	platformURL := os.Getenv("GO_PLATFORM_ESCALATION_URL")
 	financeURL := os.Getenv("GO_FINANCE_ESCALATION_URL")
 
+	// Initialize default metric series so initial Prometheus scrapes establish 0 baselines
+	PaymentExceptionsTotal.Set(0, "AMOUNT_MISMATCH")
+	PaymentExceptionsTotal.Set(0, "UNMAPPED_TRANSACTION")
+	PaymentExceptionsTotal.Set(0, "DUPLICATE_RECEIPT")
+	RabbitMQDLQMessagesGauge.Set(0, "notifications")
+
 	return &DrillResponder{
 		authToken:      token,
 		forwardURL:     forwardURL,
