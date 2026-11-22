@@ -22,6 +22,25 @@ const MaxAlertBodyBytes = 64 * 1024
 // MaxRetainedAlerts bounds in-memory alert history to prevent heap exhaustion.
 const MaxRetainedAlerts = 50
 
+var (
+	// Bounded-cardinality label whitelists for metric induction during drills
+	allowedPaymentExceptions = map[string]bool{
+		"AMOUNT_MISMATCH":            true,
+		"UNMAPPED_TRANSACTION":       true,
+		"DUPLICATE_RECEIPT":          true,
+		"STALE_ATTEMPT_UNRESOLVED":   true,
+		"LATE_PAYMENT":               true,
+		"MANUAL_RESOLUTION_REQUIRED": true,
+	}
+
+	allowedQueues = map[string]bool{
+		"notifications":               true,
+		"dead_letter":                 true,
+		"bliss.notifications.v1":      true,
+		"bliss.notifications.v1.dead": true,
+	}
+)
+
 // ResponderAlert represents a single alert within an Alertmanager notification payload.
 type ResponderAlert struct {
 	Status      string            `json:"status"`
@@ -334,14 +353,30 @@ func (r *DrillResponder) Handler() http.Handler {
 			if typeLabel == "" {
 				typeLabel = "AMOUNT_MISMATCH"
 			}
+			if !allowedPaymentExceptions[typeLabel] {
+				http.Error(w, "invalid label for payment_exceptions_total: must be a known payment exception type", http.StatusBadRequest)
+				return
+			}
 			PaymentExceptionsTotal.Inc(typeLabel)
 		case "rabbitmq_dlq_messages_gauge":
+			if payload.Value < 0 {
+				http.Error(w, "metric value must be non-negative", http.StatusBadRequest)
+				return
+			}
 			queueLabel := payload.Label
 			if queueLabel == "" {
 				queueLabel = "notifications"
 			}
+			if !allowedQueues[queueLabel] {
+				http.Error(w, "invalid label for rabbitmq_dlq_messages_gauge: must be a known queue name", http.StatusBadRequest)
+				return
+			}
 			RabbitMQDLQMessagesGauge.Set(payload.Value, queueLabel)
 		case "unresolved_payments_gauge":
+			if payload.Value < 0 {
+				http.Error(w, "metric value must be non-negative", http.StatusBadRequest)
+				return
+			}
 			UnresolvedPaymentsGauge.Set(payload.Value)
 		default:
 			http.Error(w, "unknown metric name", http.StatusBadRequest)
@@ -383,6 +418,10 @@ func (r *DrillResponder) Handler() http.Handler {
 			queueLabel := payload.Label
 			if queueLabel == "" {
 				queueLabel = "notifications"
+			}
+			if !allowedQueues[queueLabel] {
+				http.Error(w, "invalid label for rabbitmq_dlq_messages_gauge: must be a known queue name", http.StatusBadRequest)
+				return
 			}
 			RabbitMQDLQMessagesGauge.Set(0, queueLabel)
 		case "unresolved_payments_gauge":
