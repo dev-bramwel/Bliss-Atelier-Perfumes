@@ -117,3 +117,13 @@ func CanReviewPaymentExceptions(actorRole string) bool {
 func CanFulfillOrders(actorRole string) bool {
 	return IsStaff(actorRole)
 }
+
+// CanManageInventory checks if the actor is permitted to perform inventory management and mutation.
+// Invariant: 'owner' always has inventory management privileges. 'employee' only has inventory
+// privileges if designated by the owner (CanManageInventory == true). All other roles have zero privileges.
+func CanManageInventory(actor User) bool {
+	if actor.Role == RoleOwner {
+		return true
+	}
+	return actor.Role == RoleEmployee && actor.CanManageInventory
+}
