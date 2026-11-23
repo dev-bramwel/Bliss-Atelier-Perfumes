@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +14,15 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type mockInvalidator struct {
+	called atomic.Bool
+}
+
+func (m *mockInvalidator) Invalidate(ctx context.Context) error {
+	m.called.Store(true)
+	return nil
+}
 
 // Uses the same explicitly disposable database guard as the other integration suites.
 func TestAssignedFulfillmentAndInventory(t *testing.T) {
@@ -145,7 +155,8 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	}
 	empAllowed.CanManageInventory = true
 
-	s := &Store{Pool: pool}
+	inv := &mockInvalidator{}
+	s := &Store{Pool: pool, Invalidator: inv}
 
 	// 1. Employee without permission is rejected
 	if err := s.Restock(ctx, empDenied, "p1", 10, "INV-100", "127.0.0.1"); !errors.Is(err, auth.ErrPermissionDenied) {
@@ -184,5 +195,11 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	// 4. Owner restocks p2
 	if err := s.Restock(ctx, owner, "p2", 3, "OWNER-ARRIVAL", "127.0.0.1"); err != nil {
 		t.Fatalf("owner restock failed: %v", err)
+	}
+
+	// Verify catalog invalidation
+	time.Sleep(50 * time.Millisecond)
+	if !inv.called.Load() {
+		t.Fatal("expected Invalidate to be called after restock")
 	}
 }
