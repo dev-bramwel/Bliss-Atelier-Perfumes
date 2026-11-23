@@ -73,11 +73,14 @@ func (m *mockOperations) Restock(_ context.Context, u *auth.User, batchID, produ
 	if u == nil || !auth.CanManageInventory(*u) {
 		return auth.ErrPermissionDenied
 	}
-	if qty <= 0 {
-		return errors.New("quantity must be greater than zero")
+	if qty == 0 {
+		return operations.ErrInvalidQuantity
 	}
 	if productID == "notfound" {
-		return errors.New("product not found")
+		return operations.ErrProductNotFound
+	}
+	if productID == "dberror" {
+		return errors.New("pq: connection reset by peer")
 	}
 	return nil
 }
@@ -247,7 +250,16 @@ func TestOperationsRestockEndpoint(t *testing.T) {
 		t.Fatalf("expected 200 OK for permitted employee restock, got %d: %s", rr2.Code, rr2.Body.String())
 	}
 
-	// 3. Employee without permission is rejected (403 Forbidden)
+	// 3. Employee with permission can make negative stock adjustment (200 OK)
+	reqAdj := httptest.NewRequest("POST", "/api/operations/inventory/adjust", strings.NewReader(`{"product_id":"p1","quantity":-2,"reference":"DAMAGED-01"}`))
+	authorizeStaff(reqAdj, empAllowedCookie, empAllowedCSRF)
+	rrAdj := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(rrAdj, reqAdj)
+	if rrAdj.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for permitted employee stock adjustment, got %d: %s", rrAdj.Code, rrAdj.Body.String())
+	}
+
+	// 4. Employee without permission is rejected (403 Forbidden)
 	req3 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"p1","quantity":5,"reference":"BATCH-03"}`))
 	authorizeStaff(req3, empDeniedCookie, empDeniedCSRF)
 	rr3 := httptest.NewRecorder()
@@ -256,16 +268,37 @@ func TestOperationsRestockEndpoint(t *testing.T) {
 		t.Fatalf("expected 403 Forbidden for employee without permission, got %d: %s", rr3.Code, rr3.Body.String())
 	}
 
-	// 4. Invalid input: negative quantity (400 Bad Request)
-	req4 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"p1","quantity":-2,"reference":"BATCH-04"}`))
+	// 5. Invalid input: zero quantity (400 Bad Request)
+	req4 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"p1","quantity":0,"reference":"BATCH-04"}`))
 	authorizeStaff(req4, empAllowedCookie, empAllowedCSRF)
 	rr4 := httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(rr4, req4)
 	if rr4.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 Bad Request for negative quantity, got %d", rr4.Code)
+		t.Fatalf("expected 400 Bad Request for zero quantity, got %d", rr4.Code)
 	}
 
-	// 5. Invalid CSRF token (403 Forbidden)
+	// 6. Product not found (404 Not Found)
+	reqNotFound := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"notfound","quantity":5,"reference":"BATCH-NF"}`))
+	authorizeStaff(reqNotFound, empAllowedCookie, empAllowedCSRF)
+	rrNotFound := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(rrNotFound, reqNotFound)
+	if rrNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found for non-existent product, got %d", rrNotFound.Code)
+	}
+
+	// 7. Sanitized 500 error on unexpected database failure
+	reqErr := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"dberror","quantity":5,"reference":"BATCH-ERR"}`))
+	authorizeStaff(reqErr, empAllowedCookie, empAllowedCSRF)
+	rrErr := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(rrErr, reqErr)
+	if rrErr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 Internal Server Error for storage failure, got %d", rrErr.Code)
+	}
+	if strings.Contains(rrErr.Body.String(), "connection reset") {
+		t.Fatalf("database details leaked to client: %s", rrErr.Body.String())
+	}
+
+	// 8. Invalid CSRF token (403 Forbidden)
 	req5 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"p1","quantity":5,"reference":"BATCH-05"}`))
 	authorizeStaff(req5, empAllowedCookie, "bad-csrf-token")
 	rr5 := httptest.NewRecorder()
