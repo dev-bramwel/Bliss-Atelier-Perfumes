@@ -18,6 +18,7 @@ var (
 	ErrSessionExpired            = errors.New("session has expired")
 	ErrAccountDeactivated        = errors.New("account is deactivated")
 	ErrCannotDeactivateSoleOwner = errors.New("cannot deactivate the sole owner of the store")
+	ErrCannotDemoteSoleOwner     = errors.New("cannot demote the sole owner of the store")
 	ErrInvalidCSRF               = errors.New("invalid or expired csrf token")
 	ErrPermissionDenied          = errors.New("permission denied: insufficient authority")
 	ErrBootstrapNotAllowed       = errors.New("initial owner bootstrap is already completed or target account not found")
@@ -348,22 +349,10 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor *User, targetUserID 
 		return ErrPermissionDenied
 	}
 
-	// Update role in DB
-	if err := s.store.UpdateUserRole(ctx, targetUserID, newRole); err != nil {
-		return err
-	}
+	// If target is an owner being demoted to employee or customer, verify sole owner invariant
+	checkSoleOwner := targetUser.Role == RoleOwner && newRole != RoleOwner
 
-	// Invariant: Privileged role change immediately revokes target's existing sessions
-	revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUserID)
-	if err != nil {
-		return fmt.Errorf("failed to revoke target user sessions: %w", err)
-	}
-	for _, h := range revokedHashes {
-		s.evictCachedSession(ctx, h)
-	}
-
-	// Append-only audit record
-	if err := s.store.RecordAuditLog(ctx, AuditLogEntry{
+	audit := &AuditLogEntry{
 		UserID:     &actor.ID,
 		ActorRole:  actor.Role,
 		Action:     "update_user_role",
@@ -375,8 +364,15 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor *User, targetUserID 
 			"new_role":      newRole,
 			"target_email":  targetUser.Email,
 		},
-	}); err != nil {
-		return fmt.Errorf("failed to record audit log: %w", err)
+	}
+
+	// Update role, revoke sessions, and record audit atomically with active owner row-lock if demoting an owner
+	revokedHashes, err := s.store.UpdateUserRoleAndRevokeSessions(ctx, targetUserID, newRole, checkSoleOwner, audit)
+	if err != nil {
+		return err
+	}
+	for _, h := range revokedHashes {
+		s.evictCachedSession(ctx, h)
 	}
 
 	return nil
