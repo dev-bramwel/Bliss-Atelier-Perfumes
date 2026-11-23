@@ -281,10 +281,20 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	var holdBaseStock int
 	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&holdBaseStock)
 
+	// Ensure test order exists for reservation foreign key
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO public."Order" (id, "customerName", "customerPhone", "deliveryLocation", "totalKes", items, "updatedAt")
+		VALUES ('ord_res_test', 'Test Customer', '+254700000000', 'Nairobi', 1000, '[]'::jsonb, now())
+		ON CONFLICT (id) DO NOTHING
+	`); err != nil {
+		t.Fatalf("failed to insert test order: %v", err)
+	}
+
 	var resID string
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO public.stock_reservation (cart_id, session_id, status, expires_at)
-		VALUES ('cart_test', 'sess_test', 'active', now() + interval '10 minutes')
+		INSERT INTO public.stock_reservation (order_id, status, expires_at)
+		VALUES ('ord_res_test', 'active', now() + interval '10 minutes')
+		ON CONFLICT (order_id) DO UPDATE SET status = 'active', expires_at = now() + interval '10 minutes'
 		RETURNING id::text
 	`).Scan(&resID); err != nil {
 		t.Fatalf("failed to insert test reservation: %v", err)
@@ -293,6 +303,7 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO public.stock_reservation_item (reservation_id, product_id, quantity)
 		VALUES ($1::uuid, 'p1', $2)
+		ON CONFLICT (reservation_id, product_id) DO UPDATE SET quantity = $2
 	`, resID, holdQty); err != nil {
 		t.Fatalf("failed to insert test reservation item: %v", err)
 	}
@@ -301,8 +312,9 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	if err := s.Restock(ctx, empAllowed, "batch_adj_res_fail", "p1", -2, "HOLD-VIOLATION", "127.0.0.1"); !errors.Is(err, ErrInsufficientUnreserved) {
 		t.Fatalf("expected ErrInsufficientUnreserved, got: %v", err)
 	}
-	// Clean up reservation
+	// Clean up reservation and test order
 	_, _ = pool.Exec(ctx, `DELETE FROM public.stock_reservation WHERE id = $1::uuid`, resID)
+	_, _ = pool.Exec(ctx, `DELETE FROM public."Order" WHERE id = 'ord_res_test'`)
 
 	// 13. Empty batch ID error
 	if err := s.Restock(ctx, empAllowed, "   ", "p1", 5, "NO-BATCH-ID", "127.0.0.1"); !errors.Is(err, ErrBatchIDRequired) {
