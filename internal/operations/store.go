@@ -196,6 +196,7 @@ var (
 	ErrProductNotFound        = errors.New("product not found")
 	ErrUnopenedProduct        = errors.New("opening balance required before modifying stock")
 	ErrAuthorityRequired      = errors.New("stock authority is unconfirmed; replacement approval required")
+	ErrBatchIDRequired        = errors.New("batch ID is required")
 	ErrBatchDigestMismatch    = errors.New("batch ID already used with different content")
 	ErrInvalidQuantity        = errors.New("quantity must not be zero")
 	ErrInsufficientStock      = errors.New("insufficient stock for adjustment")
@@ -222,9 +223,11 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productI
 	if len(reference) > 512 {
 		return errors.New("reference note exceeds 512 characters")
 	}
+	batchID = strings.TrimSpace(batchID)
 	if batchID == "" {
-		batchID = fmt.Sprintf("restock_%s_%d", productID, time.Now().UnixNano())
-	} else if len(batchID) > 128 {
+		return ErrBatchIDRequired
+	}
+	if len(batchID) > 128 {
 		return errors.New("batch ID exceeds 128 characters")
 	}
 
