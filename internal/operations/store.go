@@ -3,8 +3,12 @@ package operations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/auth"
@@ -180,14 +184,86 @@ func (s *Store) Fulfill(ctx context.Context, id string, actor *auth.User, ip str
 	}
 	return tx.Commit(ctx)
 }
+
+// Restock atomically increments the ledger stock for a product, records a stock ledger entry and admin audit entry,
+// and enforces CanManageInventory authorization.
+func (s *Store) Restock(ctx context.Context, actor *auth.User, productID string, quantity int, reference string, ip string) error {
+	if actor == nil || !auth.CanManageInventory(*actor) {
+		return auth.ErrPermissionDenied
+	}
+	if quantity <= 0 {
+		return errors.New("quantity must be greater than zero")
+	}
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return errors.New("reference note is required")
+	}
+	if len(reference) > 512 {
+		return errors.New("reference note exceeds 512 characters")
+	}
+
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(tx)
+
+	var currentStock int
+	err = tx.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id=$1 FOR UPDATE`, productID).Scan(&currentStock)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("product not found")
+	}
+	if err != nil {
+		return err
+	}
+
+	newStock := currentStock + quantity
+	if newStock > 1000000 {
+		return errors.New("stock limit exceeded")
+	}
+
+	if _, err = tx.Exec(ctx, `UPDATE public.catalog_product SET stock=$2, opened=true WHERE id=$1`, productID, newStock); err != nil {
+		return fmt.Errorf("failed to update stock: %w", err)
+	}
+
+	batchID := fmt.Sprintf("restock_%s_%d", productID, time.Now().UnixNano())
+	rawDigest := sha256.Sum256([]byte(batchID + productID + reference))
+	digest := hex.EncodeToString(rawDigest[:])
+
+	if _, err = tx.Exec(ctx, `INSERT INTO public.stock_batch(id,digest,kind,actor,evidence) VALUES ($1,$2,'receipt',$3,$4)`, batchID, digest, actor.ID, reference); err != nil {
+		return fmt.Errorf("failed to record stock batch: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx, `INSERT INTO public.stock_entry(batch_id,product_id,delta,balance) VALUES ($1,$2,$3,$4)`, batchID, productID, quantity, newStock); err != nil {
+		return fmt.Errorf("failed to record stock entry: %w", err)
+	}
+
+	if err = auditResource(ctx, tx, actor, "restock_inventory", "catalog_product", productID, ip, map[string]any{
+		"product_id": productID,
+		"quantity":   quantity,
+		"new_stock":  newStock,
+		"reference":  reference,
+		"batch_id":   batchID,
+	}); err != nil {
+		return fmt.Errorf("failed to record audit: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
 func audit(ctx context.Context, tx pgx.Tx, u *auth.User, action, id, ip string, metadata map[string]any) error {
+	return auditResource(ctx, tx, u, action, "order", id, ip, metadata)
+}
+
+func auditResource(ctx context.Context, tx pgx.Tx, u *auth.User, action, resource, id, ip string, metadata map[string]any) error {
 	raw, err := json.Marshal(metadata)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.admin_audit_log(id,user_id,actor_role,action,resource,resource_id,ip_address,metadata) VALUES(gen_random_uuid()::text,$1,$2,$3,'order',$4,$5,$6)`, u.ID, u.Role, action, id, ip, raw)
+	_, err = tx.Exec(ctx, `INSERT INTO public.admin_audit_log(id,user_id,actor_role,action,resource,resource_id,ip_address,metadata) VALUES(gen_random_uuid()::text,$1,$2,$3,$4,$5,$6,$7)`, u.ID, u.Role, action, resource, id, ip, raw)
 	return err
 }
+
 func rollback(tx pgx.Tx) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
