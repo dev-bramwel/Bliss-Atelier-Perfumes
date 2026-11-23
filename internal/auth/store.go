@@ -54,6 +54,10 @@ func NewPGStore(pool *pgxpool.Pool) *PGStore {
 	return &PGStore{pool: pool}
 }
 
+// ownerTransitionLockKey is a 64-bit integer advisory lock key (ASCII for 'OWNR')
+// used to serialize owner transitions across transactions and eliminate deadlocks.
+const ownerTransitionLockKey = 1331129938
+
 // generateID returns a random 32-character hex ID.
 func generateID(prefix string) string {
 	b := make([]byte, 16)
@@ -170,6 +174,11 @@ func (s *PGStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID st
 	}
 	defer tx.Rollback(ctx)
 
+	// Acquire transaction-scoped advisory lock to serialize owner transitions and prevent deadlocks.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, ownerTransitionLockKey); err != nil {
+		return nil, fmt.Errorf("failed to acquire owner transition advisory lock: %w", err)
+	}
+
 	// Lock target user row with FOR UPDATE to inspect current role and active status
 	var currentRole string
 	var currentIsActive bool
@@ -184,8 +193,8 @@ func (s *PGStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID st
 	// Invariant: If demoting an active owner, verify that at least one other active owner remains.
 	// Demoting an already inactive owner does not reduce the active owner count.
 	if currentRole == RoleOwner && currentIsActive && newRole != RoleOwner {
-		// Lock active owner rows to serialize concurrent owner demotions/deactivations.
-		ownerRows, err := tx.Query(ctx, `SELECT id FROM public.app_user WHERE role = 'owner' AND is_active = TRUE FOR UPDATE`)
+		// Lock active owner rows in deterministic order to serialize concurrent owner demotions/deactivations.
+		ownerRows, err := tx.Query(ctx, `SELECT id FROM public.app_user WHERE role = 'owner' AND is_active = TRUE ORDER BY id FOR UPDATE`)
 		if err != nil {
 			return nil, fmt.Errorf("failed to lock active owner rows: %w", err)
 		}
@@ -282,6 +291,11 @@ func (s *PGStore) ReactivateUser(ctx context.Context, userID string, actorRole s
 	}
 	defer tx.Rollback(ctx)
 
+	// Acquire transaction-scoped advisory lock to serialize owner transitions and prevent deadlocks.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, ownerTransitionLockKey); err != nil {
+		return fmt.Errorf("failed to acquire owner transition advisory lock: %w", err)
+	}
+
 	// Lock target user row with FOR UPDATE to inspect current role
 	var currentRole string
 	err = tx.QueryRow(ctx, `SELECT role FROM public.app_user WHERE id = $1 FOR UPDATE`, userID).Scan(&currentRole)
@@ -339,6 +353,11 @@ func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID st
 	}
 	defer tx.Rollback(ctx)
 
+	// Acquire transaction-scoped advisory lock to serialize owner transitions and prevent deadlocks.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, ownerTransitionLockKey); err != nil {
+		return nil, fmt.Errorf("failed to acquire owner transition advisory lock: %w", err)
+	}
+
 	// Lock target user row with FOR UPDATE to inspect current role and active status
 	var currentRole string
 	var currentIsActive bool
@@ -361,9 +380,9 @@ func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID st
 	// Invariant: If deactivating an active owner, verify that at least one other active owner remains.
 	// Deactivating an already inactive owner does not reduce the active owner count.
 	if currentRole == RoleOwner && currentIsActive {
-		// Lock active owner rows to serialize concurrent owner deactivations and prevent race conditions.
+		// Lock active owner rows in deterministic order to serialize concurrent owner deactivations and prevent race conditions.
 		// PostgreSQL does not permit FOR UPDATE on aggregate functions like count(*), so we select and lock IDs.
-		ownerRows, err := tx.Query(ctx, `SELECT id FROM public.app_user WHERE role = 'owner' AND is_active = TRUE FOR UPDATE`)
+		ownerRows, err := tx.Query(ctx, `SELECT id FROM public.app_user WHERE role = 'owner' AND is_active = TRUE ORDER BY id FOR UPDATE`)
 		if err != nil {
 			return nil, fmt.Errorf("failed to lock active owner rows: %w", err)
 		}
