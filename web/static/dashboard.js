@@ -692,6 +692,8 @@
       select.append(opt);
     }
     $("addInventoryForm").reset();
+    $("addInventoryForm").dataset.batchId =
+      "restock_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     $("addInventoryStatus").textContent = "";
     message("");
     $("addInventoryDialog").showModal();
@@ -766,22 +768,27 @@
       },
     ),
   );
-  form("addInventoryForm", (data) =>
-    mutate(
+  form("addInventoryForm", (data) => {
+    const batchId =
+      $("addInventoryForm").dataset.batchId ||
+      "restock_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    return mutate(
       "/operations/inventory/restock",
       {
+        batch_id: batchId,
         product_id: data.product_id,
         quantity: Number(data.quantity),
         reference: data.reference,
       },
       "Inventory restocked successfully.",
       async () => {
+        delete $("addInventoryForm").dataset.batchId;
         $("addInventoryDialog").close();
         $("addInventoryForm").reset();
         await loadInventory();
       },
-    ),
-  );
+    );
+  });
   window.addEventListener("bliss:connection", () => {
     guard();
     if (!connection.offline) {
