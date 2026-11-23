@@ -273,6 +273,45 @@ func (m *memStore) UpdateUserRole(ctx context.Context, id string, newRole string
 	return nil
 }
 
+func (m *memStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if checkSoleOwner {
+		activeOwnerCount := 0
+		for _, u := range m.users {
+			if u.Role == RoleOwner && u.IsActive {
+				activeOwnerCount++
+			}
+		}
+		if activeOwnerCount <= 1 {
+			return nil, ErrCannotDemoteSoleOwner
+		}
+	}
+
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, errors.New("user not found")
+	}
+	u.Role = newRole
+	m.users[userID] = u
+
+	var revoked []string
+	for tokenHash, s := range m.sessions {
+		if s.UserID == userID && !s.IsRevoked {
+			s.IsRevoked = true
+			m.sessions[tokenHash] = s
+			revoked = append(revoked, tokenHash)
+		}
+	}
+
+	if auditEntry != nil {
+		m.auditLogs = append([]AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
+	return revoked, nil
+}
+
 func (m *memStore) UpdateUserStatus(ctx context.Context, id string, isActive bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -636,6 +675,23 @@ func TestDeactivateSelfAndStaffReactivation(t *testing.T) {
 	err = service.DeactivateSelf(ctx, owner, "127.0.0.1")
 	if !errors.Is(err, ErrCannotDeactivateSoleOwner) {
 		t.Fatalf("expected ErrCannotDeactivateSoleOwner for remaining active owner, got %v", err)
+	}
+
+	// 1d. Sole active owner cannot be demoted to employee
+	err = service.UpdateUserRole(ctx, owner, owner.ID, RoleEmployee, "127.0.0.1")
+	if !errors.Is(err, ErrCannotDemoteSoleOwner) {
+		t.Fatalf("expected ErrCannotDemoteSoleOwner when demoting sole active owner, got %v", err)
+	}
+
+	// Reactivate 2nd owner; now demoting one owner succeeds, but demoting the remaining one fails
+	_ = store.UpdateUserStatus(ctx, inactiveOwner.ID, true)
+	err = service.UpdateUserRole(ctx, owner, inactiveOwner.ID, RoleEmployee, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("failed to demote owner when another active owner exists: %v", err)
+	}
+	err = service.UpdateUserRole(ctx, owner, owner.ID, RoleEmployee, "127.0.0.1")
+	if !errors.Is(err, ErrCannotDemoteSoleOwner) {
+		t.Fatalf("expected ErrCannotDemoteSoleOwner for remaining owner after other was demoted, got %v", err)
 	}
 
 	// 2. Customer can self-deactivate
