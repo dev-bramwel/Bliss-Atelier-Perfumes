@@ -1,5 +1,6 @@
-// stock is an offline operator tool. Access is controlled by the database role,
-// not by the actor label in an import. Never expose this command via public HTTP.
+// stock is an offline operator tool. Stock writes and approval verify that the
+// actor is an active store owner or an authorized employee with can_manage_inventory.
+// Never expose this command via public HTTP.
 package main
 
 import (
@@ -15,6 +16,8 @@ import (
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func decode(r io.Reader, v any) error {
@@ -33,6 +36,54 @@ func decode(r io.Reader, v any) error {
 	}
 	return nil
 }
+
+// verifyActorPermission verifies that the actor is authorized to manage stock:
+// must be an active store owner or an active employee with can_manage_inventory = true in public.app_user.
+func verifyActorPermission(ctx context.Context, pool *pgxpool.Pool, actorID string) error {
+	var hasAppUser bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.app_user') IS NOT NULL`).Scan(&hasAppUser); err != nil || !hasAppUser {
+		return nil
+	}
+	var role string
+	var isActive bool
+	var canManage bool
+	err := pool.QueryRow(ctx, `SELECT role, is_active, can_manage_inventory FROM public.app_user WHERE (id = $1 OR lower(email) = lower($1))`, actorID).Scan(&role, &isActive, &canManage)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("actor %q not found or not authorized to manage stock", actorID)
+		}
+		return fmt.Errorf("failed to verify actor permissions: %w", err)
+	}
+	if !isActive {
+		return fmt.Errorf("actor %q is deactivated", actorID)
+	}
+	if role != "owner" && (role != "employee" || !canManage) {
+		return fmt.Errorf("actor %q is not authorized to manage stock: permission denied", actorID)
+	}
+	return nil
+}
+
+// verifyOwnerPermission verifies that the actor is an active store owner.
+func verifyOwnerPermission(ctx context.Context, pool *pgxpool.Pool, actorID string) error {
+	var hasAppUser bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.app_user') IS NOT NULL`).Scan(&hasAppUser); err != nil || !hasAppUser {
+		return nil
+	}
+	var role string
+	var isActive bool
+	err := pool.QueryRow(ctx, `SELECT role, is_active FROM public.app_user WHERE (id = $1 OR lower(email) = lower($1))`, actorID).Scan(&role, &isActive)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("actor %q not found or not authorized to approve replacement", actorID)
+		}
+		return fmt.Errorf("failed to verify actor permissions: %w", err)
+	}
+	if !isActive || role != "owner" {
+		return fmt.Errorf("replacement approval requires an active store owner; actor %q is not authorized", actorID)
+	}
+	return nil
+}
+
 func run() error {
 	if len(os.Args) != 2 || (os.Args[1] != "apply" && os.Args[1] != "approve-replacement" && os.Args[1] != "report") {
 		return errors.New("usage: stock apply|approve-replacement|report (JSON on stdin for writes)")
@@ -55,6 +106,9 @@ func run() error {
 		if err = decode(os.Stdin, &b); err != nil {
 			return err
 		}
+		if err = verifyActorPermission(ctx, pool, b.Actor); err != nil {
+			return err
+		}
 		replay, err := s.Apply(ctx, b)
 		if err != nil {
 			return err
@@ -67,6 +121,9 @@ func run() error {
 			Until    time.Time `json:"until"`
 		}
 		if err = decode(os.Stdin, &a); err != nil {
+			return err
+		}
+		if err = verifyOwnerPermission(ctx, pool, a.Actor); err != nil {
 			return err
 		}
 		if err = s.Approve(ctx, a.Actor, a.Evidence, a.Until); err != nil {
