@@ -264,14 +264,27 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productI
 			return nil, ErrBatchDigestMismatch
 		}
 		var currentStock int
-		_ = tx.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id=$1`, productID).Scan(&currentStock)
+		if err := tx.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id=$1`, productID).Scan(&currentStock); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrProductNotFound
+			}
+			return nil, fmt.Errorf("failed to query product: %w", err)
+		}
 		var activeReserved int
-		_ = tx.QueryRow(ctx, `SELECT coalesce((
-			SELECT sum(ri.quantity)
-			FROM public.stock_reservation_item ri
-			JOIN public.stock_reservation r ON r.id = ri.reservation_id
-			WHERE ri.product_id = $1 AND r.status = 'active' AND r.expires_at > now()
-		), 0)`, productID).Scan(&activeReserved)
+		var hasReservationTable bool
+		if err := tx.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasReservationTable); err != nil {
+			return nil, fmt.Errorf("failed to check reservation schema: %w", err)
+		}
+		if hasReservationTable {
+			if err := tx.QueryRow(ctx, `SELECT coalesce((
+				SELECT sum(ri.quantity)
+				FROM public.stock_reservation_item ri
+				JOIN public.stock_reservation r ON r.id = ri.reservation_id
+				WHERE ri.product_id = $1 AND r.status = 'active' AND r.expires_at > now()
+			), 0)`, productID).Scan(&activeReserved); err != nil {
+				return nil, fmt.Errorf("failed to query active reservation holds: %w", err)
+			}
+		}
 		unreserved := currentStock - activeReserved
 		if unreserved < 0 {
 			unreserved = 0
