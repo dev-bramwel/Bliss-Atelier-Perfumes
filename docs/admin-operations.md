@@ -53,6 +53,28 @@ Reactivation and downward status isolation:
   fellow employees or owners (returning HTTP 403 Forbidden).
 - Once reactivated by staff, the user can immediately log in again via Google OAuth.
 
+## Employee inventory editing permissions
+
+Store Owners can delegate inventory management and stock editing privileges to trusted employees
+on a per-employee basis:
+
+- **Management Endpoint**: `POST /admin/users/:id/permissions` (or `/api/admin/users/:id/permissions`).
+  - Restricted strictly to `RoleOwner`. Subordinate roles receive HTTP 403 Forbidden.
+  - Payload: `{ "can_manage_inventory": boolean }`.
+  - Can only be granted to accounts with `role == 'employee'`. Non-employee targets receive HTTP 400 Bad Request.
+  - Updates persist durably in `public.app_user.can_manage_inventory`.
+  - Atomic audit log entry with action `update_user_permissions` recorded in `admin_audit_log`.
+  - Active employee sessions are evicted from Redis cache (not revoked in PostgreSQL), allowing updated
+    permissions to take effect immediately on their next request without forcing an abrupt logout.
+- **Authorization Enforcement**:
+  - `POST /catalog/invalidate` and `GET /operations/inventory` require `auth.CanManageInventory(*user)`.
+  - Employees with `can_manage_inventory = true` pass authorization and can view inventory and invalidate caches.
+  - Employees without this permission receive HTTP 403 Forbidden on inventory mutation and query endpoints.
+- **Dashboard UI**:
+  - Store Owners see a "Can manage inventory" toggle and save button next to each employee in `/admin/users`.
+  - When an employee without permission signs in, the "Catalog & inventory" navigation link and inventory panels/buttons
+    are hidden, and direct URL access redirects to orders with an authority notice.
+
 ## Screens and contracts
 
 All URLs below have the `/api` prefix when accessed through the storefront.
@@ -62,7 +84,7 @@ All URLs below have the `/api` prefix when accessed through the storefront.
 | Orders         | `GET /operations/orders`, `GET /orders/:id`                                                  | `POST /orders/:id/assign`, `POST /orders/:id/fulfill`, `POST /orders/:id/delivery-quote` |
 | Inventory      | `GET /operations/inventory`                                                                  | `POST /catalog/invalidate`                                                               |
 | Payments       | `GET /admin/payments/exceptions`, `.../exceptions/:id`, `.../unresolved`, `.../audit-ledger` | `POST .../exceptions/:id/resolve`, `.../manual-settlement`, `.../reconcile`              |
-| Users          | `GET /admin/users`                                                                           | `POST /admin/users/:id/role`, `.../:id/status`                                           |
+| Users          | `GET /admin/users`                                                                           | `POST /admin/users/:id/role`, `.../:id/status`, `.../:id/permissions`                    |
 | Security audit | `GET /admin/audit-logs`                                                                      | None                                                                                     |
 
 Lists use `limit` and `offset`; the UI requests 25 records, the API defaults to
