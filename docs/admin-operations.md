@@ -74,7 +74,11 @@ on a per-employee basis:
 - **Stock Restock & Dashboard UI**:
   - Store Owners see a "Can manage inventory" toggle and save button next to each employee in `/admin/users`.
   - When an employee without permission signs in, the "Catalog & inventory" navigation link, inventory panels, and restock buttons are hidden (`data-inventory hidden`), and direct URL access redirects to orders with an authority notice.
-  - Permitted employees and store owners can click the "Add inventory" button on the Catalog & inventory panel to open the restock modal dialog (`#addInventoryDialog`). Submitting the form calls `POST /api/operations/inventory/restock` with `{ product_id, quantity, reference }`, incrementing ledger stock, recording a receipt in `stock_batch` and `stock_entry`, writing an immutable audit log entry (`restock_inventory`), and instantly refreshing stock counts.
+  - Permitted employees and store owners can click the "Add inventory" button on the Catalog & inventory panel to open the restock modal dialog (`#addInventoryDialog`).
+  - Submitting the form calls `POST /api/operations/inventory/restock` with `{ batch_id, product_id, quantity, reference }`.
+  - **Stock Authority & Opening Balance**: Restocks require `stock_control.authority == 'replacement'` and that the catalog product has already completed its opening physical count (`opened == true`). The runtime role increments `catalog_product.stock` while keeping `opened` unchanged.
+  - **Idempotent Retry**: Submissions provide a client-generated stable `batch_id`. If a network retry re-sends the same `batch_id` with an identical digest, the endpoint succeeds idempotently without double-incrementing stock.
+  - **Reconciliation & Invalidation**: Applying restock stock clears `stock_control.reconciled_until = NULL`, records receipt ledger entries in `stock_batch` and `stock_entry`, logs an audit entry (`restock_inventory`), and asynchronously invalidates the storefront catalog cache.
 
 ## Screens and contracts
 
