@@ -11,8 +11,13 @@
   let section = "orders",
     busy = false,
     selectedOrder = null,
-    selectedException = null;
+    selectedException = null,
+    inventoryProducts = [];
   const owner = () => context.user?.role === "owner";
+  const canManageInventory = () =>
+    owner() ||
+    (context.user?.role === "employee" &&
+      Boolean(context.user?.can_manage_inventory));
   const money = (n) => `KES ${Number(n || 0).toLocaleString("en-KE")}`;
   const date = (s) =>
     s
@@ -199,7 +204,9 @@
     updated();
   }
   async function loadInventory() {
+    if (!canManageInventory()) return;
     const data = await api(`/operations/inventory?${query("inventory")}`);
+    inventoryProducts = data.products || [];
     $("metricCatalog").textContent = data.total;
     $("metricPrice").textContent = money(data.common_price_kes);
     $("inventoryApproval").textContent = data.approval_until
@@ -329,6 +336,31 @@
               true,
             ),
           );
+          if (u.role === "employee") {
+            const permLabel = el("label");
+            const permCheckbox = el("input");
+            permCheckbox.type = "checkbox";
+            permCheckbox.checked = Boolean(u.can_manage_inventory);
+            permCheckbox.setAttribute(
+              "aria-label",
+              `Can manage inventory for ${u.name || u.email}`,
+            );
+            permLabel.append(permCheckbox, " Can manage inventory");
+            controls.append(
+              permLabel,
+              action(
+                "Save permission",
+                () =>
+                  mutate(
+                    `/admin/users/${encodeURIComponent(u.id)}/permissions`,
+                    { can_manage_inventory: permCheckbox.checked },
+                    "Inventory permission updated.",
+                    loadUsers,
+                  ),
+                true,
+              ),
+            );
+          }
         }
         controls.append(
           action(
@@ -513,7 +545,10 @@
       : "orders";
   }
   function showSection(next) {
-    if (!owner() && ["payments", "users", "audit-logs"].includes(next)) {
+    if (
+      (!owner() && ["payments", "users", "audit-logs"].includes(next)) ||
+      (!canManageInventory() && next === "inventory")
+    ) {
       message("Your role does not permit this section.");
       next = "orders";
     }
@@ -550,6 +585,9 @@
       document.querySelectorAll("[data-owner]").forEach((node) => {
         node.hidden = !owner();
       });
+      document.querySelectorAll("[data-inventory]").forEach((node) => {
+        node.hidden = !canManageInventory();
+      });
       $("quoteForm").hidden = true;
       $("assignForm").hidden = true;
       try {
@@ -564,7 +602,7 @@
       showSection(sectionFromPath());
       await Promise.all([
         loadOrders(),
-        loadInventory(),
+        ...(canManageInventory() ? [loadInventory()] : []),
         ...(!["orders", "inventory"].includes(section) ? [refresh()] : []),
       ]);
     } catch (error) {
@@ -634,6 +672,33 @@
       loadInventory,
     ),
   );
+  $("btnAddInventory")?.addEventListener("click", async () => {
+    let prods = inventoryProducts;
+    if (!prods.length) {
+      try {
+        const data = await api(`/operations/inventory?limit=100&offset=0`);
+        prods = data.products || [];
+        inventoryProducts = prods;
+      } catch (error) {
+        message(error.message);
+        return;
+      }
+    }
+    const select = $("restockProduct");
+    select.replaceChildren();
+    for (const p of prods) {
+      const opt = el("option", `${p.name} (Current: ${p.stock})`);
+      opt.value = p.id;
+      select.append(opt);
+    }
+    $("addInventoryForm").reset();
+    $("addInventoryForm").dataset.batchId =
+      "restock_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    $("addInventoryStatus").textContent = "";
+    message("");
+    $("addInventoryDialog").showModal();
+    guard();
+  });
   $("runReconciliation").addEventListener("click", () =>
     mutate(
       "/admin/payments/reconcile",
@@ -703,6 +768,27 @@
       },
     ),
   );
+  form("addInventoryForm", (data) => {
+    const batchId =
+      $("addInventoryForm").dataset.batchId ||
+      "restock_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    return mutate(
+      "/operations/inventory/restock",
+      {
+        batch_id: batchId,
+        product_id: data.product_id,
+        quantity: Number(data.quantity),
+        reference: data.reference,
+      },
+      "Inventory updated successfully.",
+      async () => {
+        delete $("addInventoryForm").dataset.batchId;
+        $("addInventoryDialog").close();
+        $("addInventoryForm").reset();
+        await loadInventory();
+      },
+    );
+  });
   window.addEventListener("bliss:connection", () => {
     guard();
     if (!connection.offline) {

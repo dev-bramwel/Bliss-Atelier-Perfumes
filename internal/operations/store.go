@@ -3,8 +3,12 @@ package operations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/auth"
@@ -16,7 +20,14 @@ import (
 
 var ErrConflict = errors.New("operation conflicts with the current order state")
 
-type Store struct{ Pool *pgxpool.Pool }
+type Invalidator interface {
+	Invalidate(ctx context.Context) error
+}
+
+type Store struct {
+	Pool        *pgxpool.Pool
+	Invalidator Invalidator
+}
 type InventoryItem struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -180,14 +191,181 @@ func (s *Store) Fulfill(ctx context.Context, id string, actor *auth.User, ip str
 	}
 	return tx.Commit(ctx)
 }
+
+var (
+	ErrProductNotFound        = errors.New("product not found")
+	ErrUnopenedProduct        = errors.New("opening balance required before modifying stock")
+	ErrAuthorityRequired      = errors.New("stock authority is unconfirmed; replacement approval required")
+	ErrBatchIDRequired        = errors.New("batch ID is required")
+	ErrBatchDigestMismatch    = errors.New("batch ID already used with different content")
+	ErrInvalidQuantity        = errors.New("quantity must not be zero")
+	ErrInsufficientStock      = errors.New("insufficient stock for adjustment")
+	ErrInsufficientUnreserved = errors.New("insufficient unreserved stock for adjustment")
+	ErrStockLimitExceeded     = errors.New("stock limit exceeded")
+)
+
+// Restock atomically increments or adjusts the ledger stock for a product, records a stock ledger entry and admin audit entry,
+// verifies stock authority and opening counts, invalidates catalog cache, protects active holds on reductions, and replays idempotently for identical batch IDs.
+func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productID string, quantity int, reference string, ip string) error {
+	if actor == nil || !auth.CanManageInventory(*actor) {
+		return auth.ErrPermissionDenied
+	}
+	if strings.TrimSpace(productID) == "" {
+		return errors.New("product ID is required")
+	}
+	if quantity == 0 {
+		return ErrInvalidQuantity
+	}
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return errors.New("reference note is required")
+	}
+	if len(reference) > 512 {
+		return errors.New("reference note exceeds 512 characters")
+	}
+	batchID = strings.TrimSpace(batchID)
+	if batchID == "" {
+		return ErrBatchIDRequired
+	}
+	if len(batchID) > 128 {
+		return errors.New("batch ID exceeds 128 characters")
+	}
+
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(tx)
+
+	var authority string
+	if err = tx.QueryRow(ctx, `SELECT authority FROM public.stock_control WHERE singleton FOR UPDATE`).Scan(&authority); err != nil {
+		return fmt.Errorf("failed to query stock control: %w", err)
+	}
+	if authority != "replacement" {
+		return ErrAuthorityRequired
+	}
+
+	rawDigest := sha256.Sum256([]byte(batchID + productID + fmt.Sprintf("%d", quantity) + reference))
+	digest := hex.EncodeToString(rawDigest[:])
+
+	var existingDigest string
+	err = tx.QueryRow(ctx, `SELECT digest FROM public.stock_batch WHERE id=$1`, batchID).Scan(&existingDigest)
+	if err == nil {
+		if existingDigest != digest {
+			return ErrBatchDigestMismatch
+		}
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("failed to query stock history: %w", err)
+	}
+
+	var currentStock int
+	var opened bool
+	err = tx.QueryRow(ctx, `SELECT stock, opened FROM public.catalog_product WHERE id=$1 FOR UPDATE`, productID).Scan(&currentStock, &opened)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrProductNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("failed to query product: %w", err)
+	}
+	if !opened {
+		return ErrUnopenedProduct
+	}
+
+	newStock := currentStock + quantity
+	if newStock < 0 {
+		return ErrInsufficientStock
+	}
+	if newStock > 1000000 {
+		return ErrStockLimitExceeded
+	}
+
+	// If stock is reduced by adjustments, protect active checkout holds
+	if quantity < 0 {
+		var hasReservationTable bool
+		if err := tx.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasReservationTable); err != nil {
+			return fmt.Errorf("failed to check reservation schema: %w", err)
+		}
+		if hasReservationTable {
+			var activeReserved int
+			if err := tx.QueryRow(ctx, `SELECT coalesce((
+				SELECT sum(ri.quantity)
+				FROM public.stock_reservation_item ri
+				JOIN public.stock_reservation r ON r.id = ri.reservation_id
+				WHERE ri.product_id = $1 AND r.status = 'active' AND r.expires_at > now()
+			), 0)`, productID).Scan(&activeReserved); err != nil {
+				return fmt.Errorf("failed to query active reservation holds: %w", err)
+			}
+			if newStock < activeReserved {
+				return fmt.Errorf("%w (active holds: %d)", ErrInsufficientUnreserved, activeReserved)
+			}
+		}
+	}
+
+	if _, err = tx.Exec(ctx, `UPDATE public.catalog_product SET stock=$2 WHERE id=$1`, productID, newStock); err != nil {
+		return fmt.Errorf("failed to update stock: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx, `UPDATE public.stock_control SET reconciled_until=NULL WHERE singleton`); err != nil {
+		return fmt.Errorf("failed to clear reconciliation approval: %w", err)
+	}
+
+	batchKind := "receipt"
+	auditAction := "restock_inventory"
+	if quantity < 0 {
+		batchKind = "adjustment"
+		auditAction = "adjust_inventory"
+	}
+
+	if _, err = tx.Exec(ctx, `INSERT INTO public.stock_batch(id,digest,kind,actor,evidence) VALUES ($1,$2,$3,$4,$5)`, batchID, digest, batchKind, actor.ID, reference); err != nil {
+		return fmt.Errorf("failed to record stock batch: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx, `INSERT INTO public.stock_entry(batch_id,product_id,delta,balance) VALUES ($1,$2,$3,$4)`, batchID, productID, quantity, newStock); err != nil {
+		return fmt.Errorf("failed to record stock entry: %w", err)
+	}
+
+	if err = auditResource(ctx, tx, actor, auditAction, "catalog_product", productID, ip, map[string]any{
+		"product_id": productID,
+		"delta":      quantity,
+		"quantity":   quantity,
+		"new_stock":  newStock,
+		"reference":  reference,
+		"batch_id":   batchID,
+		"kind":       batchKind,
+	}); err != nil {
+		return fmt.Errorf("failed to record audit: %w", err)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit stock transaction: %w", err)
+	}
+
+	if s.Invalidator != nil {
+		go func() {
+			cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = s.Invalidator.Invalidate(cctx)
+		}()
+	}
+
+	return nil
+}
+
 func audit(ctx context.Context, tx pgx.Tx, u *auth.User, action, id, ip string, metadata map[string]any) error {
+	return auditResource(ctx, tx, u, action, "order", id, ip, metadata)
+}
+
+func auditResource(ctx context.Context, tx pgx.Tx, u *auth.User, action, resource, id, ip string, metadata map[string]any) error {
 	raw, err := json.Marshal(metadata)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.admin_audit_log(id,user_id,actor_role,action,resource,resource_id,ip_address,metadata) VALUES(gen_random_uuid()::text,$1,$2,$3,'order',$4,$5,$6)`, u.ID, u.Role, action, id, ip, raw)
+	_, err = tx.Exec(ctx, `INSERT INTO public.admin_audit_log(id,user_id,actor_role,action,resource,resource_id,ip_address,metadata) VALUES(gen_random_uuid()::text,$1,$2,$3,$4,$5,$6,$7)`, u.ID, u.Role, action, resource, id, ip, raw)
 	return err
 }
+
 func rollback(tx pgx.Tx) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

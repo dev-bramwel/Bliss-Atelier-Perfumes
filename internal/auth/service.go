@@ -17,6 +17,7 @@ var (
 	ErrSessionNotFound           = errors.New("session not found or revoked")
 	ErrSessionExpired            = errors.New("session has expired")
 	ErrAccountDeactivated        = errors.New("account is deactivated")
+	ErrInvalidRole               = errors.New("invalid role")
 	ErrCannotDeactivateSoleOwner = errors.New("cannot deactivate the sole owner of the store")
 	ErrCannotDemoteSoleOwner     = errors.New("cannot demote the sole owner of the store")
 	ErrInvalidCSRF               = errors.New("invalid or expired csrf token")
@@ -435,6 +436,35 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 	}
 
 	return s.store.ReactivateUser(ctx, targetUserID, actor.Role, audit)
+}
+
+// UpdateUserPermissions updates an employee's permissions (such as can_manage_inventory).
+// Invariant: Only the store owner can update permissions, and permissions can only be granted to employees.
+func (s *Service) UpdateUserPermissions(ctx context.Context, actor *User, targetUserID string, canManageInventory bool, ip string) error {
+	if actor == nil || actor.Role != RoleOwner {
+		return ErrPermissionDenied
+	}
+
+	audit := &AuditLogEntry{
+		UserID:     &actor.ID,
+		ActorRole:  actor.Role,
+		Action:     "update_user_permissions",
+		Resource:   "app_user",
+		ResourceID: targetUserID,
+		IPAddress:  ip,
+		Metadata: map[string]any{
+			"can_manage_inventory": canManageInventory,
+		},
+	}
+
+	sessionHashes, err := s.store.UpdateUserPermissions(ctx, actor.ID, targetUserID, canManageInventory, audit)
+	if err != nil {
+		return err
+	}
+	for _, h := range sessionHashes {
+		s.evictCachedSession(ctx, h)
+	}
+	return nil
 }
 
 // DeactivateSelf allows an authenticated user to deactivate their own account, revoking all active sessions.

@@ -158,6 +158,30 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal("expected error inserting manager account after migration 12, got nil")
 		}
 	})
+	t.Run("upgrade v12 without requiring can_manage_inventory beforehand and verify column defaults to false in v13", func(t *testing.T) {
+		reset(t, pool)
+		ctx := context.Background()
+		if _, err := execute(ctx, pool, "init", steps()[:12]); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO public.app_user (id, google_sub, email, name, role) VALUES ('emp-1', 'sub-emp-1', 'emp@example.test', 'Test Employee', 'employee')`); err != nil {
+			t.Fatal(err)
+		}
+		if got := run(t, pool, "status"); got.State != "pending" {
+			t.Fatal(got)
+		}
+		run(t, pool, "up")
+		if got := run(t, pool, "status"); got.State != "current" {
+			t.Fatal(got)
+		}
+		var canManage bool
+		if err := pool.QueryRow(ctx, `SELECT can_manage_inventory FROM public.app_user WHERE id = 'emp-1'`).Scan(&canManage); err != nil {
+			t.Fatalf("failed to query migrated user: %v", err)
+		}
+		if canManage {
+			t.Fatal("expected can_manage_inventory to default to false")
+		}
+	})
 	t.Run("empty requires explicit initialization", func(t *testing.T) {
 		reset(t, pool)
 		if got := run(t, pool, "status"); got.State != "empty" {
@@ -432,7 +456,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v12.json")), &expected); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v13.json")), &expected); err != nil {
 			t.Fatal(err)
 		}
 		if len(actual) != len(expected) {
