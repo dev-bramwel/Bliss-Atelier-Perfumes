@@ -144,8 +144,8 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 			respond(w, 400, map[string]string{"error": "Invalid request payload"})
 			return
 		}
-		if req.ProductID == "" || req.Quantity == 0 || strings.TrimSpace(req.Reference) == "" {
-			respond(w, 400, map[string]string{"error": "Product ID, non-zero quantity, and reference note are required."})
+		if strings.TrimSpace(req.BatchID) == "" || strings.TrimSpace(req.ProductID) == "" || req.Quantity == 0 || strings.TrimSpace(req.Reference) == "" {
+			respond(w, 400, map[string]string{"error": "Batch ID, product ID, non-zero quantity, and reference note are required."})
 			return
 		}
 		err := store.Restock(r.Context(), u, req.BatchID, req.ProductID, req.Quantity, req.Reference, SafeClientIP(r, checker))
@@ -159,6 +159,7 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 				respond(w, 409, map[string]string{"error": err.Error()})
 			case errors.Is(err, operations.ErrUnopenedProduct),
 				errors.Is(err, operations.ErrAuthorityRequired),
+				errors.Is(err, operations.ErrBatchIDRequired),
 				errors.Is(err, operations.ErrInvalidQuantity),
 				errors.Is(err, operations.ErrInsufficientStock),
 				errors.Is(err, operations.ErrInsufficientUnreserved),
