@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/url"
 	"os"
@@ -247,6 +249,15 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	if replayedStock != newStock {
 		t.Fatalf("expected replayed stock to remain %d, got %d", newStock, replayedStock)
 	}
+
+	// 6b. Idempotent replay with missing product fails with ErrProductNotFound
+	rawDigest := sha256.Sum256([]byte("batch_orphan" + "nonexistent" + "5" + "REF"))
+	orphanDigest := hex.EncodeToString(rawDigest[:])
+	_, _ = pool.Exec(ctx, `INSERT INTO public.stock_batch(id,digest,kind,actor,evidence) VALUES ('batch_orphan',$1,'receipt',$2,'REF')`, orphanDigest, empAllowed.ID)
+	if _, err := s.Restock(ctx, empAllowed, "batch_orphan", "nonexistent", 5, "REF", "127.0.0.1"); !errors.Is(err, ErrProductNotFound) {
+		t.Fatalf("expected ErrProductNotFound for replayed batch with missing product, got: %v", err)
+	}
+	_, _ = pool.Exec(ctx, `DELETE FROM public.stock_batch WHERE id='batch_orphan'`)
 
 	// 7. Batch ID collision with different content rejected
 	if _, err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 10, "DIFFERENT-REF", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "already used with different content") {
