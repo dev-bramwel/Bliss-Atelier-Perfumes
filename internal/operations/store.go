@@ -192,17 +192,28 @@ func (s *Store) Fulfill(ctx context.Context, id string, actor *auth.User, ip str
 	return tx.Commit(ctx)
 }
 
-// Restock atomically increments the ledger stock for a product, records a stock ledger entry and admin audit entry,
-// verifies stock authority and opening counts, invalidates catalog cache, and replays idempotently for identical batch IDs.
+var (
+	ErrProductNotFound        = errors.New("product not found")
+	ErrUnopenedProduct        = errors.New("opening balance required before modifying stock")
+	ErrAuthorityRequired      = errors.New("stock authority is unconfirmed; replacement approval required")
+	ErrBatchDigestMismatch    = errors.New("batch ID already used with different content")
+	ErrInvalidQuantity        = errors.New("quantity must not be zero")
+	ErrInsufficientStock      = errors.New("insufficient stock for adjustment")
+	ErrInsufficientUnreserved  = errors.New("insufficient unreserved stock for adjustment")
+	ErrStockLimitExceeded     = errors.New("stock limit exceeded")
+)
+
+// Restock atomically increments or adjusts the ledger stock for a product, records a stock ledger entry and admin audit entry,
+// verifies stock authority and opening counts, invalidates catalog cache, protects active holds on reductions, and replays idempotently for identical batch IDs.
 func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productID string, quantity int, reference string, ip string) error {
 	if actor == nil || !auth.CanManageInventory(*actor) {
 		return auth.ErrPermissionDenied
 	}
-	if productID == "" {
+	if strings.TrimSpace(productID) == "" {
 		return errors.New("product ID is required")
 	}
-	if quantity <= 0 {
-		return errors.New("quantity must be greater than zero")
+	if quantity == 0 {
+		return ErrInvalidQuantity
 	}
 	reference = strings.TrimSpace(reference)
 	if reference == "" {
@@ -225,10 +236,10 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productI
 
 	var authority string
 	if err = tx.QueryRow(ctx, `SELECT authority FROM public.stock_control WHERE singleton FOR UPDATE`).Scan(&authority); err != nil {
-		return errors.New("stock control unavailable")
+		return fmt.Errorf("failed to query stock control: %w", err)
 	}
 	if authority != "replacement" {
-		return errors.New("stock authority is unconfirmed; replacement approval required")
+		return ErrAuthorityRequired
 	}
 
 	rawDigest := sha256.Sum256([]byte(batchID + productID + fmt.Sprintf("%d", quantity) + reference))
@@ -238,7 +249,7 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productI
 	err = tx.QueryRow(ctx, `SELECT digest FROM public.stock_batch WHERE id=$1`, batchID).Scan(&existingDigest)
 	if err == nil {
 		if existingDigest != digest {
-			return errors.New("batch ID already used with different content")
+			return ErrBatchDigestMismatch
 		}
 		return nil
 	}
@@ -250,18 +261,39 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productI
 	var opened bool
 	err = tx.QueryRow(ctx, `SELECT stock, opened FROM public.catalog_product WHERE id=$1 FOR UPDATE`, productID).Scan(&currentStock, &opened)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return errors.New("product not found")
+		return ErrProductNotFound
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to query product: %w", err)
 	}
 	if !opened {
-		return errors.New("opening balance required before restocking")
+		return ErrUnopenedProduct
 	}
 
 	newStock := currentStock + quantity
+	if newStock < 0 {
+		return ErrInsufficientStock
+	}
 	if newStock > 1000000 {
-		return errors.New("stock limit exceeded")
+		return ErrStockLimitExceeded
+	}
+
+	// If stock is reduced by adjustments, protect active checkout holds
+	if quantity < 0 {
+		var hasReservationTable bool
+		if err := tx.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasReservationTable); err == nil && hasReservationTable {
+			var activeReserved int
+			if err := tx.QueryRow(ctx, `SELECT coalesce((
+				SELECT sum(ri.quantity)
+				FROM public.stock_reservation_item ri
+				JOIN public.stock_reservation r ON r.id = ri.reservation_id
+				WHERE ri.product_id = $1 AND r.status = 'active' AND r.expires_at > now()
+			), 0)`, productID).Scan(&activeReserved); err == nil {
+				if newStock < activeReserved {
+					return fmt.Errorf("%w (active holds: %d)", ErrInsufficientUnreserved, activeReserved)
+				}
+			}
+		}
 	}
 
 	if _, err = tx.Exec(ctx, `UPDATE public.catalog_product SET stock=$2 WHERE id=$1`, productID, newStock); err != nil {
@@ -272,7 +304,14 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productI
 		return fmt.Errorf("failed to clear reconciliation approval: %w", err)
 	}
 
-	if _, err = tx.Exec(ctx, `INSERT INTO public.stock_batch(id,digest,kind,actor,evidence) VALUES ($1,$2,'receipt',$3,$4)`, batchID, digest, actor.ID, reference); err != nil {
+	batchKind := "receipt"
+	auditAction := "restock_inventory"
+	if quantity < 0 {
+		batchKind = "adjustment"
+		auditAction = "adjust_inventory"
+	}
+
+	if _, err = tx.Exec(ctx, `INSERT INTO public.stock_batch(id,digest,kind,actor,evidence) VALUES ($1,$2,$3,$4,$5)`, batchID, digest, batchKind, actor.ID, reference); err != nil {
 		return fmt.Errorf("failed to record stock batch: %w", err)
 	}
 
@@ -280,18 +319,20 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productI
 		return fmt.Errorf("failed to record stock entry: %w", err)
 	}
 
-	if err = auditResource(ctx, tx, actor, "restock_inventory", "catalog_product", productID, ip, map[string]any{
+	if err = auditResource(ctx, tx, actor, auditAction, "catalog_product", productID, ip, map[string]any{
 		"product_id": productID,
+		"delta":      quantity,
 		"quantity":   quantity,
 		"new_stock":  newStock,
 		"reference":  reference,
 		"batch_id":   batchID,
+		"kind":       batchKind,
 	}); err != nil {
 		return fmt.Errorf("failed to record audit: %w", err)
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		return err
+		return fmt.Errorf("failed to commit stock transaction: %w", err)
 	}
 
 	if s.Invalidator != nil {
