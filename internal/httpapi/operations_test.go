@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -66,6 +67,18 @@ func (m *mockOperations) Fulfill(_ context.Context, id string, u *auth.User, _ s
 		return auth.ErrPermissionDenied
 	}
 	m.fulfilled = id
+	return nil
+}
+func (m *mockOperations) Restock(_ context.Context, u *auth.User, productID string, qty int, ref string, _ string) error {
+	if u == nil || !auth.CanManageInventory(*u) {
+		return auth.ErrPermissionDenied
+	}
+	if qty <= 0 {
+		return errors.New("quantity must be greater than zero")
+	}
+	if productID == "notfound" {
+		return errors.New("product not found")
+	}
 	return nil
 }
 
@@ -183,5 +196,81 @@ func TestIssuePayloadsAndActorBinding(t *testing.T) {
 	raw, _ := json.Marshal(quotes.quotes["one"][0])
 	if !strings.Contains(string(raw), "Nyali") {
 		t.Fatal("quote note lost")
+	}
+}
+
+func TestOperationsRestockEndpoint(t *testing.T) {
+	mock := &mockOperations{}
+	service, store, ownerCookie, ownerCSRF := staffFixture(t, auth.RoleOwner)
+	api := New("127.0.0.1:0", time.Second, nil, mock, service)
+
+	ctx := context.Background()
+	empAllowed, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp-allowed", "emp-allowed@blissatelier.com", "Emp Allowed", "")
+	_ = store.UpdateUserRole(ctx, empAllowed.ID, auth.RoleEmployee)
+	_, _ = store.UpdateUserPermissions(ctx, "", empAllowed.ID, true, nil)
+
+	empDenied, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp-denied", "emp-denied@blissatelier.com", "Emp Denied", "")
+	_ = store.UpdateUserRole(ctx, empDenied.ID, auth.RoleEmployee)
+
+	makeSession := func(u *auth.User) (*http.Cookie, string) {
+		raw, _ := auth.GenerateSessionToken()
+		secret, _ := auth.RandomString(32)
+		_ = store.CreateSession(ctx, auth.UserSession{
+			ID:           "ses-" + u.ID,
+			UserID:       u.ID,
+			TokenHash:    auth.HashToken(raw),
+			CSRFSecret:   secret,
+			ExpiresAt:    time.Now().Add(time.Hour),
+			MaxExpiresAt: time.Now().Add(24 * time.Hour),
+		})
+		return &http.Cookie{Name: "bliss_session", Value: raw}, auth.GenerateCSRFToken(secret)
+	}
+
+	empAllowedCookie, empAllowedCSRF := makeSession(empAllowed)
+	empDeniedCookie, empDeniedCSRF := makeSession(empDenied)
+
+	// 1. Owner can restock (200 OK)
+	req := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"p1","quantity":10,"reference":"BATCH-01"}`))
+	authorizeStaff(req, ownerCookie, ownerCSRF)
+	rr := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for owner restock, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	// 2. Employee with permission can restock (200 OK)
+	req2 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"p1","quantity":5,"reference":"BATCH-02"}`))
+	authorizeStaff(req2, empAllowedCookie, empAllowedCSRF)
+	rr2 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for permitted employee restock, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+
+	// 3. Employee without permission is rejected (403 Forbidden)
+	req3 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"p1","quantity":5,"reference":"BATCH-03"}`))
+	authorizeStaff(req3, empDeniedCookie, empDeniedCSRF)
+	rr3 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(rr3, req3)
+	if rr3.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for employee without permission, got %d: %s", rr3.Code, rr3.Body.String())
+	}
+
+	// 4. Invalid input: negative quantity (400 Bad Request)
+	req4 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"p1","quantity":-2,"reference":"BATCH-04"}`))
+	authorizeStaff(req4, empAllowedCookie, empAllowedCSRF)
+	rr4 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(rr4, req4)
+	if rr4.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for negative quantity, got %d", rr4.Code)
+	}
+
+	// 5. Invalid CSRF token (403 Forbidden)
+	req5 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"product_id":"p1","quantity":5,"reference":"BATCH-05"}`))
+	authorizeStaff(req5, empAllowedCookie, "bad-csrf-token")
+	rr5 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(rr5, req5)
+	if rr5.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for invalid CSRF token, got %d", rr5.Code)
 	}
 }
