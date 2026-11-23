@@ -20,8 +20,10 @@ type Store interface {
 	GetUserByID(ctx context.Context, id string) (*User, error)
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	CountOwners(ctx context.Context) (int, error)
+	CountActiveOwners(ctx context.Context) (int, error)
 	UpdateUserRole(ctx context.Context, id string, newRole string) error
 	UpdateUserStatus(ctx context.Context, id string, isActive bool) error
+	DeactivateUserAndRevokeSessions(ctx context.Context, userID string) ([]string, error)
 	ListUsers(ctx context.Context, filterRole string) ([]User, error)
 
 	// Login transaction operations
@@ -128,6 +130,16 @@ func (s *PGStore) CountOwners(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// CountActiveOwners returns the count of users with role 'owner' and is_active = TRUE.
+func (s *PGStore) CountActiveOwners(ctx context.Context) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM public.app_user WHERE role = 'owner' AND is_active = TRUE`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count active owners: %w", err)
+	}
+	return count, nil
+}
+
 // UpdateUserRole updates a user's role.
 func (s *PGStore) UpdateUserRole(ctx context.Context, id string, newRole string) error {
 	if !IsValidRole(newRole) {
@@ -153,6 +165,47 @@ func (s *PGStore) UpdateUserStatus(ctx context.Context, id string, isActive bool
 		return errors.New("user not found")
 	}
 	return nil
+}
+
+// DeactivateUserAndRevokeSessions atomically sets app_user.is_active = FALSE and revokes all active sessions for the user.
+func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string) ([]string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	cmd, err := tx.Exec(ctx, `UPDATE public.app_user SET is_active = FALSE, updated_at = now() WHERE id = $1`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deactivate user: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return nil, errors.New("user not found")
+	}
+
+	rows, err := tx.Query(ctx, `UPDATE public.user_session SET is_revoked = TRUE WHERE user_id = $1 AND is_revoked = FALSE RETURNING token_hash`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to revoke sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var hashes []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err == nil {
+			hashes = append(hashes, h)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit deactivation transaction: %w", err)
+	}
+
+	return hashes, nil
 }
 
 // ListUsers retrieves users, optionally filtered by role.
