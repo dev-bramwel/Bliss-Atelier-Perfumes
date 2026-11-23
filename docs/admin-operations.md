@@ -67,13 +67,14 @@ on a per-employee basis:
   - Active employee sessions are evicted from Redis cache (not revoked in PostgreSQL), allowing updated
     permissions to take effect immediately on their next request without forcing an abrupt logout.
 - **Authorization Enforcement**:
-  - `POST /catalog/invalidate` and `GET /operations/inventory` require `auth.CanManageInventory(*user)`.
-  - Employees with `can_manage_inventory = true` pass authorization and can view inventory and invalidate caches.
+  - `POST /catalog/invalidate`, `GET /operations/inventory`, and `POST /operations/inventory/restock` require `auth.CanManageInventory(*user)`.
+  - Employees with `can_manage_inventory = true` pass authorization and can view inventory, restock ledger quantities, and invalidate caches.
   - Employees without this permission receive HTTP 403 Forbidden on inventory mutation and query endpoints.
-- **Dashboard UI**:
+  - Offline batch operations via `cmd/stock apply` verify that the batch actor exists in `public.app_user`, is active, and is either an owner or an employee with `can_manage_inventory = true`. Approving replacement batches (`approve-replacement`) strictly requires an active owner actor.
+- **Stock Restock & Dashboard UI**:
   - Store Owners see a "Can manage inventory" toggle and save button next to each employee in `/admin/users`.
-  - When an employee without permission signs in, the "Catalog & inventory" navigation link and inventory panels/buttons
-    are hidden, and direct URL access redirects to orders with an authority notice.
+  - When an employee without permission signs in, the "Catalog & inventory" navigation link, inventory panels, and restock buttons are hidden (`data-inventory hidden`), and direct URL access redirects to orders with an authority notice.
+  - Permitted employees and store owners can click the "Add inventory" button on the Catalog & inventory panel to open the restock modal dialog (`#addInventoryDialog`). Submitting the form calls `POST /api/operations/inventory/restock` with `{ product_id, quantity, reference }`, incrementing ledger stock, recording a receipt in `stock_batch` and `stock_entry`, writing an immutable audit log entry (`restock_inventory`), and instantly refreshing stock counts.
 
 ## Screens and contracts
 
@@ -82,7 +83,7 @@ All URLs below have the `/api` prefix when accessed through the storefront.
 | Screen         | Reads                                                                                        | Mutations                                                                                |
 | -------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Orders         | `GET /operations/orders`, `GET /orders/:id`                                                  | `POST /orders/:id/assign`, `POST /orders/:id/fulfill`, `POST /orders/:id/delivery-quote` |
-| Inventory      | `GET /operations/inventory`                                                                  | `POST /catalog/invalidate`                                                               |
+| Inventory      | `GET /operations/inventory`                                                                  | `POST /catalog/invalidate`, `POST /operations/inventory/restock`                         |
 | Payments       | `GET /admin/payments/exceptions`, `.../exceptions/:id`, `.../unresolved`, `.../audit-ledger` | `POST .../exceptions/:id/resolve`, `.../manual-settlement`, `.../reconcile`              |
 | Users          | `GET /admin/users`                                                                           | `POST /admin/users/:id/role`, `.../:id/status`, `.../:id/permissions`                    |
 | Security audit | `GET /admin/audit-logs`                                                                      | None                                                                                     |
