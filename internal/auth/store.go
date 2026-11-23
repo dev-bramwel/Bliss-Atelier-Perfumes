@@ -178,12 +178,27 @@ func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID st
 	defer tx.Rollback(ctx)
 
 	if checkSoleOwner {
-		var activeOwnerCount int
 		// Lock active owner rows to serialize concurrent owner deactivations and prevent race conditions.
-		err := tx.QueryRow(ctx, `SELECT count(*) FROM public.app_user WHERE role = 'owner' AND is_active = TRUE FOR UPDATE`).Scan(&activeOwnerCount)
+		// PostgreSQL does not permit FOR UPDATE on aggregate functions like count(*), so we select and lock IDs.
+		ownerRows, err := tx.Query(ctx, `SELECT id FROM public.app_user WHERE role = 'owner' AND is_active = TRUE FOR UPDATE`)
 		if err != nil {
-			return nil, fmt.Errorf("failed to verify active owner count: %w", err)
+			return nil, fmt.Errorf("failed to lock active owner rows: %w", err)
 		}
+		activeOwnerCount := 0
+		for ownerRows.Next() {
+			var ownerID string
+			if err := ownerRows.Scan(&ownerID); err != nil {
+				ownerRows.Close()
+				return nil, fmt.Errorf("failed to scan active owner id: %w", err)
+			}
+			activeOwnerCount++
+		}
+		if err := ownerRows.Err(); err != nil {
+			ownerRows.Close()
+			return nil, fmt.Errorf("error reading active owner rows: %w", err)
+		}
+		ownerRows.Close()
+
 		if activeOwnerCount <= 1 {
 			return nil, ErrCannotDeactivateSoleOwner
 		}
