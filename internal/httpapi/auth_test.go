@@ -222,12 +222,15 @@ func (m *testAuthStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, use
 	return revoked, nil
 }
 
-func (m *testAuthStore) UpdateUserPermissions(ctx context.Context, userID string, actorRole string, canManageInventory bool, auditEntry *auth.AuditLogEntry) ([]string, error) {
+func (m *testAuthStore) UpdateUserPermissions(ctx context.Context, actorID string, userID string, canManageInventory bool, auditEntry *auth.AuditLogEntry) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if actorRole != "" && actorRole != auth.RoleOwner {
-		return nil, auth.ErrPermissionDenied
+	if actorID != "" {
+		actor, ok := m.users[actorID]
+		if !ok || !actor.IsActive || actor.Role != auth.RoleOwner {
+			return nil, auth.ErrPermissionDenied
+		}
 	}
 
 	u, ok := m.users[userID]
