@@ -69,23 +69,29 @@ func (m *mockOperations) Fulfill(_ context.Context, id string, u *auth.User, _ s
 	m.fulfilled = id
 	return nil
 }
-func (m *mockOperations) Restock(_ context.Context, u *auth.User, batchID, productID string, qty int, ref string, _ string) error {
+func (m *mockOperations) Restock(_ context.Context, u *auth.User, batchID, productID string, qty int, ref string, _ string) (*operations.RestockResult, error) {
 	if u == nil || !auth.CanManageInventory(*u) {
-		return auth.ErrPermissionDenied
+		return nil, auth.ErrPermissionDenied
 	}
 	if strings.TrimSpace(batchID) == "" {
-		return operations.ErrBatchIDRequired
+		return nil, operations.ErrBatchIDRequired
 	}
 	if qty == 0 {
-		return operations.ErrInvalidQuantity
+		return nil, operations.ErrInvalidQuantity
 	}
 	if productID == "notfound" {
-		return operations.ErrProductNotFound
+		return nil, operations.ErrProductNotFound
 	}
 	if productID == "dberror" {
-		return errors.New("pq: connection reset by peer")
+		return nil, errors.New("pq: connection reset by peer")
 	}
-	return nil
+	return &operations.RestockResult{
+		ProductID:   productID,
+		Quantity:    qty,
+		Stock:       15,
+		Unreserved:  14,
+		AuditAction: "restock_inventory",
+	}, nil
 }
 
 func TestOperationalSessionBoundaries(t *testing.T) {
@@ -243,6 +249,19 @@ func TestOperationsRestockEndpoint(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK for owner restock, got %d: %s", rr.Code, rr.Body.String())
 	}
+	var ownerResp struct {
+		Status     string `json:"status"`
+		ProductID  string `json:"product_id"`
+		Quantity   int    `json:"quantity"`
+		Stock      int    `json:"stock"`
+		Unreserved int    `json:"unreserved"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &ownerResp); err != nil {
+		t.Fatalf("failed to decode owner restock response: %v", err)
+	}
+	if ownerResp.Stock != 15 || ownerResp.Unreserved != 14 || ownerResp.Quantity != 10 {
+		t.Fatalf("unexpected restock metrics: %+v", ownerResp)
+	}
 
 	// 2. Employee with permission can restock (200 OK)
 	req2 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"batch_id":"b-2","product_id":"p1","quantity":5,"reference":"BATCH-02"}`))
@@ -271,13 +290,21 @@ func TestOperationsRestockEndpoint(t *testing.T) {
 		t.Fatalf("expected 403 Forbidden for employee without permission, got %d: %s", rr3.Code, rr3.Body.String())
 	}
 
-	// 5. Invalid input: zero quantity (400 Bad Request)
+	// 5. Invalid input: zero or negative quantity on restock endpoint (400 Bad Request)
 	req4 := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"batch_id":"b-4","product_id":"p1","quantity":0,"reference":"BATCH-04"}`))
 	authorizeStaff(req4, empAllowedCookie, empAllowedCSRF)
 	rr4 := httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(rr4, req4)
 	if rr4.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request for zero quantity, got %d", rr4.Code)
+	}
+
+	reqNeg := httptest.NewRequest("POST", "/api/operations/inventory/restock", strings.NewReader(`{"batch_id":"b-neg","product_id":"p1","quantity":-5,"reference":"BATCH-NEG"}`))
+	authorizeStaff(reqNeg, empAllowedCookie, empAllowedCSRF)
+	rrNeg := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(rrNeg, reqNeg)
+	if rrNeg.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request for negative quantity on restock route, got %d", rrNeg.Code)
 	}
 
 	// 6. Product not found (404 Not Found)
