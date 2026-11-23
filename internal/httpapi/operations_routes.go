@@ -43,7 +43,8 @@ func administrativeSessions(next http.Handler, service *auth.Service, checker *T
 		r = r.WithContext(ctx)
 		path := strings.TrimPrefix(r.URL.Path, "/api")
 		admin := path == "/admin" || strings.HasPrefix(path, "/admin/")
-		userStatus := r.Method == http.MethodPost && strings.HasPrefix(path, "/admin/users/") && strings.HasSuffix(path, "/status")
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		userStatus := r.Method == http.MethodPost && len(parts) == 4 && parts[0] == "admin" && parts[1] == "users" && parts[3] == "status" && parts[2] != ""
 		ops := strings.HasPrefix(path, "/operations/")
 		quote := r.Method == http.MethodPost && strings.HasPrefix(path, "/orders/") && strings.HasSuffix(path, "/delivery-quote")
 		fulfill := r.Method == http.MethodPost && strings.HasPrefix(path, "/orders/") && (strings.HasSuffix(path, "/fulfill") || strings.HasSuffix(path, "/assign"))
