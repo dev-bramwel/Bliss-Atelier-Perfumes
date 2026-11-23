@@ -211,6 +211,39 @@ func (m *memStore) CountOwners(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+func (m *memStore) CountActiveOwners(ctx context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, u := range m.users {
+		if u.Role == RoleOwner && u.IsActive {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *memStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, errors.New("user not found")
+	}
+	u.IsActive = false
+	m.users[userID] = u
+
+	var revoked []string
+	for tokenHash, s := range m.sessions {
+		if s.UserID == userID && !s.IsRevoked {
+			s.IsRevoked = true
+			m.sessions[tokenHash] = s
+			revoked = append(revoked, tokenHash)
+		}
+	}
+	return revoked, nil
+}
+
 func (m *memStore) UpdateUserRole(ctx context.Context, id string, newRole string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -563,6 +596,15 @@ func TestDeactivateSelfAndStaffReactivation(t *testing.T) {
 	err := service.DeactivateSelf(ctx, owner, "127.0.0.1")
 	if !errors.Is(err, ErrCannotDeactivateSoleOwner) {
 		t.Fatalf("expected ErrCannotDeactivateSoleOwner for sole owner, got %v", err)
+	}
+
+	// 1b. Having an inactive second owner must still reject deactivation of the sole active owner
+	inactiveOwner, _ := store.UpsertUserByGoogleSub(ctx, "sub-owner2", "owner2@blissatelier.com", "Inactive Owner", "")
+	_ = store.UpdateUserRole(ctx, inactiveOwner.ID, RoleOwner)
+	_ = store.UpdateUserStatus(ctx, inactiveOwner.ID, false)
+	err = service.DeactivateSelf(ctx, owner, "127.0.0.1")
+	if !errors.Is(err, ErrCannotDeactivateSoleOwner) {
+		t.Fatalf("expected ErrCannotDeactivateSoleOwner when other owners are inactive, got %v", err)
 	}
 
 	// 2. Customer can self-deactivate
