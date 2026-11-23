@@ -298,33 +298,30 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			})
 			return
 		}
-		var authorizedActor string
+		var user *auth.User
 		if u := UserFromContext(r.Context()); u != nil {
-			if auth.CanManageInventory(*u) {
-				authorizedActor = u.ID
-			}
+			user = u
 		} else if authService != nil {
-			if user, ses, err := AuthenticateRequest(r.Context(), r, authService, proxyChecker); err == nil && user != nil {
-				if auth.CanManageInventory(*user) {
-					if w != nil {
-						RefreshSessionCookie(w, r, ses)
-					}
-					authorizedActor = user.ID
+			if u, ses, err := AuthenticateRequest(r.Context(), r, authService, proxyChecker); err == nil && u != nil {
+				user = u
+				if w != nil {
+					RefreshSessionCookie(w, r, ses)
 				}
 			}
 		}
-		if authorizedActor == "" {
+
+		var authorizedActor string
+		if user != nil {
+			if !auth.CanManageInventory(*user) {
+				respond(w, http.StatusForbidden, map[string]string{"error": "Your role does not permit this action."})
+				return
+			}
+			authorizedActor = user.ID
+		} else {
 			authorizedActor = extractManager(r, w)
 		}
+
 		if authorizedActor == "" {
-			if u := UserFromContext(r.Context()); u != nil {
-				respond(w, http.StatusForbidden, map[string]string{"error": "Your role does not permit this action."})
-				return
-			}
-			if user, _, err := AuthenticateRequest(r.Context(), r, authService, proxyChecker); err == nil && user != nil {
-				respond(w, http.StatusForbidden, map[string]string{"error": "Your role does not permit this action."})
-				return
-			}
 			respond(w, http.StatusUnauthorized, map[string]string{"error": "manager authorization required"})
 			return
 		}
