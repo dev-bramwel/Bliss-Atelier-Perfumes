@@ -171,7 +171,7 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 
 	// Verify ledger entry
 	var delta int
-	if err := pool.QueryRow(ctx, `SELECT delta FROM public.stock_entry WHERE product_id='p1' ORDER BY created_at DESC LIMIT 1`).Scan(&delta); err != nil || delta != 5 {
+	if err := pool.QueryRow(ctx, `SELECT e.delta FROM public.stock_entry e JOIN public.stock_batch b ON e.batch_id = b.id WHERE e.product_id='p1' ORDER BY b.created_at DESC LIMIT 1`).Scan(&delta); err != nil || delta != 5 {
 		t.Fatalf("expected stock_entry delta 5, got %d (err: %v)", delta, err)
 	}
 
