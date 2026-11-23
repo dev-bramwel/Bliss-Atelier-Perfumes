@@ -255,8 +255,8 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 		t.Fatalf("negative stock adjustment failed: %v", err)
 	}
 	var adjustedStock int
-	if err := pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&adjustedStock); err != nil || adjustedStock != 13 {
-		t.Fatalf("expected stock 13 after -2 adjustment from 15, got %d (err: %v)", adjustedStock, err)
+	if err := pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&adjustedStock); err != nil || adjustedStock != newStock-2 {
+		t.Fatalf("expected stock %d after -2 adjustment from %d, got %d (err: %v)", newStock-2, newStock, adjustedStock, err)
 	}
 	var adjKind string
 	if err := pool.QueryRow(ctx, `SELECT kind FROM public.stock_batch WHERE id='batch_adj_1'`).Scan(&adjKind); err != nil || adjKind != "adjustment" {
@@ -264,7 +264,7 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	}
 
 	// 10. Insufficient stock error
-	if err := s.Restock(ctx, empAllowed, "batch_adj_fail", "p1", -100, "EXCESS-DEDUCTION", "127.0.0.1"); !errors.Is(err, ErrInsufficientStock) {
+	if err := s.Restock(ctx, empAllowed, "batch_adj_fail", "p1", -(adjustedStock + 10), "EXCESS-DEDUCTION", "127.0.0.1"); !errors.Is(err, ErrInsufficientStock) {
 		t.Fatalf("expected ErrInsufficientStock, got: %v", err)
 	}
 
@@ -274,6 +274,13 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	}
 
 	// 12. Active checkout hold protection prevents stock reduction below active holds
+	// Restock p1 to ensure stock exceeds reservation holds
+	if err := s.Restock(ctx, empAllowed, "batch_hold_prep", "p1", 10, "HOLD-PREP", "127.0.0.1"); err != nil {
+		t.Fatalf("failed to restock before hold test: %v", err)
+	}
+	var holdBaseStock int
+	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&holdBaseStock)
+
 	var resID string
 	if err := pool.QueryRow(ctx, `
 		INSERT INTO public.stock_reservation (cart_id, session_id, status, expires_at)
@@ -282,15 +289,16 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	`).Scan(&resID); err != nil {
 		t.Fatalf("failed to insert test reservation: %v", err)
 	}
+	holdQty := holdBaseStock - 1
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO public.stock_reservation_item (reservation_id, product_id, quantity)
-		VALUES ($1::uuid, 'p1', 10)
-	`, resID); err != nil {
+		VALUES ($1::uuid, 'p1', $2)
+	`, resID, holdQty); err != nil {
 		t.Fatalf("failed to insert test reservation item: %v", err)
 	}
-	// Current stock is 13. Active hold is 10.
-	// Reducing by 4 would make stock 9, which is < active hold 10 -> should fail with ErrInsufficientUnreserved
-	if err := s.Restock(ctx, empAllowed, "batch_adj_res_fail", "p1", -4, "HOLD-VIOLATION", "127.0.0.1"); !errors.Is(err, ErrInsufficientUnreserved) {
+	// Reducing by 2 leaves holdBaseStock - 2, which is < holdQty (holdBaseStock - 1), but >= 0.
+	// This cleanly triggers ErrInsufficientUnreserved.
+	if err := s.Restock(ctx, empAllowed, "batch_adj_res_fail", "p1", -2, "HOLD-VIOLATION", "127.0.0.1"); !errors.Is(err, ErrInsufficientUnreserved) {
 		t.Fatalf("expected ErrInsufficientUnreserved, got: %v", err)
 	}
 	// Clean up reservation
