@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -159,25 +160,55 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	s := &Store{Pool: pool, Invalidator: inv}
 
 	// 1. Employee without permission is rejected
-	if err := s.Restock(ctx, empDenied, "p1", 10, "INV-100", "127.0.0.1"); !errors.Is(err, auth.ErrPermissionDenied) {
+	if err := s.Restock(ctx, empDenied, "batch_denied", "p1", 10, "INV-100", "127.0.0.1"); !errors.Is(err, auth.ErrPermissionDenied) {
 		t.Fatalf("expected ErrPermissionDenied for unpermitted employee, got: %v", err)
 	}
 
 	// 2. Negative or zero quantity rejected
-	if err := s.Restock(ctx, empAllowed, "p1", 0, "INV-100", "127.0.0.1"); err == nil {
+	if err := s.Restock(ctx, empAllowed, "batch_zero", "p1", 0, "INV-100", "127.0.0.1"); err == nil {
 		t.Fatal("expected error for zero quantity, got nil")
 	}
 
-	// 3. Employee with permission restocks p1
+	// 3. Unopened product rejected before opening count
+	if err := s.Restock(ctx, empAllowed, "batch_unopened", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "opening balance required") {
+		t.Fatalf("expected opening balance required error for unopened product, got: %v", err)
+	}
+
+	// Record opening balance for p1 and p2
+	if _, err := pool.Exec(ctx, `UPDATE public.catalog_product SET opened=true WHERE id IN ('p1', 'p2')`); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Unconfirmed stock authority rejected
+	if _, err := pool.Exec(ctx, `UPDATE public.stock_control SET authority='delta' WHERE singleton`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Restock(ctx, empAllowed, "batch_authority", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "stock authority is unconfirmed") {
+		t.Fatalf("expected stock authority error, got: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE public.stock_control SET authority='replacement', reconciled_until=now() + interval '1 hour' WHERE singleton`); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5. Employee with permission restocks p1
 	var initialStock int
 	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&initialStock)
-	if err := s.Restock(ctx, empAllowed, "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err != nil {
+	if err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err != nil {
 		t.Fatalf("unexpected error during restock: %v", err)
 	}
 	var newStock int
 	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&newStock)
 	if newStock != initialStock+5 {
 		t.Fatalf("expected stock %d, got %d", initialStock+5, newStock)
+	}
+
+	// Verify reconciled_until was cleared
+	var recUntil *time.Time
+	if err := pool.QueryRow(ctx, `SELECT reconciled_until FROM public.stock_control WHERE singleton`).Scan(&recUntil); err != nil {
+		t.Fatal(err)
+	}
+	if recUntil != nil {
+		t.Fatal("expected reconciled_until to be cleared after restock")
 	}
 
 	// Verify ledger entry
@@ -192,8 +223,23 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 		t.Fatalf("expected 1 audit log entry for restock, got %d (err: %v)", auditCount, err)
 	}
 
-	// 4. Owner restocks p2
-	if err := s.Restock(ctx, owner, "p2", 3, "OWNER-ARRIVAL", "127.0.0.1"); err != nil {
+	// 6. Idempotent replay with identical batch ID and content
+	if err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err != nil {
+		t.Fatalf("expected idempotent replay to succeed, got: %v", err)
+	}
+	var replayedStock int
+	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&replayedStock)
+	if replayedStock != newStock {
+		t.Fatalf("expected replayed stock to remain %d, got %d", newStock, replayedStock)
+	}
+
+	// 7. Batch ID collision with different content rejected
+	if err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 10, "DIFFERENT-REF", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "already used with different content") {
+		t.Fatalf("expected batch ID reuse error, got: %v", err)
+	}
+
+	// 8. Owner restocks p2
+	if err := s.Restock(ctx, owner, "batch_test_2", "p2", 3, "OWNER-ARRIVAL", "127.0.0.1"); err != nil {
 		t.Fatalf("owner restock failed: %v", err)
 	}
 
