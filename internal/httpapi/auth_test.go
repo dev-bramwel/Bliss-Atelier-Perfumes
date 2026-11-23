@@ -98,9 +98,22 @@ func (m *testAuthStore) CountActiveOwners(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (m *testAuthStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string) ([]string, error) {
+func (m *testAuthStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, checkSoleOwner bool, auditEntry *auth.AuditLogEntry) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if checkSoleOwner {
+		activeOwnerCount := 0
+		for _, u := range m.users {
+			if u.Role == auth.RoleOwner && u.IsActive {
+				activeOwnerCount++
+			}
+		}
+		if activeOwnerCount <= 1 {
+			return nil, auth.ErrCannotDeactivateSoleOwner
+		}
+	}
+
 	u, ok := m.users[userID]
 	if !ok {
 		return nil, auth.ErrSessionNotFound
@@ -113,6 +126,11 @@ func (m *testAuthStore) DeactivateUserAndRevokeSessions(ctx context.Context, use
 			revoked = append(revoked, tokenHash)
 		}
 	}
+
+	if auditEntry != nil {
+		m.auditLogs = append([]auth.AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
 	return revoked, nil
 }
 
