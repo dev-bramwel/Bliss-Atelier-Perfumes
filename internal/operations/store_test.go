@@ -169,24 +169,31 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 		t.Fatal("expected error for zero quantity, got nil")
 	}
 
-	// 3. Unopened product rejected before opening count
-	if err := s.Restock(ctx, empAllowed, "batch_unopened", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "opening balance required") {
-		t.Fatalf("expected opening balance required error for unopened product, got: %v", err)
+	// 3. Unconfirmed stock authority rejected
+	if _, err := pool.Exec(ctx, `UPDATE public.stock_control SET authority='unconfirmed' WHERE singleton`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Restock(ctx, empAllowed, "batch_authority", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); !errors.Is(err, ErrAuthorityRequired) {
+		t.Fatalf("expected ErrAuthorityRequired, got: %v", err)
+	}
+
+	// Set authority to replacement
+	if _, err := pool.Exec(ctx, `UPDATE public.stock_control SET authority='replacement', reconciled_until=now() + interval '1 hour' WHERE singleton`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ensure p1 is unopened before testing unopened check
+	if _, err := pool.Exec(ctx, `UPDATE public.catalog_product SET opened=false WHERE id='p1'`); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Unopened product rejected before opening count
+	if err := s.Restock(ctx, empAllowed, "batch_unopened", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); !errors.Is(err, ErrUnopenedProduct) {
+		t.Fatalf("expected ErrUnopenedProduct, got: %v", err)
 	}
 
 	// Record opening balance for p1 and p2
 	if _, err := pool.Exec(ctx, `UPDATE public.catalog_product SET opened=true WHERE id IN ('p1', 'p2')`); err != nil {
-		t.Fatal(err)
-	}
-
-	// 4. Unconfirmed stock authority rejected
-	if _, err := pool.Exec(ctx, `UPDATE public.stock_control SET authority='delta' WHERE singleton`); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Restock(ctx, empAllowed, "batch_authority", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "stock authority is unconfirmed") {
-		t.Fatalf("expected stock authority error, got: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `UPDATE public.stock_control SET authority='replacement', reconciled_until=now() + interval '1 hour' WHERE singleton`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -265,6 +272,29 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	if err := s.Restock(ctx, empAllowed, "batch_zero", "p1", 0, "ZERO-QTY", "127.0.0.1"); !errors.Is(err, ErrInvalidQuantity) {
 		t.Fatalf("expected ErrInvalidQuantity, got: %v", err)
 	}
+
+	// 12. Active checkout hold protection prevents stock reduction below active holds
+	var resID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO public.stock_reservation (cart_id, session_id, status, expires_at)
+		VALUES ('cart_test', 'sess_test', 'active', now() + interval '10 minutes')
+		RETURNING id::text
+	`).Scan(&resID); err != nil {
+		t.Fatalf("failed to insert test reservation: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO public.stock_reservation_item (reservation_id, product_id, quantity)
+		VALUES ($1::uuid, 'p1', 10)
+	`, resID); err != nil {
+		t.Fatalf("failed to insert test reservation item: %v", err)
+	}
+	// Current stock is 13. Active hold is 10.
+	// Reducing by 4 would make stock 9, which is < active hold 10 -> should fail with ErrInsufficientUnreserved
+	if err := s.Restock(ctx, empAllowed, "batch_adj_res_fail", "p1", -4, "HOLD-VIOLATION", "127.0.0.1"); !errors.Is(err, ErrInsufficientUnreserved) {
+		t.Fatalf("expected ErrInsufficientUnreserved, got: %v", err)
+	}
+	// Clean up reservation
+	_, _ = pool.Exec(ctx, `DELETE FROM public.stock_reservation WHERE id = $1::uuid`, resID)
 
 	// Verify catalog invalidation
 	time.Sleep(50 * time.Millisecond)
