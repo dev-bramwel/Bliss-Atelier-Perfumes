@@ -243,6 +243,29 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 		t.Fatalf("owner restock failed: %v", err)
 	}
 
+	// 9. Negative stock adjustment (correction/damage) by permitted employee
+	if err := s.Restock(ctx, allowedEmp, "batch_adj_1", "p1", -2, "DAMAGED-INSPECTION", "127.0.0.1"); err != nil {
+		t.Fatalf("negative stock adjustment failed: %v", err)
+	}
+	var adjustedStock int
+	if err := pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&adjustedStock); err != nil || adjustedStock != 13 {
+		t.Fatalf("expected stock 13 after -2 adjustment from 15, got %d (err: %v)", adjustedStock, err)
+	}
+	var adjKind string
+	if err := pool.QueryRow(ctx, `SELECT kind FROM public.stock_batch WHERE id='batch_adj_1'`).Scan(&adjKind); err != nil || adjKind != "adjustment" {
+		t.Fatalf("expected batch kind 'adjustment', got %q (err: %v)", adjKind, err)
+	}
+
+	// 10. Insufficient stock error
+	if err := s.Restock(ctx, allowedEmp, "batch_adj_fail", "p1", -100, "EXCESS-DEDUCTION", "127.0.0.1"); !errors.Is(err, ErrInsufficientStock) {
+		t.Fatalf("expected ErrInsufficientStock, got: %v", err)
+	}
+
+	// 11. Zero quantity error
+	if err := s.Restock(ctx, allowedEmp, "batch_zero", "p1", 0, "ZERO-QTY", "127.0.0.1"); !errors.Is(err, ErrInvalidQuantity) {
+		t.Fatalf("expected ErrInvalidQuantity, got: %v", err)
+	}
+
 	// Verify catalog invalidation
 	time.Sleep(50 * time.Millisecond)
 	if !inv.called.Load() {
