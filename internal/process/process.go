@@ -182,7 +182,7 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		}
 		var ops httpapi.OperationsService
 		if pool != nil {
-			ops = &operations.Store{Pool: pool}
+			ops = &operations.Store{Pool: pool, Invalidator: catalogCache}
 		}
 		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService, ops).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
