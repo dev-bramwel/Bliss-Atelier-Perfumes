@@ -978,3 +978,31 @@ func TestUpdateUserPermissions(t *testing.T) {
 		t.Fatalf("expected ErrPermissionDenied when actor is deactivated in store, got %v", err)
 	}
 }
+
+func TestListUsersPagePermissions(t *testing.T) {
+	ctx := context.Background()
+	store := newMemStore()
+	service := NewService(store, nil, nil)
+
+	owner, _ := store.UpsertUserByGoogleSub(ctx, "sub-owner-page", "owner-page@blissatelier.com", "Owner User", "")
+	_ = store.UpdateUserRole(ctx, owner.ID, RoleOwner)
+	owner, _ = store.GetUserByID(ctx, owner.ID)
+
+	emp, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp-page", "emp-page@blissatelier.com", "Employee User", "")
+	_ = store.UpdateUserRole(ctx, emp.ID, RoleEmployee)
+	err := service.UpdateUserPermissions(ctx, owner, emp.ID, true, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error updating permissions: %v", err)
+	}
+
+	users, err := service.ListUsersPage(ctx, owner, RoleEmployee, 10, 0)
+	if err != nil {
+		t.Fatalf("unexpected error listing users: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(users))
+	}
+	if !users[0].CanManageInventory {
+		t.Fatal("expected user to have CanManageInventory true in ListUsersPage")
+	}
+}
