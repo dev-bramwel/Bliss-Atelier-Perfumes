@@ -6,10 +6,7 @@ const resultsCount = document.getElementById("resultsCount");
 
 const searchInput = document.getElementById("searchInput");
 const categorySelect = document.getElementById("categorySelect");
-const searchInputMobile = document.getElementById("searchInputMobile");
-const categorySelectMobile = document.getElementById("categorySelectMobile");
 const genderSelect = document.getElementById("genderSelect");
-const genderSelectMobile = document.getElementById("genderSelectMobile");
 
 const whatsappLink = document.getElementById("whatsappLink");
 const backToTopBtn = document.getElementById("backToTopBtn");
@@ -33,13 +30,6 @@ function renderFilterOptions() {
     genderSelect.value = "all";
   }
 
-  if (genderSelectMobile) {
-    genderSelectMobile.innerHTML = genderOptions
-      .map((g) => `<option value="${g}">${g === "all" ? "All" : g}</option>`)
-      .join("");
-    genderSelectMobile.value = "all";
-  }
-
   updateCategorySelectOptions("all");
 }
 
@@ -59,35 +49,21 @@ function updateCategorySelectOptions(selectedGender = "all") {
         `<option value="${c}">${c === "all" ? "All categories" : c}</option>`,
     )
     .join("");
-  const mobileOptions = categories
-    .map((c) => `<option value="${c}">${c === "all" ? "All" : c}</option>`)
-    .join("");
-
-  [categorySelect, categorySelectMobile].forEach((sel, idx) => {
-    if (!sel) return;
-    const prev = sel.value;
-    sel.innerHTML = idx === 0 ? desktopOptions : mobileOptions;
-    sel.value = categories.includes(prev) ? prev : "all";
-  });
+  if (!categorySelect) return;
+  const prev = categorySelect.value;
+  categorySelect.innerHTML = desktopOptions;
+  categorySelect.value = categories.includes(prev) ? prev : "all";
 }
 
 // --------------------
 // RENDER: Products
 // --------------------
 function getFilters() {
-  const s = (searchInput?.value ?? "").trim();
-  const sm = (searchInputMobile?.value ?? "").trim();
-  const search = s.length ? s : sm;
-
-  const g = genderSelect?.value ?? "all";
-  const gm = genderSelectMobile?.value ?? "all";
-  const gender = g !== "all" ? g : gm !== "all" ? gm : "all";
-
-  const c = categorySelect?.value ?? "all";
-  const cm = categorySelectMobile?.value ?? "all";
-  const category = c !== "all" ? c : cm !== "all" ? cm : "all";
-
-  return { search, category, gender };
+  return {
+    search: (searchInput?.value ?? "").trim(),
+    category: categorySelect?.value ?? "all",
+    gender: genderSelect?.value ?? "all",
+  };
 }
 
 function renderProducts() {
@@ -140,32 +116,32 @@ function renderProducts() {
           ? "Add to cart"
           : "Currently unavailable";
       return `
-    <div class="glass-panel rounded-3xl overflow-hidden border border-white/10 flex flex-col">
-      <div class="product-card-img" data-open-product="${p.id}">
-        <img src="${eThumb}" alt="${eName}"
+    <div class="collection-card flex flex-col">
+      <button type="button" class="product-card-img" data-open-product="${p.id}" aria-label="View details for ${eName}">
+        <img src="${eThumb}" alt=""
              onerror="this.onerror=null;this.classList.add('img-broken')" loading="lazy">
         <div class="product-card-img-placeholder"><span>${eName.charAt(0)}</span></div>
         <div class="product-card-img-overlay">
           <span class="product-card-view-btn">View Details</span>
         </div>
-      </div>
-      <div class="p-5 flex flex-col flex-1">
+      </button>
+      <div class="collection-card-content flex flex-col flex-1">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">${eGender} &bull; ${eCategory}</div>
-            <h3 class="text-xl font-semibold text-white">${eName}</h3>
-            <p class="text-sm text-gray-400">${eSize} &bull; ${eNotes}</p>
+            <div class="collection-card-category">${eGender} &bull; ${eCategory}</div>
+            <h3 class="collection-card-name">${eName}</h3>
+            <p class="collection-card-notes">${eSize} &bull; ${eNotes}</p>
             <p class="stock-badge" data-low="${p.stock > 0 && p.stock <= 5}">${!p.available ? (p.stock === 0 ? "Sold Out" : "Currently unavailable") : p.stock <= 5 ? "Only " + p.stock + " left in stock" : "In Stock"}</p>
           </div>
-          <div class="text-right shrink-0">
-            <div class="font-semibold text-lg text-[var(--gold-soft)]">KES ${formatKes(p.priceKes)}</div>
+          <div class="collection-card-price-wrap">
+            <div class="collection-card-price">KES ${formatKes(p.priceKes)}</div>
           </div>
         </div>
-        <div class="mt-5 flex flex-col sm:flex-row gap-2">
-          <button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add="${p.id}" ${canBuy ? "" : "disabled"}>
+        <div class="collection-card-actions">
+          <button class="collection-add gold-btn" data-add="${p.id}" ${canBuy ? "" : "disabled"}>
             ${btnText}
           </button>
-          <a class="w-full sm:w-auto py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 text-center hover:bg-white/10"
+          <a class="collection-whatsapp"
              href="${wa}" target="_blank" rel="noreferrer">
             WhatsApp
           </a>
@@ -187,7 +163,7 @@ function bindCardEvents() {
   });
 
   document.querySelectorAll("[data-open-product]").forEach((el) => {
-    el.onclick = () => openProductModal(el.dataset.openProduct);
+    el.onclick = () => openProductModal(el.dataset.openProduct, el);
   });
 }
 
@@ -195,6 +171,7 @@ function bindCardEvents() {
 // PRODUCT DETAIL MODAL
 // --------------------
 let _modal = null;
+let _modalOpener = null;
 let _modalImages = [];
 let _modalImageIdx = 0;
 
@@ -208,9 +185,10 @@ function getOrCreateModal() {
     overlay.className = "product-modal-overlay";
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-labelledby", "modalName");
     overlay.innerHTML = `
     <div class="product-modal-panel">
-      <button class="product-modal-close" id="modalClose" aria-label="Close">
+      <button type="button" class="product-modal-close" id="modalClose" aria-label="Close product details">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
           <path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L10.94 12l-6.72 6.72a.75.75 0 1 0 1.06 1.06L12 13.06l6.72 6.72a.75.75 0 1 0 1.06-1.06L13.06 12l6.72-6.72a.75.75 0 0 0-1.06-1.06L12 10.94 5.28 4.22Z"/>
         </svg>
@@ -271,7 +249,26 @@ function getOrCreateModal() {
 
   document.addEventListener("keydown", (e) => {
     if (!overlay.classList.contains("open")) return;
-    if (e.key === "Escape") closeProductModal();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeProductModal();
+      return;
+    }
+    if (e.key === "Tab") {
+      const focusable = Array.from(overlay.querySelectorAll(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((el) => el.getClientRects().length > 0);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first) return;
+      if (e.shiftKey && (document.activeElement === first || !overlay.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !overlay.contains(document.activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
     if (e.key === "ArrowRight") shiftModalImage(1);
     if (e.key === "ArrowLeft") shiftModalImage(-1);
   });
@@ -300,11 +297,12 @@ function getOrCreateModal() {
   return overlay;
 }
 
-function openProductModal(id) {
+function openProductModal(id, opener = null) {
   const p = getProduct(id);
   if (!p) return;
 
   const modal = getOrCreateModal();
+  _modalOpener = opener || document.activeElement;
   modal.dataset.productId = id;
   _modalImages = p.images || [];
   _modalImageIdx = 0;
@@ -338,12 +336,15 @@ function openProductModal(id) {
   renderModalImages();
   modal.classList.add("open");
   document.body.style.overflow = "hidden";
+  document.getElementById("modalClose")?.focus();
 }
 
 function closeProductModal() {
   if (_modal) {
     _modal.classList.remove("open");
     document.body.style.overflow = "";
+    _modalOpener?.focus?.();
+    _modalOpener = null;
   }
 }
 
@@ -443,22 +444,12 @@ window.addEventListener("scroll", updateBackToTopVisibility, { passive: true });
 // --------------------
 // FILTER EVENTS
 // --------------------
-[searchInput, searchInputMobile].forEach((inp) =>
-  inp?.addEventListener("input", renderProducts),
-);
-[categorySelect, categorySelectMobile].forEach((sel) =>
-  sel?.addEventListener("change", renderProducts),
-);
-[genderSelect, genderSelectMobile].forEach((sel) =>
-  sel?.addEventListener("change", (e) => {
-    const value = e.target.value;
-    if (sel === genderSelect && genderSelectMobile)
-      genderSelectMobile.value = value;
-    if (sel === genderSelectMobile && genderSelect) genderSelect.value = value;
-    updateCategorySelectOptions(value);
-    renderProducts();
-  }),
-);
+searchInput?.addEventListener("input", renderProducts);
+categorySelect?.addEventListener("change", renderProducts);
+genderSelect?.addEventListener("change", (e) => {
+  updateCategorySelectOptions(e.target.value);
+  renderProducts();
+});
 
 // --------------------
 // INIT
