@@ -20,7 +20,14 @@ import (
 
 var ErrConflict = errors.New("operation conflicts with the current order state")
 
-type Store struct{ Pool *pgxpool.Pool }
+type Invalidator interface {
+	Invalidate(ctx context.Context) error
+}
+
+type Store struct {
+	Pool        *pgxpool.Pool
+	Invalidator Invalidator
+}
 type InventoryItem struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -248,7 +255,19 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, productID string,
 		return fmt.Errorf("failed to record audit: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	if s.Invalidator != nil {
+		go func() {
+			cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = s.Invalidator.Invalidate(cctx)
+		}()
+	}
+
+	return nil
 }
 
 func audit(ctx context.Context, tx pgx.Tx, u *auth.User, action, id, ip string, metadata map[string]any) error {
