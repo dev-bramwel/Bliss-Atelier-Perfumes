@@ -6,33 +6,53 @@ import (
 )
 
 templ IndexPage(products []catalog.Product) {
-	<main class="max-w-6xl mx-auto px-4 py-10">
-		<section id="collection" class="glass-panel hero-panel p-6 sm:p-8">
-			<div
-				class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-6 text-center sm:text-left"
-			>
-				<div class="space-y-1">
-					<p
-						class="uppercase tracking-[0.4em] text-xs text-[var(--gold-soft)]"
-					>
-						House of scent
-					</p>
-					<h1
-						class="text-3xl sm:text-4xl font-semibold font-display text-white"
-					>
-						Bliss Atelier Perfumes
-					</h1>
-					<p class="text-gray-400 text-sm mt-1">
-						Choose a scent. Become a different person.
-					</p>
+	{{ heroImage := "" }}
+	{{ heroName := "Bliss Atelier Perfumes" }}
+	if len(products) > 0 {
+		{{ heroName = products[0].Name }}
+		if len(products[0].Images) > 0 {
+			{{ heroImage = products[0].Images[0] }}
+		}
+	}
+	<main class="storefront-main">
+		<section class="editorial-hero" aria-labelledby="homeTitle">
+			<div class="editorial-hero-copy">
+				<p class="editorial-eyebrow">Bliss Atelier · As you wish</p>
+				<h1 id="homeTitle">Find the scent that feels like you.</h1>
+				<p class="editorial-intro">A considered collection for every mood and moment.</p>
+				<a class="editorial-cta" href="#collection">Explore fragrances <span aria-hidden="true">→</span></a>
+			</div>
+			<div class="editorial-hero-image">
+				if heroImage != "" {
+					<img src={ heroImage } alt={ "Featured fragrance: " + heroName } fetchpriority="high" />
+				} else {
+					<div class="editorial-hero-placeholder" aria-hidden="true">BP</div>
+				}
+			</div>
+		</section>
+		<section id="collection" class="collection-section" aria-labelledby="collectionTitle">
+			<div class="collection-heading">
+				<div>
+					<p class="collection-eyebrow">Find your next signature</p>
+					<h2 id="collectionTitle">The collection</h2>
 				</div>
-				<div class="text-sm text-gray-300 text-center sm:text-right">
-					Showing <span id="resultsCount">{ fmt.Sprintf("%d", len(products)) }</span>
-				</div>
+				<p class="collection-count" aria-live="polite">Showing <span id="resultsCount">{ fmt.Sprintf("%d", len(products)) }</span> fragrances</p>
+			</div>
+			<div class="collection-filters" role="search" aria-label="Search and filter fragrances">
+				<label class="collection-search">
+					<span class="sr-only">Search fragrances, notes, or moods</span>
+					<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg>
+					<input id="searchInput" type="search" placeholder="Search fragrances, notes, or moods" />
+				</label>
+				<label class="sr-only" for="genderSelect">Filter by fragrance gender</label>
+				<select id="genderSelect" aria-label="Filter by gender"><option value="all">All genders</option></select>
+				<label class="sr-only" for="categorySelect">Filter by fragrance category</label>
+				<select id="categorySelect" aria-label="Filter by category"><option value="all">All categories</option></select>
 			</div>
 			<section
 				id="productGrid"
 				class="product-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
+				aria-label="Fragrances"
 			>
 				for _, p := range products {
 					@ProductCard(p)
@@ -52,11 +72,11 @@ templ ProductCard(p catalog.Product) {
 	if gender == "" {
 		{{ gender = "Unisex" }}
 	}
-	<div class="glass-panel rounded-3xl overflow-hidden border border-white/10 flex flex-col">
-		<div class="product-card-img" data-open-product={ p.ID }>
+	<div class="collection-card flex flex-col">
+		<button type="button" class="product-card-img" data-open-product={ p.ID } aria-label={ "View details for " + p.Name }>
 			<img
 				src={ thumb }
-				alt={ p.Name }
+				alt=""
 				onerror="this.onerror=null;this.classList.add('img-broken')"
 				loading="lazy"
 			/>
@@ -70,15 +90,15 @@ templ ProductCard(p catalog.Product) {
 			<div class="product-card-img-overlay">
 				<span class="product-card-view-btn">View Details</span>
 			</div>
-		</div>
-		<div class="p-5 flex flex-col flex-1">
+		</button>
+		<div class="collection-card-content flex flex-col flex-1">
 			<div class="flex items-start justify-between gap-3">
 				<div>
-					<div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">
+					<div class="collection-card-category">
 						{ gender } &bull; { p.Category }
 					</div>
-					<h3 class="text-xl font-semibold text-white">{ p.Name }</h3>
-					<p class="text-sm text-gray-400">{ p.Size } &bull; { p.Notes }</p>
+					<h3 class="collection-card-name">{ p.Name }</h3>
+					<p class="collection-card-notes">{ p.Size } &bull; { p.Notes }</p>
 					<p class="stock-badge">
 						if !p.Available {
 							if p.Stock == 0 {
@@ -93,24 +113,24 @@ templ ProductCard(p catalog.Product) {
 						}
 					</p>
 				</div>
-				<div class="text-right shrink-0">
-					<div class="font-semibold text-lg text-[var(--gold-soft)]">
+				<div class="collection-card-price-wrap">
+					<div class="collection-card-price">
 						KES { formatPriceKes(p.PriceKes) }
 					</div>
 				</div>
 			</div>
-			<div class="mt-5 flex flex-col sm:flex-row gap-2">
+			<div class="collection-card-actions">
 				if p.Available {
-					<button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add={ p.ID }>
+					<button class="collection-add gold-btn" data-add={ p.ID }>
 						Add to cart
 					</button>
 				} else {
-					<button class="w-full sm:flex-1 py-2.5 rounded-2xl gold-btn text-sm" data-add={ p.ID } disabled>
+					<button class="collection-add gold-btn" data-add={ p.ID } disabled>
 						Currently unavailable
 					</button>
 				}
 				<a
-					class="w-full sm:w-auto py-2.5 px-4 rounded-2xl border border-white/20 text-sm text-gray-100 text-center hover:bg-white/10"
+					class="collection-whatsapp"
 					href={ templ.SafeURL(whatsAppOrderURL(p)) }
 					target="_blank"
 					rel="noreferrer"
@@ -123,9 +143,9 @@ templ ProductCard(p catalog.Product) {
 }
 
 templ ProductModal() {
-	<div id="productModal" class="product-modal-overlay" role="dialog" aria-modal="true" style="display: none;">
+	<div id="productModal" class="product-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modalName">
 		<div class="product-modal-panel">
-			<button class="product-modal-close" id="modalClose" aria-label="Close">
+			<button type="button" class="product-modal-close" id="modalClose" aria-label="Close product details">
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
 					<path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L10.94 12l-6.72 6.72a.75.75 0 1 0 1.06 1.06L12 13.06l6.72 6.72a.75.75 0 1 0 1.06-1.06L13.06 12l6.72-6.72a.75.75 0 0 0-1.06-1.06L12 10.94 5.28 4.22Z"></path>
 				</svg>
