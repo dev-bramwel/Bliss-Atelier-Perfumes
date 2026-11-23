@@ -49,7 +49,7 @@ func (s *Service) ListUsersPage(ctx context.Context, actor *User, filter string,
 	return users[offset:min(len(users), offset+limit)], nil
 }
 func (s *PGStore) ListUsersPage(ctx context.Context, role, filter string, limit, offset int) ([]User, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,google_sub,email,name,picture_url,role,is_active,created_at,updated_at FROM public.app_user WHERE ($1='owner' OR role IN ('employee','customer')) AND ($2='' OR role=$2) ORDER BY created_at DESC,id DESC LIMIT $3 OFFSET $4`, role, filter, limit, offset)
+	rows, err := s.pool.Query(ctx, `SELECT id,google_sub,email,name,picture_url,role,is_active,can_manage_inventory,created_at,updated_at FROM public.app_user WHERE ($1='owner' OR role IN ('employee','customer')) AND ($2='' OR role=$2) ORDER BY created_at DESC,id DESC LIMIT $3 OFFSET $4`, role, filter, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (s *PGStore) ListUsersPage(ctx context.Context, role, filter string, limit,
 	users := []User{}
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CanManageInventory, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
