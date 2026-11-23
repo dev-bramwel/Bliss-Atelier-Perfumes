@@ -401,17 +401,27 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 		return ErrPermissionDenied
 	}
 
-	if err := s.store.UpdateUserStatus(ctx, targetUserID, isActive); err != nil {
-		return err
-	}
-
 	if !isActive {
-		revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUserID)
+		if targetUser.Role == RoleOwner {
+			activeOwners, err := s.store.CountActiveOwners(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to count active owners: %w", err)
+			}
+			if activeOwners <= 1 {
+				return ErrCannotDeactivateSoleOwner
+			}
+		}
+
+		revokedHashes, err := s.store.DeactivateUserAndRevokeSessions(ctx, targetUserID)
 		if err != nil {
-			return fmt.Errorf("failed to revoke sessions for deactivated user: %w", err)
+			return fmt.Errorf("failed to deactivate user and revoke sessions: %w", err)
 		}
 		for _, h := range revokedHashes {
 			s.evictCachedSession(ctx, h)
+		}
+	} else {
+		if err := s.store.UpdateUserStatus(ctx, targetUserID, true); err != nil {
+			return err
 		}
 	}
 
@@ -440,26 +450,21 @@ func (s *Service) DeactivateSelf(ctx context.Context, actor *User, ip string) er
 		return ErrPermissionDenied
 	}
 
-	// Protect store operations from sole owner lockout
+	// Protect store operations from sole active owner lockout
 	if actor.Role == RoleOwner {
-		count, err := s.store.CountOwners(ctx)
+		count, err := s.store.CountActiveOwners(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to count owners: %w", err)
+			return fmt.Errorf("failed to count active owners: %w", err)
 		}
 		if count <= 1 {
 			return ErrCannotDeactivateSoleOwner
 		}
 	}
 
-	// Update user status to inactive
-	if err := s.store.UpdateUserStatus(ctx, actor.ID, false); err != nil {
-		return fmt.Errorf("failed to deactivate user: %w", err)
-	}
-
-	// Revoke all active sessions across all devices
-	revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, actor.ID)
+	// Atomically deactivate user and revoke all active sessions across all devices
+	revokedHashes, err := s.store.DeactivateUserAndRevokeSessions(ctx, actor.ID)
 	if err != nil {
-		return fmt.Errorf("failed to revoke sessions for self-deactivated user: %w", err)
+		return fmt.Errorf("failed to deactivate user and revoke sessions: %w", err)
 	}
 	for _, h := range revokedHashes {
 		s.evictCachedSession(ctx, h)
