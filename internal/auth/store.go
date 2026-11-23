@@ -23,7 +23,7 @@ type Store interface {
 	CountActiveOwners(ctx context.Context) (int, error)
 	UpdateUserRole(ctx context.Context, id string, newRole string) error
 	UpdateUserStatus(ctx context.Context, id string, isActive bool) error
-	DeactivateUserAndRevokeSessions(ctx context.Context, userID string) ([]string, error)
+	DeactivateUserAndRevokeSessions(ctx context.Context, userID string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error)
 	ListUsers(ctx context.Context, filterRole string) ([]User, error)
 
 	// Login transaction operations
@@ -167,13 +167,27 @@ func (s *PGStore) UpdateUserStatus(ctx context.Context, id string, isActive bool
 	return nil
 }
 
-// DeactivateUserAndRevokeSessions atomically sets app_user.is_active = FALSE and revokes all active sessions for the user.
-func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string) ([]string, error) {
+// DeactivateUserAndRevokeSessions atomically sets app_user.is_active = FALSE, revokes all active sessions,
+// records an audit log entry (if provided), and checks that at least one other active owner remains if checkSoleOwner is true.
+// The owner check locks active owner rows with FOR UPDATE to prevent concurrency races.
+func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	if checkSoleOwner {
+		var activeOwnerCount int
+		// Lock active owner rows to serialize concurrent owner deactivations and prevent race conditions.
+		err := tx.QueryRow(ctx, `SELECT count(*) FROM public.app_user WHERE role = 'owner' AND is_active = TRUE FOR UPDATE`).Scan(&activeOwnerCount)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify active owner count: %w", err)
+		}
+		if activeOwnerCount <= 1 {
+			return nil, ErrCannotDeactivateSoleOwner
+		}
+	}
 
 	cmd, err := tx.Exec(ctx, `UPDATE public.app_user SET is_active = FALSE, updated_at = now() WHERE id = $1`, userID)
 	if err != nil {
@@ -192,14 +206,33 @@ func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID st
 	var hashes []string
 	for rows.Next() {
 		var h string
-		if err := rows.Scan(&h); err == nil {
-			hashes = append(hashes, h)
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("failed to scan revoked session token hash: %w", err)
 		}
+		hashes = append(hashes, h)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error iterating revoked token hashes: %w", err)
 	}
 	rows.Close()
+
+	if auditEntry != nil {
+		id := auditEntry.ID
+		if id == "" {
+			id = generateID("aud")
+		}
+		metaBytes, err := json.Marshal(auditEntry.Metadata)
+		if err != nil {
+			metaBytes = []byte("{}")
+		}
+		query := `
+			INSERT INTO public.admin_audit_log (id, user_id, actor_role, action, resource, resource_id, ip_address, metadata, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now());
+		`
+		if _, err := tx.Exec(ctx, query, id, auditEntry.UserID, auditEntry.ActorRole, auditEntry.Action, auditEntry.Resource, auditEntry.ResourceID, auditEntry.IPAddress, metaBytes); err != nil {
+			return nil, fmt.Errorf("failed to record audit log: %w", err)
+		}
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit deactivation transaction: %w", err)
@@ -341,11 +374,15 @@ func (s *PGStore) RevokeSessionsByUserID(ctx context.Context, userID string) ([]
 	var hashes []string
 	for rows.Next() {
 		var h string
-		if err := rows.Scan(&h); err == nil {
-			hashes = append(hashes, h)
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("failed to scan session token hash: %w", err)
 		}
+		hashes = append(hashes, h)
 	}
-	return hashes, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating session token hashes: %w", err)
+	}
+	return hashes, nil
 }
 
 // RecordAuditLog writes an immutable record to admin_audit_log.
