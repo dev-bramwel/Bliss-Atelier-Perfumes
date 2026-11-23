@@ -223,9 +223,22 @@ func (m *memStore) CountActiveOwners(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (m *memStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string) ([]string, error) {
+func (m *memStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if checkSoleOwner {
+		activeOwnerCount := 0
+		for _, u := range m.users {
+			if u.Role == RoleOwner && u.IsActive {
+				activeOwnerCount++
+			}
+		}
+		if activeOwnerCount <= 1 {
+			return nil, ErrCannotDeactivateSoleOwner
+		}
+	}
+
 	u, ok := m.users[userID]
 	if !ok {
 		return nil, errors.New("user not found")
@@ -241,6 +254,11 @@ func (m *memStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID s
 			revoked = append(revoked, tokenHash)
 		}
 	}
+
+	if auditEntry != nil {
+		m.auditLogs = append([]AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
 	return revoked, nil
 }
 
@@ -605,6 +623,19 @@ func TestDeactivateSelfAndStaffReactivation(t *testing.T) {
 	err = service.DeactivateSelf(ctx, owner, "127.0.0.1")
 	if !errors.Is(err, ErrCannotDeactivateSoleOwner) {
 		t.Fatalf("expected ErrCannotDeactivateSoleOwner when other owners are inactive, got %v", err)
+	}
+
+	// 1c. With 2 active owners, first can deactivate, but second is immediately blocked from leaving 0 active owners
+	_ = store.UpdateUserStatus(ctx, inactiveOwner.ID, true)
+	activeOwner2, _ := store.GetUserByID(ctx, inactiveOwner.ID)
+	err = service.DeactivateSelf(ctx, activeOwner2, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("failed to deactivate one of two active owners: %v", err)
+	}
+	// Now only owner 1 remains active; owner 1 cannot deactivate
+	err = service.DeactivateSelf(ctx, owner, "127.0.0.1")
+	if !errors.Is(err, ErrCannotDeactivateSoleOwner) {
+		t.Fatalf("expected ErrCannotDeactivateSoleOwner for remaining active owner, got %v", err)
 	}
 
 	// 2. Customer can self-deactivate
