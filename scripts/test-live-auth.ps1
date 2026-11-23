@@ -247,6 +247,42 @@ if ($customerReactivatedAuth.User.id -ne $customerAuth.User.id) {
 }
 Write-Host "  -> Customer successfully logged in after reactivation" -ForegroundColor Green
 
+# --- STEP 9: Owner-Managed Employee Inventory Permissions ---
+Write-Host "`n[STEP 9] Testing Owner-Managed Employee Inventory Permissions..." -ForegroundColor Cyan
+
+# 9.1: Employee without inventory permission cannot access inventory mutation or query endpoints
+Write-Host "  -> Verifying employee without inventory permission is rejected on /catalog/invalidate and /operations/inventory..."
+$empInvBlocked = Invoke-Api -Method "POST" -Path "/api/catalog/invalidate" -AuthContext $employeeAuth -ExpectedStatuses @(403)
+Write-Host "  -> Employee catalog invalidation rejected with 403 Forbidden" -ForegroundColor Green
+$empGetInvBlocked = Invoke-Api -Method "GET" -Path "/api/operations/inventory" -AuthContext $employeeAuth -ExpectedStatuses @(403)
+Write-Host "  -> Employee inventory query rejected with 403 Forbidden" -ForegroundColor Green
+
+# 9.2: Employee cannot update permissions (403 Forbidden)
+Write-Host "  -> Verifying employee cannot modify permissions..."
+$empPermBlocked = Invoke-Api -Method "POST" -Path "/api/admin/users/$($employeeAuth.User.id)/permissions" -AuthContext $employeeAuth -Body @{ can_manage_inventory = $true } -ExpectedStatuses @(403)
+Write-Host "  -> Employee correctly blocked from modifying permissions (403 Forbidden)" -ForegroundColor Green
+
+# 9.3: Owner grants inventory permission to Employee
+Write-Host "  -> Owner granting can_manage_inventory=true to Employee..."
+Invoke-Api -Method "POST" -Path "/api/admin/users/$($employeeAuth.User.id)/permissions" -AuthContext $ownerAuth -Body @{ can_manage_inventory = $true } -ExpectedStatuses @(200) | Out-Null
+Write-Host "  -> Inventory permission granted" -ForegroundColor Green
+
+# 9.4: Employee with permission can access inventory endpoints
+Write-Host "  -> Verifying employee with permission can invalidate catalog and query inventory..."
+$empInvAllowed = Invoke-Api -Method "POST" -Path "/api/catalog/invalidate" -AuthContext $employeeAuth -ExpectedStatuses @(200)
+Write-Host "  -> Employee successfully invalidated catalog (200 OK)" -ForegroundColor Green
+$empGetInvAllowed = Invoke-Api -Method "GET" -Path "/api/operations/inventory" -AuthContext $employeeAuth -ExpectedStatuses @(200)
+Write-Host "  -> Employee successfully retrieved inventory (200 OK)" -ForegroundColor Green
+
+# 9.5: Owner revokes inventory permission
+Write-Host "  -> Owner revoking inventory permission from Employee..."
+Invoke-Api -Method "POST" -Path "/api/admin/users/$($employeeAuth.User.id)/permissions" -AuthContext $ownerAuth -Body @{ can_manage_inventory = $false } -ExpectedStatuses @(200) | Out-Null
+Write-Host "  -> Inventory permission revoked" -ForegroundColor Green
+
+# 9.6: Employee is once again rejected
+$empRevokedInvBlocked = Invoke-Api -Method "POST" -Path "/api/catalog/invalidate" -AuthContext $employeeAuth -ExpectedStatuses @(403)
+Write-Host "  -> Employee correctly blocked after permission revocation (403 Forbidden)" -ForegroundColor Green
+
 Write-Host "`n================================================================="
 Write-Host " ALL LIVE INSTANCE AUTH & RBAC TESTS PASSED SUCCESSFULLY! " -ForegroundColor Green
 Write-Host "=================================================================`n"
