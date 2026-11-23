@@ -22,9 +22,10 @@ type Store interface {
 	CountOwners(ctx context.Context) (int, error)
 	CountActiveOwners(ctx context.Context) (int, error)
 	UpdateUserRole(ctx context.Context, id string, newRole string) error
-	UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error)
+	UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, auditEntry *AuditLogEntry) ([]string, error)
 	UpdateUserStatus(ctx context.Context, id string, isActive bool) error
-	DeactivateUserAndRevokeSessions(ctx context.Context, userID string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error)
+	ReactivateUser(ctx context.Context, userID string, actorRole string, auditEntry *AuditLogEntry) error
+	DeactivateUserAndRevokeSessions(ctx context.Context, userID string, actorRole string, isSelf bool, auditEntry *AuditLogEntry) ([]string, error)
 	ListUsers(ctx context.Context, filterRole string) ([]User, error)
 
 	// Login transaction operations
@@ -157,8 +158,8 @@ func (s *PGStore) UpdateUserRole(ctx context.Context, id string, newRole string)
 }
 
 // UpdateUserRoleAndRevokeSessions atomically updates app_user.role, revokes all active sessions for that user,
-// records an audit log entry, and if checkSoleOwner is true, locks active owner rows to verify at least one other active owner remains.
-func (s *PGStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error) {
+// records an audit log entry, and locks active owner rows to verify at least one other active owner remains if an active owner is being demoted.
+func (s *PGStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, auditEntry *AuditLogEntry) ([]string, error) {
 	if !IsValidRole(newRole) {
 		return nil, errors.New("invalid role")
 	}
@@ -169,7 +170,20 @@ func (s *PGStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID st
 	}
 	defer tx.Rollback(ctx)
 
-	if checkSoleOwner {
+	// Lock target user row with FOR UPDATE to inspect current role and active status
+	var currentRole string
+	var currentIsActive bool
+	err = tx.QueryRow(ctx, `SELECT role, is_active FROM public.app_user WHERE id = $1 FOR UPDATE`, userID).Scan(&currentRole, &currentIsActive)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.New("user not found")
+		}
+		return nil, fmt.Errorf("failed to lock target user: %w", err)
+	}
+
+	// Invariant: If demoting an active owner, verify that at least one other active owner remains.
+	// Demoting an already inactive owner does not reduce the active owner count.
+	if currentRole == RoleOwner && currentIsActive && newRole != RoleOwner {
 		// Lock active owner rows to serialize concurrent owner demotions/deactivations.
 		ownerRows, err := tx.Query(ctx, `SELECT id FROM public.app_user WHERE role = 'owner' AND is_active = TRUE FOR UPDATE`)
 		if err != nil {
@@ -259,17 +273,94 @@ func (s *PGStore) UpdateUserStatus(ctx context.Context, id string, isActive bool
 	return nil
 }
 
+// ReactivateUser atomically sets app_user.is_active = TRUE, records an audit log entry,
+// and enforces downward isolation by verifying actorRole against the locked target role.
+func (s *PGStore) ReactivateUser(ctx context.Context, userID string, actorRole string, auditEntry *AuditLogEntry) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Lock target user row with FOR UPDATE to inspect current role
+	var currentRole string
+	err = tx.QueryRow(ctx, `SELECT role FROM public.app_user WHERE id = $1 FOR UPDATE`, userID).Scan(&currentRole)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("user not found")
+		}
+		return fmt.Errorf("failed to lock target user: %w", err)
+	}
+
+	// Downward isolation authorization: enforce actor role permission against target's current role
+	if actorRole != "" {
+		if !CanManageUserStatus(actorRole, currentRole) {
+			return ErrPermissionDenied
+		}
+	}
+
+	cmd, err := tx.Exec(ctx, `UPDATE public.app_user SET is_active = TRUE, updated_at = now() WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to activate user: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return errors.New("user not found")
+	}
+
+	if auditEntry != nil {
+		id := auditEntry.ID
+		if id == "" {
+			id = generateID("aud")
+		}
+		metaBytes, err := json.Marshal(auditEntry.Metadata)
+		if err != nil {
+			metaBytes = []byte("{}")
+		}
+		query := `
+			INSERT INTO public.admin_audit_log (id, user_id, actor_role, action, resource, resource_id, ip_address, metadata, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now());
+		`
+		if _, err := tx.Exec(ctx, query, id, auditEntry.UserID, auditEntry.ActorRole, auditEntry.Action, auditEntry.Resource, auditEntry.ResourceID, auditEntry.IPAddress, metaBytes); err != nil {
+			return fmt.Errorf("failed to record audit log: %w", err)
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
 // DeactivateUserAndRevokeSessions atomically sets app_user.is_active = FALSE, revokes all active sessions,
-// records an audit log entry (if provided), and checks that at least one other active owner remains if checkSoleOwner is true.
-// The owner check locks active owner rows with FOR UPDATE to prevent concurrency races.
-func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error) {
+// records an audit log entry (if provided), and checks downward isolation and sole active owner invariants.
+// It locks the target user row with FOR UPDATE, rechecks the target's current role against actorRole,
+// and if deactivating an active owner, locks active owner rows to ensure at least one other active owner remains.
+func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, actorRole string, isSelf bool, auditEntry *AuditLogEntry) ([]string, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	if checkSoleOwner {
+	// Lock target user row with FOR UPDATE to inspect current role and active status
+	var currentRole string
+	var currentIsActive bool
+	err = tx.QueryRow(ctx, `SELECT role, is_active FROM public.app_user WHERE id = $1 FOR UPDATE`, userID).Scan(&currentRole, &currentIsActive)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.New("user not found")
+		}
+		return nil, fmt.Errorf("failed to lock target user: %w", err)
+	}
+
+	// Downward isolation authorization: if not self-deactivation and actor role is specified,
+	// enforce that actor is authorized to manage the target's current (locked) role.
+	if !isSelf && actorRole != "" {
+		if !CanManageUserStatus(actorRole, currentRole) {
+			return nil, ErrPermissionDenied
+		}
+	}
+
+	// Invariant: If deactivating an active owner, verify that at least one other active owner remains.
+	// Deactivating an already inactive owner does not reduce the active owner count.
+	if currentRole == RoleOwner && currentIsActive {
 		// Lock active owner rows to serialize concurrent owner deactivations and prevent race conditions.
 		// PostgreSQL does not permit FOR UPDATE on aggregate functions like count(*), so we select and lock IDs.
 		ownerRows, err := tx.Query(ctx, `SELECT id FROM public.app_user WHERE role = 'owner' AND is_active = TRUE FOR UPDATE`)
@@ -415,18 +506,43 @@ func (s *PGStore) ConsumeLoginTransaction(ctx context.Context, stateHash string,
 }
 
 // CreateSession inserts an authoritative server session into PostgreSQL.
+// It verifies and locks the user row with FOR SHARE to serialize against concurrent deactivations
+// and reject session creation for deactivated users.
 func (s *PGStore) CreateSession(ctx context.Context, session UserSession) error {
 	id := session.ID
 	if id == "" {
 		id = generateID("ses")
 	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin session transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var isActive bool
+	err = tx.QueryRow(ctx, `SELECT is_active FROM public.app_user WHERE id = $1 FOR SHARE`, session.UserID).Scan(&isActive)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("user not found")
+		}
+		return fmt.Errorf("failed to verify user status: %w", err)
+	}
+	if !isActive {
+		return ErrAccountDeactivated
+	}
+
 	query := `
 		INSERT INTO public.user_session (id, user_id, token_hash, csrf_secret, ip_address, user_agent, is_revoked, expires_at, max_expires_at, created_at, last_seen_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now());
 	`
-	_, err := s.pool.Exec(ctx, query, id, session.UserID, session.TokenHash, session.CSRFSecret, session.IPAddress, session.UserAgent, session.IsRevoked, session.ExpiresAt, session.MaxExpiresAt)
+	_, err = tx.Exec(ctx, query, id, session.UserID, session.TokenHash, session.CSRFSecret, session.IPAddress, session.UserAgent, session.IsRevoked, session.ExpiresAt, session.MaxExpiresAt)
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit session transaction: %w", err)
 	}
 	return nil
 }
