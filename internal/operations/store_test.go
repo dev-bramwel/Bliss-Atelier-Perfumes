@@ -296,6 +296,11 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	// Clean up reservation
 	_, _ = pool.Exec(ctx, `DELETE FROM public.stock_reservation WHERE id = $1::uuid`, resID)
 
+	// 13. Empty batch ID error
+	if err := s.Restock(ctx, empAllowed, "   ", "p1", 5, "NO-BATCH-ID", "127.0.0.1"); !errors.Is(err, ErrBatchIDRequired) {
+		t.Fatalf("expected ErrBatchIDRequired for empty batch ID, got: %v", err)
+	}
+
 	// Verify catalog invalidation
 	time.Sleep(50 * time.Millisecond)
 	if !inv.called.Load() {
