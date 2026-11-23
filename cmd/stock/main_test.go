@@ -100,6 +100,10 @@ func TestVerifyActorPermission(t *testing.T) {
 	if err := verifyActorPermission(ctx, pool, "unknown_actor_id"); err == nil {
 		t.Error("expected unknown actor to be rejected, got nil")
 	}
+	// 7. Empty actor is rejected
+	if err := verifyActorPermission(ctx, pool, ""); err == nil {
+		t.Error("expected empty actor to be rejected, got nil")
+	}
 
 	// Test verifyOwnerPermission:
 	if err := verifyOwnerPermission(ctx, pool, "usr_stk_owner"); err != nil {
@@ -107,5 +111,8 @@ func TestVerifyActorPermission(t *testing.T) {
 	}
 	if err := verifyOwnerPermission(ctx, pool, "usr_stk_emp_allowed"); err == nil {
 		t.Error("expected employee to be rejected for replacement approval, got nil")
+	}
+	if err := verifyOwnerPermission(ctx, pool, "unknown_owner_id"); err == nil {
+		t.Error("expected unknown owner to be rejected for replacement approval, got nil")
 	}
 }
