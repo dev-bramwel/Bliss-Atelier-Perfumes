@@ -22,6 +22,7 @@ type Store interface {
 	CountOwners(ctx context.Context) (int, error)
 	CountActiveOwners(ctx context.Context) (int, error)
 	UpdateUserRole(ctx context.Context, id string, newRole string) error
+	UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error)
 	UpdateUserStatus(ctx context.Context, id string, isActive bool) error
 	DeactivateUserAndRevokeSessions(ctx context.Context, userID string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error)
 	ListUsers(ctx context.Context, filterRole string) ([]User, error)
@@ -153,6 +154,97 @@ func (s *PGStore) UpdateUserRole(ctx context.Context, id string, newRole string)
 		return errors.New("user not found")
 	}
 	return nil
+}
+
+// UpdateUserRoleAndRevokeSessions atomically updates app_user.role, revokes all active sessions for that user,
+// records an audit log entry, and if checkSoleOwner is true, locks active owner rows to verify at least one other active owner remains.
+func (s *PGStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error) {
+	if !IsValidRole(newRole) {
+		return nil, errors.New("invalid role")
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if checkSoleOwner {
+		// Lock active owner rows to serialize concurrent owner demotions/deactivations.
+		ownerRows, err := tx.Query(ctx, `SELECT id FROM public.app_user WHERE role = 'owner' AND is_active = TRUE FOR UPDATE`)
+		if err != nil {
+			return nil, fmt.Errorf("failed to lock active owner rows: %w", err)
+		}
+		activeOwnerCount := 0
+		for ownerRows.Next() {
+			var ownerID string
+			if err := ownerRows.Scan(&ownerID); err != nil {
+				ownerRows.Close()
+				return nil, fmt.Errorf("failed to scan active owner id: %w", err)
+			}
+			activeOwnerCount++
+		}
+		if err := ownerRows.Err(); err != nil {
+			ownerRows.Close()
+			return nil, fmt.Errorf("error reading active owner rows: %w", err)
+		}
+		ownerRows.Close()
+
+		if activeOwnerCount <= 1 {
+			return nil, ErrCannotDemoteSoleOwner
+		}
+	}
+
+	cmd, err := tx.Exec(ctx, `UPDATE public.app_user SET role = $1, updated_at = now() WHERE id = $2`, newRole, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update user role: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return nil, errors.New("user not found")
+	}
+
+	rows, err := tx.Query(ctx, `UPDATE public.user_session SET is_revoked = TRUE WHERE user_id = $1 AND is_revoked = FALSE RETURNING token_hash`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to revoke sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var hashes []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("failed to scan revoked session token hash: %w", err)
+		}
+		hashes = append(hashes, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating revoked token hashes: %w", err)
+	}
+	rows.Close()
+
+	if auditEntry != nil {
+		id := auditEntry.ID
+		if id == "" {
+			id = generateID("aud")
+		}
+		metaBytes, err := json.Marshal(auditEntry.Metadata)
+		if err != nil {
+			metaBytes = []byte("{}")
+		}
+		query := `
+			INSERT INTO public.admin_audit_log (id, user_id, actor_role, action, resource, resource_id, ip_address, metadata, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now());
+		`
+		if _, err := tx.Exec(ctx, query, id, auditEntry.UserID, auditEntry.ActorRole, auditEntry.Action, auditEntry.Resource, auditEntry.ResourceID, auditEntry.IPAddress, metaBytes); err != nil {
+			return nil, fmt.Errorf("failed to record audit log: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit role update transaction: %w", err)
+	}
+
+	return hashes, nil
 }
 
 // UpdateUserStatus updates a user's active status.
