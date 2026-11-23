@@ -457,7 +457,7 @@ func (s *Service) UpdateUserPermissions(ctx context.Context, actor *User, target
 		},
 	}
 
-	sessionHashes, err := s.store.UpdateUserPermissions(ctx, targetUserID, actor.Role, canManageInventory, audit)
+	sessionHashes, err := s.store.UpdateUserPermissions(ctx, actor.ID, targetUserID, canManageInventory, audit)
 	if err != nil {
 		return err
 	}
