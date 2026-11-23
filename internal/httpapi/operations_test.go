@@ -69,7 +69,7 @@ func (m *mockOperations) Fulfill(_ context.Context, id string, u *auth.User, _ s
 	m.fulfilled = id
 	return nil
 }
-func (m *mockOperations) Restock(_ context.Context, u *auth.User, productID string, qty int, ref string, _ string) error {
+func (m *mockOperations) Restock(_ context.Context, u *auth.User, batchID, productID string, qty int, ref string, _ string) error {
 	if u == nil || !auth.CanManageInventory(*u) {
 		return auth.ErrPermissionDenied
 	}
