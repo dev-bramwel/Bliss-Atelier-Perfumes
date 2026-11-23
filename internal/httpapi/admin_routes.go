@@ -83,6 +83,10 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusForbidden)
 				return
 			}
+			if errors.Is(err, auth.ErrCannotDemoteSoleOwner) || errors.Is(err, auth.ErrCannotDeactivateSoleOwner) {
+				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusConflict)
+				return
+			}
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
 			return
 		}
@@ -129,6 +133,10 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 		if err := authService.UpdateUserStatus(r.Context(), user, targetUserID, *req.IsActive, clientIP); err != nil {
 			if errors.Is(err, auth.ErrPermissionDenied) {
 				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusForbidden)
+				return
+			}
+			if errors.Is(err, auth.ErrCannotDeactivateSoleOwner) {
+				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusConflict)
 				return
 			}
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
