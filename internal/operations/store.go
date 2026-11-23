@@ -193,10 +193,13 @@ func (s *Store) Fulfill(ctx context.Context, id string, actor *auth.User, ip str
 }
 
 // Restock atomically increments the ledger stock for a product, records a stock ledger entry and admin audit entry,
-// and enforces CanManageInventory authorization.
-func (s *Store) Restock(ctx context.Context, actor *auth.User, productID string, quantity int, reference string, ip string) error {
+// verifies stock authority and opening counts, invalidates catalog cache, and replays idempotently for identical batch IDs.
+func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productID string, quantity int, reference string, ip string) error {
 	if actor == nil || !auth.CanManageInventory(*actor) {
 		return auth.ErrPermissionDenied
+	}
+	if productID == "" {
+		return errors.New("product ID is required")
 	}
 	if quantity <= 0 {
 		return errors.New("quantity must be greater than zero")
@@ -208,6 +211,11 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, productID string,
 	if len(reference) > 512 {
 		return errors.New("reference note exceeds 512 characters")
 	}
+	if batchID == "" {
+		batchID = fmt.Sprintf("restock_%s_%d", productID, time.Now().UnixNano())
+	} else if len(batchID) > 128 {
+		return errors.New("batch ID exceeds 128 characters")
+	}
 
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -215,13 +223,40 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, productID string,
 	}
 	defer rollback(tx)
 
+	var authority string
+	if err = tx.QueryRow(ctx, `SELECT authority FROM public.stock_control WHERE singleton FOR UPDATE`).Scan(&authority); err != nil {
+		return errors.New("stock control unavailable")
+	}
+	if authority != "replacement" {
+		return errors.New("stock authority is unconfirmed; replacement approval required")
+	}
+
+	rawDigest := sha256.Sum256([]byte(batchID + productID + fmt.Sprintf("%d", quantity) + reference))
+	digest := hex.EncodeToString(rawDigest[:])
+
+	var existingDigest string
+	err = tx.QueryRow(ctx, `SELECT digest FROM public.stock_batch WHERE id=$1`, batchID).Scan(&existingDigest)
+	if err == nil {
+		if existingDigest != digest {
+			return errors.New("batch ID already used with different content")
+		}
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("failed to query stock history: %w", err)
+	}
+
 	var currentStock int
-	err = tx.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id=$1 FOR UPDATE`, productID).Scan(&currentStock)
+	var opened bool
+	err = tx.QueryRow(ctx, `SELECT stock, opened FROM public.catalog_product WHERE id=$1 FOR UPDATE`, productID).Scan(&currentStock, &opened)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errors.New("product not found")
 	}
 	if err != nil {
 		return err
+	}
+	if !opened {
+		return errors.New("opening balance required before restocking")
 	}
 
 	newStock := currentStock + quantity
@@ -229,13 +264,13 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, productID string,
 		return errors.New("stock limit exceeded")
 	}
 
-	if _, err = tx.Exec(ctx, `UPDATE public.catalog_product SET stock=$2, opened=true WHERE id=$1`, productID, newStock); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE public.catalog_product SET stock=$2 WHERE id=$1`, productID, newStock); err != nil {
 		return fmt.Errorf("failed to update stock: %w", err)
 	}
 
-	batchID := fmt.Sprintf("restock_%s_%d", productID, time.Now().UnixNano())
-	rawDigest := sha256.Sum256([]byte(batchID + productID + reference))
-	digest := hex.EncodeToString(rawDigest[:])
+	if _, err = tx.Exec(ctx, `UPDATE public.stock_control SET reconciled_until=NULL WHERE singleton`); err != nil {
+		return fmt.Errorf("failed to clear reconciliation approval: %w", err)
+	}
 
 	if _, err = tx.Exec(ctx, `INSERT INTO public.stock_batch(id,digest,kind,actor,evidence) VALUES ($1,$2,'receipt',$3,$4)`, batchID, digest, actor.ID, reference); err != nil {
 		return fmt.Errorf("failed to record stock batch: %w", err)
