@@ -200,6 +200,10 @@ const exception = {
           await page.locator('[data-section="users"]').isVisible(),
           role !== "employee",
         );
+        assert.equal(
+          await page.locator('[data-section="inventory"]').isVisible(),
+          role !== "employee",
+        );
         if (role === "employee")
           assert.equal(
             requests.some((p) => p.startsWith("/api/admin/")),
