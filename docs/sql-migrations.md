@@ -53,7 +53,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE
            public.delivery_quote, public.guest_order_access,
            public.idempotency_key, public.payment_attempt TO :"runtime_role";
 GRANT SELECT, UPDATE(stock) ON TABLE public.catalog_product TO :"runtime_role";
-GRANT SELECT ON TABLE public.catalog_settings, public.stock_control TO :"runtime_role";
+GRANT SELECT ON TABLE public.catalog_settings TO :"runtime_role";
+GRANT SELECT, UPDATE(reconciled_until) ON TABLE public.stock_control TO :"runtime_role";
 GRANT INSERT ON TABLE public.stock_batch, public.stock_entry TO :"runtime_role";
 
 -- For read-only storefront SSR processes requiring direct catalog access:
