@@ -9,7 +9,8 @@ Write-Host "================================================================="
 
 function Invoke-MockLogin {
     param(
-        [string]$RoleName
+        [string]$RoleName,
+        [int[]]$ExpectedStatuses = @(302)
     )
     $handler = [System.Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
@@ -37,9 +38,17 @@ function Invoke-MockLogin {
     $cbRequest = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $redirectUrl)
     $cbRequest.Headers.Add("Cookie", "bliss_oauth_tx=$($cookies['bliss_oauth_tx'])")
     $cbResp = $client.SendAsync($cbRequest).GetAwaiter().GetResult()
-    if ($cbResp.StatusCode -ne [System.Net.HttpStatusCode]::Found) {
+    $cbStatusCode = [int]$cbResp.StatusCode
+    if ($ExpectedStatuses -notcontains $cbStatusCode) {
         $body = $cbResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-        throw "Failed to complete callback for $RoleName : Status $($cbResp.StatusCode), Body: $body"
+        throw "Failed to complete callback for $RoleName : Expected status $([string]::Join(',', $ExpectedStatuses)), got $cbStatusCode, Body: $body"
+    }
+
+    if ($cbStatusCode -ne 302) {
+        return @{
+            StatusCode = $cbStatusCode
+            Body       = $cbResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        }
     }
 
     foreach ($cookieHeader in $cbResp.Headers.GetValues("Set-Cookie")) {
@@ -191,6 +200,52 @@ Invoke-Api -Method "POST" -Path "/api/auth/logout" -AuthContext $employeeAuth -E
 Write-Host "  -> Employee logged out" -ForegroundColor Green
 $loggedOutResp = Invoke-Api -Method "GET" -Path "/api/auth/me" -AuthContext $employeeAuth -ExpectedStatuses @(401)
 Write-Host "  -> Session successfully cleared (Status 401: $($loggedOutResp.Json.error))" -ForegroundColor Green
+
+# --- STEP 8: User Self-Deactivation & Staff Reactivation ---
+Write-Host "`n[STEP 8] Testing User Self-Deactivation & Downward Isolation..." -ForegroundColor Cyan
+
+# 8.1: Sole Owner cannot deactivate themselves (409 Conflict)
+Write-Host "  -> Verifying Sole Owner cannot self-deactivate..."
+$ownerDeactBlocked = Invoke-Api -Method "POST" -Path "/api/auth/deactivate" -AuthContext $ownerAuth -ExpectedStatuses @(409)
+Write-Host "  -> Sole Owner correctly blocked with 409 Conflict: $($ownerDeactBlocked.Json.error)" -ForegroundColor Green
+
+# 8.2: Customer self-deactivates
+Write-Host "  -> Customer logging in..."
+$customerAuth = Invoke-MockLogin -RoleName "customer"
+Write-Host "  -> Customer deactivating account..."
+Invoke-Api -Method "POST" -Path "/api/auth/deactivate" -AuthContext $customerAuth -ExpectedStatuses @(200) | Out-Null
+Write-Host "  -> Customer self-deactivated successfully" -ForegroundColor Green
+
+# 8.3: Customer session is immediately evicted
+$deactivatedMeResp = Invoke-Api -Method "GET" -Path "/api/auth/me" -AuthContext $customerAuth -ExpectedStatuses @(401)
+Write-Host "  -> Customer session immediately rejected (401)" -ForegroundColor Green
+
+# 8.4: Subsequent OAuth login for deactivated customer is rejected with 403 Forbidden
+Write-Host "  -> Verifying deactivated customer cannot log in via OAuth..."
+$deactivatedLogin = Invoke-MockLogin -RoleName "customer" -ExpectedStatuses @(403)
+if ($deactivatedLogin.Body -notmatch "Account Deactivated") {
+    throw "Expected deactivated notice page or message, got: $($deactivatedLogin.Body)"
+}
+Write-Host "  -> OAuth login correctly rejected with 403 and Atelier Account Deactivated notice" -ForegroundColor Green
+
+# 8.5: Downward Isolation - Employee cannot deactivate another employee or owner (403 Forbidden)
+Write-Host "  -> Verifying employee cannot deactivate owner or staff..."
+$employeeAuth = Invoke-MockLogin -RoleName "employee"
+$employeeForbiddenDeact = Invoke-Api -Method "POST" -Path "/api/admin/users/$($ownerAuth.User.id)/status" -AuthContext $employeeAuth -Body @{ is_active = $false } -ExpectedStatuses @(403)
+Write-Host "  -> Employee correctly blocked from deactivating Owner (403 Forbidden)" -ForegroundColor Green
+
+# 8.6: Staff customer reactivation - Employee can reactivate customer
+Write-Host "  -> Employee reactivating Customer account..."
+Invoke-Api -Method "POST" -Path "/api/admin/users/$($customerAuth.User.id)/status" -AuthContext $employeeAuth -Body @{ is_active = $true } -ExpectedStatuses @(200) | Out-Null
+Write-Host "  -> Employee successfully reactivated customer account" -ForegroundColor Green
+
+# 8.7: Reactivated customer can log in again
+Write-Host "  -> Customer logging in after reactivation..."
+$customerReactivatedAuth = Invoke-MockLogin -RoleName "customer"
+if ($customerReactivatedAuth.User.id -ne $customerAuth.User.id) {
+    throw "Customer ID mismatch after reactivation"
+}
+Write-Host "  -> Customer successfully logged in after reactivation" -ForegroundColor Green
 
 Write-Host "`n================================================================="
 Write-Host " ALL LIVE INSTANCE AUTH & RBAC TESTS PASSED SUCCESSFULLY! " -ForegroundColor Green

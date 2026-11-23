@@ -43,6 +43,8 @@ func administrativeSessions(next http.Handler, service *auth.Service, checker *T
 		r = r.WithContext(ctx)
 		path := strings.TrimPrefix(r.URL.Path, "/api")
 		admin := path == "/admin" || strings.HasPrefix(path, "/admin/")
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		userStatus := r.Method == http.MethodPost && len(parts) == 4 && parts[0] == "admin" && parts[1] == "users" && parts[3] == "status" && parts[2] != ""
 		ops := strings.HasPrefix(path, "/operations/")
 		quote := r.Method == http.MethodPost && strings.HasPrefix(path, "/orders/") && strings.HasSuffix(path, "/delivery-quote")
 		fulfill := r.Method == http.MethodPost && strings.HasPrefix(path, "/orders/") && (strings.HasSuffix(path, "/fulfill") || strings.HasSuffix(path, "/assign"))
@@ -62,7 +64,7 @@ func administrativeSessions(next http.Handler, service *auth.Service, checker *T
 			return
 		}
 		owner := user.Role == auth.RoleOwner
-		if (admin && !owner) || ((ops || fulfill) && !auth.IsStaff(user.Role)) {
+		if (admin && !owner && !userStatus) || ((ops || fulfill || userStatus) && !auth.IsStaff(user.Role)) {
 			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
 			return
 		}

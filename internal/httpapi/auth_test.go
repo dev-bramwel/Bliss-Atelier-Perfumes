@@ -86,14 +86,138 @@ func (m *testAuthStore) CountOwners(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+func (m *testAuthStore) CountActiveOwners(ctx context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, u := range m.users {
+		if u.Role == auth.RoleOwner && u.IsActive {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *testAuthStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, actorRole string, isSelf bool, auditEntry *auth.AuditLogEntry) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, auth.ErrSessionNotFound
+	}
+
+	if !isSelf && actorRole != "" {
+		if !auth.CanManageUserStatus(actorRole, u.Role) {
+			return nil, auth.ErrPermissionDenied
+		}
+	}
+
+	if u.Role == auth.RoleOwner && u.IsActive {
+		activeOwnerCount := 0
+		for _, o := range m.users {
+			if o.Role == auth.RoleOwner && o.IsActive {
+				activeOwnerCount++
+			}
+		}
+		if activeOwnerCount <= 1 {
+			return nil, auth.ErrCannotDeactivateSoleOwner
+		}
+	}
+
+	u.IsActive = false
+	m.users[userID] = u
+
+	var revoked []string
+	for tokenHash, s := range m.sessions {
+		if s.UserID == userID && !s.IsRevoked {
+			s.IsRevoked = true
+			m.sessions[tokenHash] = s
+			revoked = append(revoked, tokenHash)
+		}
+	}
+
+	if auditEntry != nil {
+		m.auditLogs = append([]auth.AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
+	return revoked, nil
+}
+
+func (m *testAuthStore) ReactivateUser(ctx context.Context, userID string, actorRole string, auditEntry *auth.AuditLogEntry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	u, ok := m.users[userID]
+	if !ok {
+		return auth.ErrSessionNotFound
+	}
+
+	if actorRole != "" {
+		if !auth.CanManageUserStatus(actorRole, u.Role) {
+			return auth.ErrPermissionDenied
+		}
+	}
+
+	u.IsActive = true
+	m.users[userID] = u
+
+	if auditEntry != nil {
+		m.auditLogs = append([]auth.AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
+	return nil
+}
+
 func (m *testAuthStore) UpdateUserRole(ctx context.Context, id string, newRole string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if u, ok := m.users[id]; ok {
 		u.Role = newRole
+		m.users[id] = u
 		return nil
 	}
 	return auth.ErrSessionNotFound
+}
+
+func (m *testAuthStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, auditEntry *auth.AuditLogEntry) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, auth.ErrSessionNotFound
+	}
+
+	if u.Role == auth.RoleOwner && u.IsActive && newRole != auth.RoleOwner {
+		activeOwnerCount := 0
+		for _, o := range m.users {
+			if o.Role == auth.RoleOwner && o.IsActive {
+				activeOwnerCount++
+			}
+		}
+		if activeOwnerCount <= 1 {
+			return nil, auth.ErrCannotDemoteSoleOwner
+		}
+	}
+
+	u.Role = newRole
+	m.users[userID] = u
+
+	var revoked []string
+	for tokenHash, s := range m.sessions {
+		if s.UserID == userID && !s.IsRevoked {
+			s.IsRevoked = true
+			m.sessions[tokenHash] = s
+			revoked = append(revoked, tokenHash)
+		}
+	}
+
+	if auditEntry != nil {
+		m.auditLogs = append([]auth.AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
+	return revoked, nil
 }
 
 func (m *testAuthStore) UpdateUserStatus(ctx context.Context, id string, isActive bool) error {
@@ -101,6 +225,7 @@ func (m *testAuthStore) UpdateUserStatus(ctx context.Context, id string, isActiv
 	defer m.mu.Unlock()
 	if u, ok := m.users[id]; ok {
 		u.IsActive = isActive
+		m.users[id] = u
 		return nil
 	}
 	return auth.ErrSessionNotFound
@@ -140,6 +265,13 @@ func (m *testAuthStore) ConsumeLoginTransaction(ctx context.Context, stateHash s
 func (m *testAuthStore) CreateSession(ctx context.Context, session auth.UserSession) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	u, ok := m.users[session.UserID]
+	if !ok {
+		return auth.ErrSessionNotFound
+	}
+	if !u.IsActive {
+		return auth.ErrAccountDeactivated
+	}
 	m.sessions[session.TokenHash] = &session
 	return nil
 }
@@ -522,5 +654,205 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 	api.server.Handler.ServeHTTP(noNameRR, noNameReq)
 	if noNameRR.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK for owner with blank profile name, got %d: %s", noNameRR.Code, noNameRR.Body.String())
+	}
+}
+
+func TestSelfDeactivationAndReactivation(t *testing.T) {
+	api, _, verifier, store := setupTestServer(t)
+	ctx := context.Background()
+
+	loginAs := func(u *auth.User) (*http.Cookie, string) {
+		token, err := auth.GenerateSessionToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		csrfSecret, err := auth.RandomString(32)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ses := auth.UserSession{
+			UserID:       u.ID,
+			TokenHash:    auth.HashToken(token),
+			CSRFSecret:   csrfSecret,
+			IPAddress:    "127.0.0.1",
+			UserAgent:    "test-agent",
+			IsRevoked:    false,
+			ExpiresAt:    time.Now().Add(1 * time.Hour),
+			MaxExpiresAt: time.Now().Add(12 * time.Hour),
+		}
+		if err := store.CreateSession(ctx, ses); err != nil {
+			t.Fatal(err)
+		}
+		return &http.Cookie{Name: "bliss_session", Value: token}, auth.GenerateCSRFToken(csrfSecret)
+	}
+
+	initOAuth := func(email, sub string) (string, *http.Cookie) {
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/google", nil)
+		rr := httptest.NewRecorder()
+		api.server.Handler.ServeHTTP(rr, req)
+		redirectURL := rr.Header().Get("Location")
+		var state, nonce string
+		for _, part := range strings.Split(redirectURL, "&") {
+			if strings.HasPrefix(part, "state=") {
+				state = strings.TrimPrefix(part, "state=")
+			}
+			if strings.HasPrefix(part, "nonce=") {
+				nonce = strings.TrimPrefix(part, "nonce=")
+			}
+		}
+		var txCookie *http.Cookie
+		for _, c := range rr.Result().Cookies() {
+			if c.Name == "bliss_oauth_tx" {
+				txCookie = c
+				break
+			}
+		}
+		authCode := "code-" + sub + "-" + state[:6]
+		verifier.RegisterToken(authCode, "id-tok-"+sub, &auth.GoogleProfile{
+			Subject: sub,
+			Email:   email,
+			Name:    "Test User",
+		}, nonce)
+		return "/api/auth/google/callback?code=" + authCode + "&state=" + state, txCookie
+	}
+
+	// 1. Create owner, employee, and customer
+	owner, _ := store.UpsertUserByGoogleSub(ctx, "sub-owner-1", "owner@blissatelier.com", "Owner", "")
+	_ = store.UpdateUserRole(ctx, owner.ID, auth.RoleOwner)
+	owner, _ = store.GetUserByID(ctx, owner.ID)
+	ownerCookie, ownerCSRF := loginAs(owner)
+
+	emp, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp-1", "emp@blissatelier.com", "Employee", "")
+	_ = store.UpdateUserRole(ctx, emp.ID, auth.RoleEmployee)
+	emp, _ = store.GetUserByID(ctx, emp.ID)
+	empCookie, empCSRF := loginAs(emp)
+
+	cust, _ := store.UpsertUserByGoogleSub(ctx, "sub-cust-1", "customer@example.com", "Customer", "")
+	custCookie, custCSRF := loginAs(cust)
+
+	// 2. Sole owner cannot self-deactivate (409 Conflict)
+	ownerDeactReq := httptest.NewRequest(http.MethodPost, "/api/auth/deactivate", nil)
+	ownerDeactReq.AddCookie(ownerCookie)
+	ownerDeactReq.Header.Set("X-CSRF-Token", ownerCSRF)
+	ownerDeactRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(ownerDeactRR, ownerDeactReq)
+	if ownerDeactRR.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict when sole owner attempts self-deactivation, got %d: %s", ownerDeactRR.Code, ownerDeactRR.Body.String())
+	}
+
+	// 3. Customer self-deactivation without authentication returns 401
+	unauthReq := httptest.NewRequest(http.MethodPost, "/api/auth/deactivate", nil)
+	unauthRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(unauthRR, unauthReq)
+	if unauthRR.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized without session, got %d", unauthRR.Code)
+	}
+
+	// 4. Customer self-deactivation without CSRF returns 403
+	noCSRFReq := httptest.NewRequest(http.MethodPost, "/api/auth/deactivate", nil)
+	noCSRFReq.AddCookie(custCookie)
+	noCSRFRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(noCSRFRR, noCSRFReq)
+	if noCSRFRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden without CSRF token, got %d", noCSRFRR.Code)
+	}
+
+	// 5. Successful customer self-deactivation with session and CSRF
+	deactReq := httptest.NewRequest(http.MethodPost, "/api/auth/deactivate", nil)
+	deactReq.AddCookie(custCookie)
+	deactReq.Header.Set("X-CSRF-Token", custCSRF)
+	deactRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(deactRR, deactReq)
+	if deactRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid self-deactivation, got %d: %s", deactRR.Code, deactRR.Body.String())
+	}
+	var deactResp map[string]any
+	if err := json.Unmarshal(deactRR.Body.Bytes(), &deactResp); err != nil {
+		t.Fatalf("failed to decode deactivation response: %v", err)
+	}
+	if deactResp["status"] != "deactivated" {
+		t.Fatalf("expected status 'deactivated', got %v", deactResp["status"])
+	}
+
+	// Verify bliss_session cookie was cleared (MaxAge = -1)
+	foundClearedCookie := false
+	for _, c := range deactRR.Result().Cookies() {
+		if c.Name == "bliss_session" && c.MaxAge < 0 {
+			foundClearedCookie = true
+			break
+		}
+	}
+	if !foundClearedCookie {
+		t.Fatalf("expected bliss_session cookie to be cleared with MaxAge < 0")
+	}
+
+	// 6. Old session token now rejected on /api/auth/me (401 Unauthorized)
+	meReq := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil)
+	meReq.AddCookie(custCookie)
+	meRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(meRR, meReq)
+	if meRR.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized with revoked session, got %d", meRR.Code)
+	}
+
+	// 7. Subsequent Google OAuth callback for deactivated customer returns 403 Forbidden
+	// Test JSON callback
+	cbURL, txCookie := initOAuth("customer@example.com", "sub-cust-1")
+	cbJSONReq := httptest.NewRequest(http.MethodGet, cbURL+"&format=json", nil)
+	cbJSONReq.AddCookie(txCookie)
+	cbJSONRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(cbJSONRR, cbJSONReq)
+	if cbJSONRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for deactivated account JSON callback, got %d: %s", cbJSONRR.Code, cbJSONRR.Body.String())
+	}
+	if !strings.Contains(cbJSONRR.Body.String(), "account is deactivated") {
+		t.Fatalf("expected deactivated error in response, got %s", cbJSONRR.Body.String())
+	}
+
+	// Test HTML callback returns 403 with atelier HTML notice
+	cbURL2, txCookie2 := initOAuth("customer@example.com", "sub-cust-1")
+	cbHTMLReq := httptest.NewRequest(http.MethodGet, cbURL2, nil)
+	cbHTMLReq.AddCookie(txCookie2)
+	cbHTMLRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(cbHTMLRR, cbHTMLReq)
+	if cbHTMLRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for deactivated account HTML callback, got %d", cbHTMLRR.Code)
+	}
+	if !strings.Contains(cbHTMLRR.Body.String(), "Account Deactivated") || !strings.Contains(cbHTMLRR.Body.String(), "support@blissatelier.com") {
+		t.Fatalf("expected atelier deactivation notice with support instructions, got %s", cbHTMLRR.Body.String())
+	}
+
+	// 8. Employee can reactivate customer account (200 OK)
+	reactivatePayload := strings.NewReader(`{"is_active":true}`)
+	reactivateReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+cust.ID+"/status", reactivatePayload)
+	reactivateReq.AddCookie(empCookie)
+	reactivateReq.Header.Set("X-CSRF-Token", empCSRF)
+	reactivateRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(reactivateRR, reactivateReq)
+	if reactivateRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when employee reactivates customer, got %d: %s", reactivateRR.Code, reactivateRR.Body.String())
+	}
+
+	// Customer can now complete Google OAuth login successfully
+	cbURL3, txCookie3 := initOAuth("customer@example.com", "sub-cust-1")
+	cbSuccessReq := httptest.NewRequest(http.MethodGet, cbURL3+"&format=json", nil)
+	cbSuccessReq.AddCookie(txCookie3)
+	cbSuccessRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(cbSuccessRR, cbSuccessReq)
+	if cbSuccessRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for reactivated customer OAuth callback, got %d: %s", cbSuccessRR.Code, cbSuccessRR.Body.String())
+	}
+
+	// 9. Employee CANNOT deactivate another employee (403 Forbidden)
+	emp2, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp-2", "emp2@blissatelier.com", "Employee 2", "")
+	_ = store.UpdateUserRole(ctx, emp2.ID, auth.RoleEmployee)
+	empDeactEmpPayload := strings.NewReader(`{"is_active":false}`)
+	empDeactEmpReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+emp2.ID+"/status", empDeactEmpPayload)
+	empDeactEmpReq.AddCookie(empCookie)
+	empDeactEmpReq.Header.Set("X-CSRF-Token", empCSRF)
+	empDeactEmpRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(empDeactEmpRR, empDeactEmpReq)
+	if empDeactEmpRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when employee attempts to manage another employee's status, got %d", empDeactEmpRR.Code)
 	}
 }

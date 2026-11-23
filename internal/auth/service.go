@@ -14,12 +14,14 @@ import (
 
 // Service errors.
 var (
-	ErrSessionNotFound     = errors.New("session not found or revoked")
-	ErrSessionExpired      = errors.New("session has expired")
-	ErrAccountDeactivated  = errors.New("account is deactivated")
-	ErrInvalidCSRF         = errors.New("invalid or expired csrf token")
-	ErrPermissionDenied    = errors.New("permission denied: insufficient authority")
-	ErrBootstrapNotAllowed = errors.New("initial owner bootstrap is already completed or target account not found")
+	ErrSessionNotFound           = errors.New("session not found or revoked")
+	ErrSessionExpired            = errors.New("session has expired")
+	ErrAccountDeactivated        = errors.New("account is deactivated")
+	ErrCannotDeactivateSoleOwner = errors.New("cannot deactivate the sole owner of the store")
+	ErrCannotDemoteSoleOwner     = errors.New("cannot demote the sole owner of the store")
+	ErrInvalidCSRF               = errors.New("invalid or expired csrf token")
+	ErrPermissionDenied          = errors.New("permission denied: insufficient authority")
+	ErrBootstrapNotAllowed       = errors.New("initial owner bootstrap is already completed or target account not found")
 )
 
 // Service coordinates authentication, session state, anti-CSRF, and RBAC authorization.
@@ -189,6 +191,9 @@ func (s *Service) CompleteLogin(ctx context.Context, state string, code string, 
 	}
 
 	if err := s.store.CreateSession(ctx, session); err != nil {
+		if errors.Is(err, ErrAccountDeactivated) {
+			return nil, nil, "", "", "", ErrAccountDeactivated
+		}
 		return nil, nil, "", "", "", fmt.Errorf("failed to create session: %w", err)
 	}
 
@@ -347,22 +352,7 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor *User, targetUserID 
 		return ErrPermissionDenied
 	}
 
-	// Update role in DB
-	if err := s.store.UpdateUserRole(ctx, targetUserID, newRole); err != nil {
-		return err
-	}
-
-	// Invariant: Privileged role change immediately revokes target's existing sessions
-	revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUserID)
-	if err != nil {
-		return fmt.Errorf("failed to revoke target user sessions: %w", err)
-	}
-	for _, h := range revokedHashes {
-		s.evictCachedSession(ctx, h)
-	}
-
-	// Append-only audit record
-	if err := s.store.RecordAuditLog(ctx, AuditLogEntry{
+	audit := &AuditLogEntry{
 		UserID:     &actor.ID,
 		ActorRole:  actor.Role,
 		Action:     "update_user_role",
@@ -374,8 +364,15 @@ func (s *Service) UpdateUserRole(ctx context.Context, actor *User, targetUserID 
 			"new_role":      newRole,
 			"target_email":  targetUser.Email,
 		},
-	}); err != nil {
-		return fmt.Errorf("failed to record audit log: %w", err)
+	}
+
+	// Update role, revoke sessions, and record audit atomically with active owner row-lock if demoting an active owner
+	revokedHashes, err := s.store.UpdateUserRoleAndRevokeSessions(ctx, targetUserID, newRole, audit)
+	if err != nil {
+		return err
+	}
+	for _, h := range revokedHashes {
+		s.evictCachedSession(ctx, h)
 	}
 
 	return nil
@@ -395,26 +392,36 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 		return errors.New("user not found")
 	}
 
-	// Downward Isolation: only owner can alter user status
+	// Downward Isolation: check status management permissions
 	if !CanManageUserStatus(actor.Role, targetUser.Role) {
 		return ErrPermissionDenied
 	}
 
-	if err := s.store.UpdateUserStatus(ctx, targetUserID, isActive); err != nil {
-		return err
-	}
-
 	if !isActive {
-		revokedHashes, err := s.store.RevokeSessionsByUserID(ctx, targetUserID)
+		audit := &AuditLogEntry{
+			UserID:     &actor.ID,
+			ActorRole:  actor.Role,
+			Action:     "update_user_status",
+			Resource:   "app_user",
+			ResourceID: targetUserID,
+			IPAddress:  ip,
+			Metadata: map[string]any{
+				"is_active":    false,
+				"target_email": targetUser.Email,
+			},
+		}
+
+		revokedHashes, err := s.store.DeactivateUserAndRevokeSessions(ctx, targetUserID, actor.Role, actor.ID == targetUserID, audit)
 		if err != nil {
-			return fmt.Errorf("failed to revoke sessions for deactivated user: %w", err)
+			return err
 		}
 		for _, h := range revokedHashes {
 			s.evictCachedSession(ctx, h)
 		}
+		return nil
 	}
 
-	if err := s.store.RecordAuditLog(ctx, AuditLogEntry{
+	audit := &AuditLogEntry{
 		UserID:     &actor.ID,
 		ActorRole:  actor.Role,
 		Action:     "update_user_status",
@@ -422,11 +429,42 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 		ResourceID: targetUserID,
 		IPAddress:  ip,
 		Metadata: map[string]any{
-			"is_active":    isActive,
+			"is_active":    true,
 			"target_email": targetUser.Email,
 		},
-	}); err != nil {
-		return fmt.Errorf("failed to record audit log: %w", err)
+	}
+
+	return s.store.ReactivateUser(ctx, targetUserID, actor.Role, audit)
+}
+
+// DeactivateSelf allows an authenticated user to deactivate their own account, revoking all active sessions.
+// If the user is the sole active store owner, deactivation is rejected to prevent permanent administrative lockout.
+func (s *Service) DeactivateSelf(ctx context.Context, actor *User, ip string) error {
+	if actor == nil {
+		return ErrPermissionDenied
+	}
+
+	audit := &AuditLogEntry{
+		UserID:     &actor.ID,
+		ActorRole:  actor.Role,
+		Action:     "user.self_deactivate",
+		Resource:   "app_user",
+		ResourceID: actor.ID,
+		IPAddress:  ip,
+		Metadata: map[string]any{
+			"email":  actor.Email,
+			"reason": "user_requested",
+		},
+	}
+
+	// Atomically verify owner availability (with row-lock), deactivate user, revoke sessions, and record audit
+	revokedHashes, err := s.store.DeactivateUserAndRevokeSessions(ctx, actor.ID, actor.Role, true, audit)
+	if err != nil {
+		return err
+	}
+
+	for _, h := range revokedHashes {
+		s.evictCachedSession(ctx, h)
 	}
 
 	return nil

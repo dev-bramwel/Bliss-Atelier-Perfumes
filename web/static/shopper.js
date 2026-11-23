@@ -10,6 +10,7 @@
     $("shopperName").hidden = !user;
     $("shopperName").textContent = user?.name || "";
     $("shopperLogout").hidden = !user;
+    if ($("shopperDeactivate")) $("shopperDeactivate").hidden = !user;
     const image = $("shopperAvatar");
     image.hidden = true;
     if (user?.picture_url) {
@@ -128,6 +129,65 @@
       window.dispatchEvent(new Event("bliss:identity"));
     } catch (error) {
       $("shopperAuthMessage").textContent = error.message;
+    }
+  });
+  let deactStep = 1;
+  function resetDeactModal() {
+    deactStep = 1;
+    if ($("deactivateModal")) $("deactivateModal").hidden = true;
+    if ($("deactivateModalStep1")) $("deactivateModalStep1").hidden = false;
+    if ($("deactivateModalStep2")) $("deactivateModalStep2").hidden = true;
+    if ($("deactivateModalError")) {
+      $("deactivateModalError").hidden = true;
+      $("deactivateModalError").textContent = "";
+    }
+    if ($("deactivateModalConfirm")) {
+      $("deactivateModalConfirm").disabled = false;
+      $("deactivateModalConfirm").textContent = "Deactivate";
+    }
+  }
+  $("shopperDeactivate")?.addEventListener("click", () => {
+    resetDeactModal();
+    if ($("deactivateModal")) $("deactivateModal").hidden = false;
+  });
+  $("deactivateModalCancel")?.addEventListener("click", () => {
+    resetDeactModal();
+  });
+  $("deactivateModalConfirm")?.addEventListener("click", async () => {
+    if (deactStep === 1) {
+      deactStep = 2;
+      if ($("deactivateModalStep1")) $("deactivateModalStep1").hidden = true;
+      if ($("deactivateModalStep2")) $("deactivateModalStep2").hidden = false;
+      if ($("deactivateModalConfirm"))
+        $("deactivateModalConfirm").textContent = "Confirm Deactivation";
+      return;
+    }
+    try {
+      if ($("deactivateModalConfirm")) {
+        $("deactivateModalConfirm").disabled = true;
+        $("deactivateModalConfirm").textContent = "Deactivating...";
+      }
+      await request("/auth/deactivate", { method: "POST", body: "{}" });
+      resetDeactModal();
+      user = null;
+      csrf = "";
+      try {
+        localStorage.removeItem("bliss_active_order");
+      } catch {}
+      if ($("shopperAuthMessage"))
+        $("shopperAuthMessage").textContent =
+          "Account deactivated. All active sessions have ended.";
+      profile();
+      window.dispatchEvent(new Event("bliss:identity"));
+    } catch (error) {
+      if ($("deactivateModalError")) {
+        $("deactivateModalError").hidden = false;
+        $("deactivateModalError").textContent = error.message;
+      }
+      if ($("deactivateModalConfirm")) {
+        $("deactivateModalConfirm").disabled = false;
+        $("deactivateModalConfirm").textContent = "Confirm Deactivation";
+      }
     }
   });
   window.addEventListener("bliss:connection", () => {

@@ -17,8 +17,10 @@ Owners can inspect all orders, quote delivery, inspect and resolve payment
 exceptions, record verified manual settlements, view payment audit records,
 and assign orders to active employees. Employees can read inventory and
 inspect/fulfill their assigned orders through `/operations/*` and `/orders/:id`
-routes; all `/admin/*` APIs reject employees and customers. Guest order tokens
-retain their existing scoped customer behavior.
+routes; administrative `/admin/*` APIs reject employees and customers, with the
+scoped exception of customer status reactivation (`POST /admin/users/:id/status`),
+which enforces downward role isolation. Guest order tokens retain their existing
+scoped customer behavior.
 
 Owners see all users and manage user roles; the UI offers employee and customer
 as target roles. Audit queries allow owners to inspect operational records across
@@ -27,6 +29,27 @@ capability and cannot inspect administrative audit logs. Server authorization
 remains authoritative when a control is hidden. Role changes/deactivation revoke
 sessions. A subsequent 401 closes open drawers, clears the in-memory auth context
 and displays the sign-in prompt.
+
+## Account lifecycle and customer self-deactivation
+
+Authenticated users can self-deactivate their accounts via `POST /api/auth/deactivate`
+or through the double-confirmation modal on the storefront header.
+Self-deactivation:
+- Sets `is_active = false` on `app_user`.
+- Atomically revokes all active database sessions across all devices.
+- Evicts all cached sessions from Redis.
+- Records an immutable audit log entry (`user.self_deactivate`) in `admin_audit_log`.
+- Blocks subsequent Google OAuth sign-in attempts with HTTP 403 Forbidden and an
+  atelier-styled "Account Deactivated" notice page.
+- Prevents sole store owners from deactivating themselves (`ErrCannotDeactivateSoleOwner`,
+  returning HTTP 409 Conflict).
+
+Reactivation and downward status isolation:
+- Store owners can activate or deactivate any account via `POST /admin/users/:id/status`.
+- Employees can reactivate or deactivate customer accounts via `POST /admin/users/:id/status`.
+  Downward isolation strictly prevents employees from modifying the active status of
+  fellow employees or owners (returning HTTP 403 Forbidden).
+- Once reactivated by staff, the user can immediately log in again via Google OAuth.
 
 ## Screens and contracts
 

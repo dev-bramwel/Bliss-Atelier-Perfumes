@@ -55,7 +55,7 @@ func Layout(title string, pageScript string, products []catalog.Product, childre
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div id=\"shopperProfile\" class=\"shopper-profile\" aria-live=\"polite\"><a id=\"shopperSignIn\" href=\"/api/auth/google?return_url=/checkout\">Sign in with Google</a> <img id=\"shopperAvatar\" width=\"28\" height=\"28\" alt=\"\" hidden> <span id=\"shopperName\" hidden></span> <button id=\"shopperLogout\" type=\"button\" data-mutation hidden>Sign out</button> <a id=\"resumeOrder\" href=\"/checkout\" hidden>Resume order</a> <span id=\"shopperAuthMessage\" role=\"status\"></span></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div id=\"shopperProfile\" class=\"shopper-profile\" aria-live=\"polite\"><a id=\"shopperSignIn\" href=\"/api/auth/google?return_url=/checkout\">Sign in with Google</a> <img id=\"shopperAvatar\" width=\"28\" height=\"28\" alt=\"\" hidden> <span id=\"shopperName\" hidden></span> <button id=\"shopperLogout\" type=\"button\" data-mutation hidden>Sign out</button> <button id=\"shopperDeactivate\" type=\"button\" class=\"shopper-deactivate-btn\" data-mutation hidden>Deactivate account</button> <a id=\"resumeOrder\" href=\"/checkout\" hidden>Resume order</a> <span id=\"shopperAuthMessage\" role=\"status\"></span></div><div id=\"deactivateModal\" class=\"deactivate-modal-overlay\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"deactivateModalTitle\" hidden><div class=\"deactivate-modal-panel\"><span class=\"deactivate-modal-eyebrow\">Bliss Atelier · Account Security</span><h2 id=\"deactivateModalTitle\">Deactivate Account</h2><p id=\"deactivateModalStep1\">Deactivating your account will immediately terminate all active sessions across all devices. You will not be able to log back in until staff review and reactivate your account.</p><p id=\"deactivateModalStep2\" hidden class=\"deactivate-warning\">Are you absolutely certain? This will immediately lock your access and purge all multi-device sessions.</p><div id=\"deactivateModalError\" class=\"deactivate-error\" role=\"alert\" hidden></div><div class=\"deactivate-modal-actions\"><button id=\"deactivateModalCancel\" type=\"button\" class=\"deactivate-btn-cancel\">Keep Account</button> <button id=\"deactivateModalConfirm\" type=\"button\" class=\"deactivate-btn-confirm\" data-mutation>Deactivate</button></div></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -96,7 +96,7 @@ func Layout(title string, pageScript string, products []catalog.Product, childre
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(pageScript).ResolveURL(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/layout.templ`, Line: 72, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/layout.templ`, Line: 90, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {

@@ -60,11 +60,14 @@ func CanManageRole(actorRole string, targetRole string) bool {
 
 // CanManageUserStatus enforces Downward Isolation for user account activation and deactivation:
 // - 'owner' can activate or deactivate accounts across all roles.
-// - 'employee' and 'customer' have zero status management privileges.
+// - 'employee' can activate or deactivate 'customer' accounts, but cannot alter other employees or owners.
+// - 'customer' has zero status management privileges.
 func CanManageUserStatus(actorRole string, targetRole string) bool {
 	switch actorRole {
 	case RoleOwner:
 		return IsValidRole(targetRole)
+	case RoleEmployee:
+		return targetRole == RoleCustomer
 	default:
 		return false
 	}
