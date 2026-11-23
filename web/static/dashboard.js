@@ -780,7 +780,7 @@
         quantity: Number(data.quantity),
         reference: data.reference,
       },
-      "Inventory restocked successfully.",
+      "Inventory updated successfully.",
       async () => {
         delete $("addInventoryForm").dataset.batchId;
         $("addInventoryDialog").close();
