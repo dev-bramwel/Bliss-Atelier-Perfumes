@@ -144,6 +144,43 @@ func (m *testAuthStore) UpdateUserRole(ctx context.Context, id string, newRole s
 	return auth.ErrSessionNotFound
 }
 
+func (m *testAuthStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, checkSoleOwner bool, auditEntry *auth.AuditLogEntry) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if checkSoleOwner {
+		activeOwnerCount := 0
+		for _, u := range m.users {
+			if u.Role == auth.RoleOwner && u.IsActive {
+				activeOwnerCount++
+			}
+		}
+		if activeOwnerCount <= 1 {
+			return nil, auth.ErrCannotDemoteSoleOwner
+		}
+	}
+
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, auth.ErrSessionNotFound
+	}
+	u.Role = newRole
+
+	var revoked []string
+	for tokenHash, s := range m.sessions {
+		if s.UserID == userID && !s.IsRevoked {
+			s.IsRevoked = true
+			revoked = append(revoked, tokenHash)
+		}
+	}
+
+	if auditEntry != nil {
+		m.auditLogs = append([]auth.AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
+	return revoked, nil
+}
+
 func (m *testAuthStore) UpdateUserStatus(ctx context.Context, id string, isActive bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
