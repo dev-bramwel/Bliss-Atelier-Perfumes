@@ -207,6 +207,7 @@ func migrate() error {
   IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_stock_operator') THEN
    GRANT USAGE ON SCHEMA public TO bliss_stock_operator;
    GRANT SELECT ON public.catalog_product,public.stock_control,public.stock_batch,public.stock_entry,public.stock_approval,public.stock_reservation,public.stock_reservation_item TO bliss_stock_operator;
+   GRANT SELECT(id, email, role, is_active, can_manage_inventory) ON public.app_user TO bliss_stock_operator;
    GRANT UPDATE(stock,opened) ON public.catalog_product TO bliss_stock_operator;
    GRANT UPDATE ON public.stock_control TO bliss_stock_operator;
    GRANT INSERT ON public.stock_batch,public.stock_entry,public.stock_approval TO bliss_stock_operator;
