@@ -402,30 +402,34 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 	}
 
 	if !isActive {
-		if targetUser.Role == RoleOwner {
-			activeOwners, err := s.store.CountActiveOwners(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to count active owners: %w", err)
-			}
-			if activeOwners <= 1 {
-				return ErrCannotDeactivateSoleOwner
-			}
+		audit := &AuditLogEntry{
+			UserID:     &actor.ID,
+			ActorRole:  actor.Role,
+			Action:     "update_user_status",
+			Resource:   "app_user",
+			ResourceID: targetUserID,
+			IPAddress:  ip,
+			Metadata: map[string]any{
+				"is_active":    false,
+				"target_email": targetUser.Email,
+			},
 		}
 
-		revokedHashes, err := s.store.DeactivateUserAndRevokeSessions(ctx, targetUserID)
+		revokedHashes, err := s.store.DeactivateUserAndRevokeSessions(ctx, targetUserID, targetUser.Role == RoleOwner, audit)
 		if err != nil {
-			return fmt.Errorf("failed to deactivate user and revoke sessions: %w", err)
+			return err
 		}
 		for _, h := range revokedHashes {
 			s.evictCachedSession(ctx, h)
 		}
-	} else {
-		if err := s.store.UpdateUserStatus(ctx, targetUserID, true); err != nil {
-			return err
-		}
+		return nil
 	}
 
-	if err := s.store.RecordAuditLog(ctx, AuditLogEntry{
+	if err := s.store.UpdateUserStatus(ctx, targetUserID, true); err != nil {
+		return err
+	}
+
+	return s.store.RecordAuditLog(ctx, AuditLogEntry{
 		UserID:     &actor.ID,
 		ActorRole:  actor.Role,
 		Action:     "update_user_status",
@@ -433,14 +437,10 @@ func (s *Service) UpdateUserStatus(ctx context.Context, actor *User, targetUserI
 		ResourceID: targetUserID,
 		IPAddress:  ip,
 		Metadata: map[string]any{
-			"is_active":    isActive,
+			"is_active":    true,
 			"target_email": targetUser.Email,
 		},
-	}); err != nil {
-		return fmt.Errorf("failed to record audit log: %w", err)
-	}
-
-	return nil
+	})
 }
 
 // DeactivateSelf allows an authenticated user to deactivate their own account, revoking all active sessions.
@@ -450,28 +450,7 @@ func (s *Service) DeactivateSelf(ctx context.Context, actor *User, ip string) er
 		return ErrPermissionDenied
 	}
 
-	// Protect store operations from sole active owner lockout
-	if actor.Role == RoleOwner {
-		count, err := s.store.CountActiveOwners(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to count active owners: %w", err)
-		}
-		if count <= 1 {
-			return ErrCannotDeactivateSoleOwner
-		}
-	}
-
-	// Atomically deactivate user and revoke all active sessions across all devices
-	revokedHashes, err := s.store.DeactivateUserAndRevokeSessions(ctx, actor.ID)
-	if err != nil {
-		return fmt.Errorf("failed to deactivate user and revoke sessions: %w", err)
-	}
-	for _, h := range revokedHashes {
-		s.evictCachedSession(ctx, h)
-	}
-
-	// Append-only audit record per Issue #87
-	if err := s.store.RecordAuditLog(ctx, AuditLogEntry{
+	audit := &AuditLogEntry{
 		UserID:     &actor.ID,
 		ActorRole:  actor.Role,
 		Action:     "user.self_deactivate",
@@ -482,8 +461,16 @@ func (s *Service) DeactivateSelf(ctx context.Context, actor *User, ip string) er
 			"email":  actor.Email,
 			"reason": "user_requested",
 		},
-	}); err != nil {
-		return fmt.Errorf("failed to record audit log: %w", err)
+	}
+
+	// Atomically verify owner availability (with row-lock), deactivate user, revoke sessions, and record audit
+	revokedHashes, err := s.store.DeactivateUserAndRevokeSessions(ctx, actor.ID, actor.Role == RoleOwner, audit)
+	if err != nil {
+		return err
+	}
+
+	for _, h := range revokedHashes {
+		s.evictCachedSession(ctx, h)
 	}
 
 	return nil
