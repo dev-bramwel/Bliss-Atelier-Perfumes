@@ -199,7 +199,7 @@ var (
 	ErrBatchDigestMismatch    = errors.New("batch ID already used with different content")
 	ErrInvalidQuantity        = errors.New("quantity must not be zero")
 	ErrInsufficientStock      = errors.New("insufficient stock for adjustment")
-	ErrInsufficientUnreserved  = errors.New("insufficient unreserved stock for adjustment")
+	ErrInsufficientUnreserved = errors.New("insufficient unreserved stock for adjustment")
 	ErrStockLimitExceeded     = errors.New("stock limit exceeded")
 )
 
