@@ -20,7 +20,7 @@ type OperationsService interface {
 	Orders(context.Context, string, int, int) (*operations.OrderPage, error)
 	Assign(context.Context, string, string, *auth.User, string) error
 	Fulfill(context.Context, string, *auth.User, string) error
-	Restock(context.Context, *auth.User, string, int, string, string) error
+	Restock(context.Context, *auth.User, string, string, int, string, string) error
 }
 
 func pageBounds(r *http.Request) (int, int) {
@@ -134,6 +134,7 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 			return
 		}
 		var req struct {
+			BatchID   string `json:"batch_id"`
 			ProductID string `json:"product_id"`
 			Quantity  int    `json:"quantity"`
 			Reference string `json:"reference"`
@@ -146,7 +147,7 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 			respond(w, 400, map[string]string{"error": "Product ID, positive quantity, and reference note are required."})
 			return
 		}
-		err := store.Restock(r.Context(), u, req.ProductID, req.Quantity, req.Reference, SafeClientIP(r, checker))
+		err := store.Restock(r.Context(), u, req.BatchID, req.ProductID, req.Quantity, req.Reference, SafeClientIP(r, checker))
 		if err != nil {
 			if errors.Is(err, auth.ErrPermissionDenied) {
 				respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
