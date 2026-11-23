@@ -21,7 +21,7 @@ type OperationsService interface {
 	Orders(context.Context, string, int, int) (*operations.OrderPage, error)
 	Assign(context.Context, string, string, *auth.User, string) error
 	Fulfill(context.Context, string, *auth.User, string) error
-	Restock(context.Context, *auth.User, string, string, int, string, string) error
+	Restock(context.Context, *auth.User, string, string, int, string, string) (*operations.RestockResult, error)
 }
 
 func pageBounds(r *http.Request) (int, int) {
@@ -148,7 +148,12 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 			respond(w, 400, map[string]string{"error": "Batch ID, product ID, non-zero quantity, and reference note are required."})
 			return
 		}
-		err := store.Restock(r.Context(), u, req.BatchID, req.ProductID, req.Quantity, req.Reference, SafeClientIP(r, checker))
+		isRestock := strings.HasSuffix(r.URL.Path, "/restock")
+		if isRestock && req.Quantity <= 0 {
+			respond(w, 400, map[string]string{"error": "Restock quantity must be a positive integer."})
+			return
+		}
+		res, err := store.Restock(r.Context(), u, req.BatchID, req.ProductID, req.Quantity, req.Reference, SafeClientIP(r, checker))
 		if err != nil {
 			switch {
 			case errors.Is(err, auth.ErrPermissionDenied):
@@ -175,7 +180,16 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 		if req.Quantity < 0 {
 			status = "adjusted"
 		}
-		respond(w, 200, map[string]any{"status": status, "product_id": req.ProductID, "quantity": req.Quantity})
+		resp := map[string]any{
+			"status":     status,
+			"product_id": req.ProductID,
+			"quantity":   req.Quantity,
+		}
+		if res != nil {
+			resp["stock"] = res.Stock
+			resp["unreserved"] = res.Unreserved
+		}
+		respond(w, 200, resp)
 	}
 	handleMutation := func(assign bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {

@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/url"
 	"os"
@@ -160,12 +162,12 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	s := &Store{Pool: pool, Invalidator: inv}
 
 	// 1. Employee without permission is rejected
-	if err := s.Restock(ctx, empDenied, "batch_denied", "p1", 10, "INV-100", "127.0.0.1"); !errors.Is(err, auth.ErrPermissionDenied) {
+	if _, err := s.Restock(ctx, empDenied, "batch_denied", "p1", 10, "INV-100", "127.0.0.1"); !errors.Is(err, auth.ErrPermissionDenied) {
 		t.Fatalf("expected ErrPermissionDenied for unpermitted employee, got: %v", err)
 	}
 
 	// 2. Negative or zero quantity rejected
-	if err := s.Restock(ctx, empAllowed, "batch_zero", "p1", 0, "INV-100", "127.0.0.1"); err == nil {
+	if _, err := s.Restock(ctx, empAllowed, "batch_zero", "p1", 0, "INV-100", "127.0.0.1"); err == nil {
 		t.Fatal("expected error for zero quantity, got nil")
 	}
 
@@ -173,7 +175,7 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE public.stock_control SET authority='unconfirmed' WHERE singleton`); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Restock(ctx, empAllowed, "batch_authority", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); !errors.Is(err, ErrAuthorityRequired) {
+	if _, err := s.Restock(ctx, empAllowed, "batch_authority", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); !errors.Is(err, ErrAuthorityRequired) {
 		t.Fatalf("expected ErrAuthorityRequired, got: %v", err)
 	}
 
@@ -188,7 +190,7 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	}
 
 	// 4. Unopened product rejected before opening count
-	if err := s.Restock(ctx, empAllowed, "batch_unopened", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); !errors.Is(err, ErrUnopenedProduct) {
+	if _, err := s.Restock(ctx, empAllowed, "batch_unopened", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); !errors.Is(err, ErrUnopenedProduct) {
 		t.Fatalf("expected ErrUnopenedProduct, got: %v", err)
 	}
 
@@ -200,8 +202,12 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	// 5. Employee with permission restocks p1
 	var initialStock int
 	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&initialStock)
-	if err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err != nil {
+	res, err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1")
+	if err != nil {
 		t.Fatalf("unexpected error during restock: %v", err)
+	}
+	if res.Stock != initialStock+5 || res.Quantity != 5 || res.ProductID != "p1" {
+		t.Fatalf("unexpected RestockResult: %+v", res)
 	}
 	var newStock int
 	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&newStock)
@@ -231,8 +237,12 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	}
 
 	// 6. Idempotent replay with identical batch ID and content
-	if err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err != nil {
+	replayedRes, err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1")
+	if err != nil {
 		t.Fatalf("expected idempotent replay to succeed, got: %v", err)
+	}
+	if replayedRes.Stock != newStock || replayedRes.AuditAction != "replay" {
+		t.Fatalf("unexpected replayed RestockResult: %+v", replayedRes)
 	}
 	var replayedStock int
 	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&replayedStock)
@@ -240,19 +250,34 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 		t.Fatalf("expected replayed stock to remain %d, got %d", newStock, replayedStock)
 	}
 
+	// 6b. Idempotent replay with missing product fails with ErrProductNotFound
+	rawDigest := sha256.Sum256([]byte("batch_orphan" + "nonexistent" + "5" + "REF"))
+	orphanDigest := hex.EncodeToString(rawDigest[:])
+	if _, err := pool.Exec(ctx, `INSERT INTO public.stock_batch(id,digest,kind,actor,evidence) VALUES ('batch_orphan',$1,'receipt',$2,'REF')`, orphanDigest, empAllowed.ID); err != nil {
+		t.Fatalf("failed to insert test batch for replay test: %v", err)
+	}
+	if _, err := s.Restock(ctx, empAllowed, "batch_orphan", "nonexistent", 5, "REF", "127.0.0.1"); !errors.Is(err, ErrProductNotFound) {
+		t.Fatalf("expected ErrProductNotFound for replayed batch with missing product, got: %v", err)
+	}
+	_, _ = pool.Exec(ctx, `DELETE FROM public.stock_batch WHERE id='batch_orphan'`)
+
 	// 7. Batch ID collision with different content rejected
-	if err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 10, "DIFFERENT-REF", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "already used with different content") {
+	if _, err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 10, "DIFFERENT-REF", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "already used with different content") {
 		t.Fatalf("expected batch ID reuse error, got: %v", err)
 	}
 
 	// 8. Owner restocks p2
-	if err := s.Restock(ctx, owner, "batch_test_2", "p2", 3, "OWNER-ARRIVAL", "127.0.0.1"); err != nil {
+	if _, err := s.Restock(ctx, owner, "batch_test_2", "p2", 3, "OWNER-ARRIVAL", "127.0.0.1"); err != nil {
 		t.Fatalf("owner restock failed: %v", err)
 	}
 
 	// 9. Negative stock adjustment (correction/damage) by permitted employee
-	if err := s.Restock(ctx, empAllowed, "batch_adj_1", "p1", -2, "DAMAGED-INSPECTION", "127.0.0.1"); err != nil {
+	adjRes, err := s.Restock(ctx, empAllowed, "batch_adj_1", "p1", -2, "DAMAGED-INSPECTION", "127.0.0.1")
+	if err != nil {
 		t.Fatalf("negative stock adjustment failed: %v", err)
+	}
+	if adjRes.Stock != newStock-2 || adjRes.Quantity != -2 {
+		t.Fatalf("unexpected adjRes: %+v", adjRes)
 	}
 	var adjustedStock int
 	if err := pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&adjustedStock); err != nil || adjustedStock != newStock-2 {
@@ -264,18 +289,18 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	}
 
 	// 10. Insufficient stock error
-	if err := s.Restock(ctx, empAllowed, "batch_adj_fail", "p1", -(adjustedStock + 10), "EXCESS-DEDUCTION", "127.0.0.1"); !errors.Is(err, ErrInsufficientStock) {
+	if _, err := s.Restock(ctx, empAllowed, "batch_adj_fail", "p1", -(adjustedStock + 10), "EXCESS-DEDUCTION", "127.0.0.1"); !errors.Is(err, ErrInsufficientStock) {
 		t.Fatalf("expected ErrInsufficientStock, got: %v", err)
 	}
 
 	// 11. Zero quantity error
-	if err := s.Restock(ctx, empAllowed, "batch_zero", "p1", 0, "ZERO-QTY", "127.0.0.1"); !errors.Is(err, ErrInvalidQuantity) {
+	if _, err := s.Restock(ctx, empAllowed, "batch_zero", "p1", 0, "ZERO-QTY", "127.0.0.1"); !errors.Is(err, ErrInvalidQuantity) {
 		t.Fatalf("expected ErrInvalidQuantity, got: %v", err)
 	}
 
 	// 12. Active checkout hold protection prevents stock reduction below active holds
 	// Restock p1 to ensure stock exceeds reservation holds
-	if err := s.Restock(ctx, empAllowed, "batch_hold_prep", "p1", 10, "HOLD-PREP", "127.0.0.1"); err != nil {
+	if _, err := s.Restock(ctx, empAllowed, "batch_hold_prep", "p1", 10, "HOLD-PREP", "127.0.0.1"); err != nil {
 		t.Fatalf("failed to restock before hold test: %v", err)
 	}
 	var holdBaseStock int
@@ -309,7 +334,7 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	}
 	// Reducing by 2 leaves holdBaseStock - 2, which is < holdQty (holdBaseStock - 1), but >= 0.
 	// This cleanly triggers ErrInsufficientUnreserved.
-	if err := s.Restock(ctx, empAllowed, "batch_adj_res_fail", "p1", -2, "HOLD-VIOLATION", "127.0.0.1"); !errors.Is(err, ErrInsufficientUnreserved) {
+	if _, err := s.Restock(ctx, empAllowed, "batch_adj_res_fail", "p1", -2, "HOLD-VIOLATION", "127.0.0.1"); !errors.Is(err, ErrInsufficientUnreserved) {
 		t.Fatalf("expected ErrInsufficientUnreserved, got: %v", err)
 	}
 	// Clean up reservation and test order
@@ -317,7 +342,7 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	_, _ = pool.Exec(ctx, `DELETE FROM public."Order" WHERE id = 'ord_res_test'`)
 
 	// 13. Empty batch ID error
-	if err := s.Restock(ctx, empAllowed, "   ", "p1", 5, "NO-BATCH-ID", "127.0.0.1"); !errors.Is(err, ErrBatchIDRequired) {
+	if _, err := s.Restock(ctx, empAllowed, "   ", "p1", 5, "NO-BATCH-ID", "127.0.0.1"); !errors.Is(err, ErrBatchIDRequired) {
 		t.Fatalf("expected ErrBatchIDRequired for empty batch ID, got: %v", err)
 	}
 
