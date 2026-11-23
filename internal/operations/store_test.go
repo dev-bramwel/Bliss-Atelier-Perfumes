@@ -244,7 +244,7 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	}
 
 	// 9. Negative stock adjustment (correction/damage) by permitted employee
-	if err := s.Restock(ctx, allowedEmp, "batch_adj_1", "p1", -2, "DAMAGED-INSPECTION", "127.0.0.1"); err != nil {
+	if err := s.Restock(ctx, empAllowed, "batch_adj_1", "p1", -2, "DAMAGED-INSPECTION", "127.0.0.1"); err != nil {
 		t.Fatalf("negative stock adjustment failed: %v", err)
 	}
 	var adjustedStock int
@@ -257,12 +257,12 @@ func TestRestockPermissionsAndLedger(t *testing.T) {
 	}
 
 	// 10. Insufficient stock error
-	if err := s.Restock(ctx, allowedEmp, "batch_adj_fail", "p1", -100, "EXCESS-DEDUCTION", "127.0.0.1"); !errors.Is(err, ErrInsufficientStock) {
+	if err := s.Restock(ctx, empAllowed, "batch_adj_fail", "p1", -100, "EXCESS-DEDUCTION", "127.0.0.1"); !errors.Is(err, ErrInsufficientStock) {
 		t.Fatalf("expected ErrInsufficientStock, got: %v", err)
 	}
 
 	// 11. Zero quantity error
-	if err := s.Restock(ctx, allowedEmp, "batch_zero", "p1", 0, "ZERO-QTY", "127.0.0.1"); !errors.Is(err, ErrInvalidQuantity) {
+	if err := s.Restock(ctx, empAllowed, "batch_zero", "p1", 0, "ZERO-QTY", "127.0.0.1"); !errors.Is(err, ErrInvalidQuantity) {
 		t.Fatalf("expected ErrInvalidQuantity, got: %v", err)
 	}
 
