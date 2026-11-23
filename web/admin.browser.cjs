@@ -253,7 +253,9 @@ const exception = {
                 w.endpoint.endsWith("/operations/inventory/restock") &&
                 w.body.product_id === "prod-arabian-wood" &&
                 w.body.quantity === 12 &&
-                w.body.reference === "Restock batch INV-001",
+                w.body.reference === "Restock batch INV-001" &&
+                typeof w.body.batch_id === "string" &&
+                w.body.batch_id.startsWith("restock_"),
             ),
           );
           await page.goto(base + "/admin");
