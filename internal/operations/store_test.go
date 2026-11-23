@@ -101,3 +101,88 @@ func TestAssignedFulfillmentAndInventory(t *testing.T) {
 		t.Fatalf("paid stock: %+v %v", inv, err)
 	}
 }
+
+func TestRestockPermissionsAndLedger(t *testing.T) {
+	dsn := os.Getenv("GO_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set GO_TEST_DATABASE_URL to the disposable integration database")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || u.Hostname() != "127.0.0.1" || u.Path != "/bliss_foundation_test" || u.User == nil || u.User.Username() != "bliss_test" || len(u.Query()) != 1 || u.Query().Get("sslmode") != "disable" {
+		t.Fatal("refusing non-test database")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err = pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = migration.Run(ctx, pool, "init", 15*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	users := auth.NewPGStore(pool)
+	makeUser := func(role string) *auth.User {
+		user, err := users.UpsertUserByGoogleSub(ctx, "restock-"+role, role+"@restock.test", role, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = users.UpdateUserRole(ctx, user.ID, role); err != nil {
+			t.Fatal(err)
+		}
+		user.Role = role
+		return user
+	}
+	owner := makeUser(auth.RoleOwner)
+	empDenied := makeUser(auth.RoleEmployee)
+	empAllowed := makeUser(auth.RoleEmployee)
+	if _, err = users.UpdateUserPermissions(ctx, owner.ID, empAllowed.ID, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	empAllowed.CanManageInventory = true
+
+	s := &Store{Pool: pool}
+
+	// 1. Employee without permission is rejected
+	if err := s.Restock(ctx, empDenied, "p1", 10, "INV-100", "127.0.0.1"); !errors.Is(err, auth.ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied for unpermitted employee, got: %v", err)
+	}
+
+	// 2. Negative or zero quantity rejected
+	if err := s.Restock(ctx, empAllowed, "p1", 0, "INV-100", "127.0.0.1"); err == nil {
+		t.Fatal("expected error for zero quantity, got nil")
+	}
+
+	// 3. Employee with permission restocks p1
+	var initialStock int
+	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&initialStock)
+	if err := s.Restock(ctx, empAllowed, "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); err != nil {
+		t.Fatalf("unexpected error during restock: %v", err)
+	}
+	var newStock int
+	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&newStock)
+	if newStock != initialStock+5 {
+		t.Fatalf("expected stock %d, got %d", initialStock+5, newStock)
+	}
+
+	// Verify ledger entry
+	var delta int
+	if err := pool.QueryRow(ctx, `SELECT delta FROM public.stock_entry WHERE product_id='p1' ORDER BY created_at DESC LIMIT 1`).Scan(&delta); err != nil || delta != 5 {
+		t.Fatalf("expected stock_entry delta 5, got %d (err: %v)", delta, err)
+	}
+
+	// Verify audit log
+	var auditCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM public.admin_audit_log WHERE action='restock_inventory' AND resource_id='p1'`).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("expected 1 audit log entry for restock, got %d (err: %v)", auditCount, err)
+	}
+
+	// 4. Owner restocks p2
+	if err := s.Restock(ctx, owner, "p2", 3, "OWNER-ARRIVAL", "127.0.0.1"); err != nil {
+		t.Fatalf("owner restock failed: %v", err)
+	}
+}
