@@ -98,14 +98,25 @@ func (m *testAuthStore) CountActiveOwners(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (m *testAuthStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, checkSoleOwner bool, auditEntry *auth.AuditLogEntry) ([]string, error) {
+func (m *testAuthStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, actorRole string, isSelf bool, auditEntry *auth.AuditLogEntry) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if checkSoleOwner {
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, auth.ErrSessionNotFound
+	}
+
+	if !isSelf && actorRole != "" {
+		if !auth.CanManageUserStatus(actorRole, u.Role) {
+			return nil, auth.ErrPermissionDenied
+		}
+	}
+
+	if u.Role == auth.RoleOwner && u.IsActive {
 		activeOwnerCount := 0
-		for _, u := range m.users {
-			if u.Role == auth.RoleOwner && u.IsActive {
+		for _, o := range m.users {
+			if o.Role == auth.RoleOwner && o.IsActive {
 				activeOwnerCount++
 			}
 		}
@@ -114,15 +125,14 @@ func (m *testAuthStore) DeactivateUserAndRevokeSessions(ctx context.Context, use
 		}
 	}
 
-	u, ok := m.users[userID]
-	if !ok {
-		return nil, auth.ErrSessionNotFound
-	}
 	u.IsActive = false
+	m.users[userID] = u
+
 	var revoked []string
 	for tokenHash, s := range m.sessions {
 		if s.UserID == userID && !s.IsRevoked {
 			s.IsRevoked = true
+			m.sessions[tokenHash] = s
 			revoked = append(revoked, tokenHash)
 		}
 	}
@@ -134,24 +144,55 @@ func (m *testAuthStore) DeactivateUserAndRevokeSessions(ctx context.Context, use
 	return revoked, nil
 }
 
+func (m *testAuthStore) ReactivateUser(ctx context.Context, userID string, actorRole string, auditEntry *auth.AuditLogEntry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	u, ok := m.users[userID]
+	if !ok {
+		return auth.ErrSessionNotFound
+	}
+
+	if actorRole != "" {
+		if !auth.CanManageUserStatus(actorRole, u.Role) {
+			return auth.ErrPermissionDenied
+		}
+	}
+
+	u.IsActive = true
+	m.users[userID] = u
+
+	if auditEntry != nil {
+		m.auditLogs = append([]auth.AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
+	return nil
+}
+
 func (m *testAuthStore) UpdateUserRole(ctx context.Context, id string, newRole string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if u, ok := m.users[id]; ok {
 		u.Role = newRole
+		m.users[id] = u
 		return nil
 	}
 	return auth.ErrSessionNotFound
 }
 
-func (m *testAuthStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, checkSoleOwner bool, auditEntry *auth.AuditLogEntry) ([]string, error) {
+func (m *testAuthStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, auditEntry *auth.AuditLogEntry) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if checkSoleOwner {
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, auth.ErrSessionNotFound
+	}
+
+	if u.Role == auth.RoleOwner && u.IsActive && newRole != auth.RoleOwner {
 		activeOwnerCount := 0
-		for _, u := range m.users {
-			if u.Role == auth.RoleOwner && u.IsActive {
+		for _, o := range m.users {
+			if o.Role == auth.RoleOwner && o.IsActive {
 				activeOwnerCount++
 			}
 		}
@@ -160,16 +201,14 @@ func (m *testAuthStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, use
 		}
 	}
 
-	u, ok := m.users[userID]
-	if !ok {
-		return nil, auth.ErrSessionNotFound
-	}
 	u.Role = newRole
+	m.users[userID] = u
 
 	var revoked []string
 	for tokenHash, s := range m.sessions {
 		if s.UserID == userID && !s.IsRevoked {
 			s.IsRevoked = true
+			m.sessions[tokenHash] = s
 			revoked = append(revoked, tokenHash)
 		}
 	}
@@ -186,6 +225,7 @@ func (m *testAuthStore) UpdateUserStatus(ctx context.Context, id string, isActiv
 	defer m.mu.Unlock()
 	if u, ok := m.users[id]; ok {
 		u.IsActive = isActive
+		m.users[id] = u
 		return nil
 	}
 	return auth.ErrSessionNotFound
@@ -225,6 +265,13 @@ func (m *testAuthStore) ConsumeLoginTransaction(ctx context.Context, stateHash s
 func (m *testAuthStore) CreateSession(ctx context.Context, session auth.UserSession) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	u, ok := m.users[session.UserID]
+	if !ok {
+		return auth.ErrSessionNotFound
+	}
+	if !u.IsActive {
+		return auth.ErrAccountDeactivated
+	}
 	m.sessions[session.TokenHash] = &session
 	return nil
 }
