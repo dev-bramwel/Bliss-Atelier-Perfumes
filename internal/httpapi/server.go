@@ -298,7 +298,33 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			})
 			return
 		}
-		if extractManager(r, w) == "" {
+		var authorizedActor string
+		if u := UserFromContext(r.Context()); u != nil {
+			if auth.CanManageInventory(*u) {
+				authorizedActor = u.ID
+			}
+		} else if authService != nil {
+			if user, ses, err := AuthenticateRequest(r.Context(), r, authService, proxyChecker); err == nil && user != nil {
+				if auth.CanManageInventory(*user) {
+					if w != nil {
+						RefreshSessionCookie(w, r, ses)
+					}
+					authorizedActor = user.ID
+				}
+			}
+		}
+		if authorizedActor == "" {
+			authorizedActor = extractManager(r, w)
+		}
+		if authorizedActor == "" {
+			if u := UserFromContext(r.Context()); u != nil {
+				respond(w, http.StatusForbidden, map[string]string{"error": "Your role does not permit this action."})
+				return
+			}
+			if user, _, err := AuthenticateRequest(r.Context(), r, authService, proxyChecker); err == nil && user != nil {
+				respond(w, http.StatusForbidden, map[string]string{"error": "Your role does not permit this action."})
+				return
+			}
 			respond(w, http.StatusUnauthorized, map[string]string{"error": "manager authorization required"})
 			return
 		}
