@@ -86,6 +86,36 @@ func (m *testAuthStore) CountOwners(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+func (m *testAuthStore) CountActiveOwners(ctx context.Context) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, u := range m.users {
+		if u.Role == auth.RoleOwner && u.IsActive {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (m *testAuthStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, auth.ErrSessionNotFound
+	}
+	u.IsActive = false
+	var revoked []string
+	for tokenHash, s := range m.sessions {
+		if s.UserID == userID && !s.IsRevoked {
+			s.IsRevoked = true
+			revoked = append(revoked, tokenHash)
+		}
+	}
+	return revoked, nil
+}
+
 func (m *testAuthStore) UpdateUserRole(ctx context.Context, id string, newRole string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
