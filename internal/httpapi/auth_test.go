@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -218,6 +220,41 @@ func (m *testAuthStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, use
 	}
 
 	return revoked, nil
+}
+
+func (m *testAuthStore) UpdateUserPermissions(ctx context.Context, userID string, actorRole string, canManageInventory bool, auditEntry *auth.AuditLogEntry) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if actorRole != "" && actorRole != auth.RoleOwner {
+		return nil, auth.ErrPermissionDenied
+	}
+
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, errors.New("user not found")
+	}
+
+	if u.Role != auth.RoleEmployee {
+		return nil, fmt.Errorf("%w: permissions can only be modified for employees", auth.ErrInvalidRole)
+	}
+
+	u.CanManageInventory = canManageInventory
+	m.users[userID] = u
+
+	var sessionHashes []string
+	now := time.Now()
+	for tokenHash, s := range m.sessions {
+		if s.UserID == userID && !s.IsRevoked && s.ExpiresAt.After(now) {
+			sessionHashes = append(sessionHashes, tokenHash)
+		}
+	}
+
+	if auditEntry != nil {
+		m.auditLogs = append([]auth.AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
+	return sessionHashes, nil
 }
 
 func (m *testAuthStore) UpdateUserStatus(ctx context.Context, id string, isActive bool) error {
@@ -605,8 +642,8 @@ func TestAdminRoutesAndRoleIsolation(t *testing.T) {
 	empInvReq.Header.Set("X-CSRF-Token", empCSRF)
 	empInvRR := httptest.NewRecorder()
 	api.server.Handler.ServeHTTP(empInvRR, empInvReq)
-	if empInvRR.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 Unauthorized when employee accesses owner endpoint, got %d: %s", empInvRR.Code, empInvRR.Body.String())
+	if empInvRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when employee accesses owner endpoint, got %d: %s", empInvRR.Code, empInvRR.Body.String())
 	}
 
 	// 7. CSRF Protection: Owner session accessing mutating owner endpoint without CSRF is rejected
@@ -854,5 +891,180 @@ func TestSelfDeactivationAndReactivation(t *testing.T) {
 	api.server.Handler.ServeHTTP(empDeactEmpRR, empDeactEmpReq)
 	if empDeactEmpRR.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden when employee attempts to manage another employee's status, got %d", empDeactEmpRR.Code)
+	}
+}
+
+type mockCatalogCache struct {
+	invalidated bool
+}
+
+func (m *mockCatalogCache) Invalidate(ctx context.Context) error {
+	m.invalidated = true
+	return nil
+}
+
+func TestUserPermissionsAndInventoryEndpoints(t *testing.T) {
+	ctx := context.Background()
+	store := newTestAuthStore()
+	verifier := auth.NewMockOIDCVerifier()
+	authService := auth.NewService(store, verifier, nil)
+	cache := &mockCatalogCache{}
+	ops := &mockOperations{}
+
+	secConfig := SecurityConfig{
+		ManagerSecret: "legacy-manager-secret",
+	}
+
+	api := New("127.0.0.1:0", 5*time.Second, nil, secConfig, authService, cache, ops)
+
+	// Create owner
+	owner, _ := store.UpsertUserByGoogleSub(ctx, "sub-owner", "owner@blissatelier.com", "Owner User", "")
+	_ = store.UpdateUserRole(ctx, owner.ID, auth.RoleOwner)
+	rawOwner, _ := auth.GenerateSessionToken()
+	csrfOwnerSecret, _ := auth.RandomString(32)
+	_ = store.CreateSession(ctx, auth.UserSession{
+		UserID:       owner.ID,
+		TokenHash:    auth.HashToken(rawOwner),
+		CSRFSecret:   csrfOwnerSecret,
+		ExpiresAt:    time.Now().Add(time.Hour),
+		MaxExpiresAt: time.Now().Add(2 * time.Hour),
+	})
+	ownerCookie := &http.Cookie{Name: "bliss_session", Value: rawOwner}
+	ownerCSRF := auth.GenerateCSRFToken(csrfOwnerSecret)
+
+	// Create employee (without inventory permission initially)
+	emp, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp", "employee@blissatelier.com", "Employee User", "")
+	_ = store.UpdateUserRole(ctx, emp.ID, auth.RoleEmployee)
+	rawEmp, _ := auth.GenerateSessionToken()
+	csrfEmpSecret, _ := auth.RandomString(32)
+	_ = store.CreateSession(ctx, auth.UserSession{
+		UserID:       emp.ID,
+		TokenHash:    auth.HashToken(rawEmp),
+		CSRFSecret:   csrfEmpSecret,
+		ExpiresAt:    time.Now().Add(time.Hour),
+		MaxExpiresAt: time.Now().Add(2 * time.Hour),
+	})
+	empCookie := &http.Cookie{Name: "bliss_session", Value: rawEmp}
+	empCSRF := auth.GenerateCSRFToken(csrfEmpSecret)
+
+	// Create customer
+	cust, _ := store.UpsertUserByGoogleSub(ctx, "sub-cust", "customer@example.com", "Customer One", "")
+
+	// 1. Employee cannot update permissions (403 Forbidden)
+	empUpdateReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+emp.ID+"/permissions", strings.NewReader(`{"can_manage_inventory":true}`))
+	empUpdateReq.AddCookie(empCookie)
+	empUpdateReq.Header.Set("X-CSRF-Token", empCSRF)
+	empUpdateRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(empUpdateRR, empUpdateReq)
+	if empUpdateRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when employee attempts to update permissions, got %d", empUpdateRR.Code)
+	}
+
+	// 2. Owner can grant inventory permission to employee (200 OK)
+	ownerUpdateReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+emp.ID+"/permissions", strings.NewReader(`{"can_manage_inventory":true}`))
+	ownerUpdateReq.AddCookie(ownerCookie)
+	ownerUpdateReq.Header.Set("X-CSRF-Token", ownerCSRF)
+	ownerUpdateRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(ownerUpdateRR, ownerUpdateReq)
+	if ownerUpdateRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when owner updates permissions, got %d: %s", ownerUpdateRR.Code, ownerUpdateRR.Body.String())
+	}
+	if !strings.Contains(ownerUpdateRR.Body.String(), `"can_manage_inventory":true`) {
+		t.Fatalf("expected can_manage_inventory:true in response, got %s", ownerUpdateRR.Body.String())
+	}
+	empUser, _ := store.GetUserByID(ctx, emp.ID)
+	if !empUser.CanManageInventory {
+		t.Fatal("expected store employee user to have CanManageInventory=true")
+	}
+
+	// 3. Invalid CSRF token on permissions endpoint returns 403 Forbidden
+	csrfBadReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+emp.ID+"/permissions", strings.NewReader(`{"can_manage_inventory":false}`))
+	csrfBadReq.AddCookie(ownerCookie)
+	csrfBadReq.Header.Set("X-CSRF-Token", "bad-csrf")
+	csrfBadRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(csrfBadRR, csrfBadReq)
+	if csrfBadRR.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden with bad CSRF token, got %d", csrfBadRR.Code)
+	}
+
+	// 4. Setting permissions on customer account returns 400 Bad Request
+	custPermReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+cust.ID+"/permissions", strings.NewReader(`{"can_manage_inventory":true}`))
+	custPermReq.AddCookie(ownerCookie)
+	custPermReq.Header.Set("X-CSRF-Token", ownerCSRF)
+	custPermRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(custPermRR, custPermReq)
+	if custPermRR.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request when setting permissions on customer, got %d", custPermRR.Code)
+	}
+
+	// 5. Test inventory management endpoints with permission:
+	// Employee WITH permission can invalidate catalog (200 OK)
+	invReq := httptest.NewRequest(http.MethodPost, "/catalog/invalidate", nil)
+	invReq.AddCookie(empCookie)
+	invReq.Header.Set("X-CSRF-Token", empCSRF)
+	invRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(invRR, invReq)
+	if invRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when employee with permission invalidates catalog, got %d: %s", invRR.Code, invRR.Body.String())
+	}
+
+	// Employee WITH permission can view inventory (200 OK)
+	getInvReq := httptest.NewRequest(http.MethodGet, "/operations/inventory", nil)
+	getInvReq.AddCookie(empCookie)
+	getInvReq.Header.Set("X-CSRF-Token", empCSRF)
+	getInvRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(getInvRR, getInvReq)
+	if getInvRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when employee with permission views inventory, got %d: %s", getInvRR.Code, getInvRR.Body.String())
+	}
+
+	// 6. Owner revokes inventory permission from employee
+	revokeReq := httptest.NewRequest(http.MethodPost, "/api/admin/users/"+emp.ID+"/permissions", strings.NewReader(`{"can_manage_inventory":false}`))
+	revokeReq.AddCookie(ownerCookie)
+	revokeReq.Header.Set("X-CSRF-Token", ownerCSRF)
+	revokeRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(revokeRR, revokeReq)
+	if revokeRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when owner revokes permission, got %d", revokeRR.Code)
+	}
+
+	// Employee WITHOUT permission is rejected on /catalog/invalidate (403 Forbidden)
+	invReq2 := httptest.NewRequest(http.MethodPost, "/catalog/invalidate", nil)
+	invReq2.AddCookie(empCookie)
+	invReq2.Header.Set("X-CSRF-Token", empCSRF)
+	invRR2 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(invRR2, invReq2)
+	if invRR2.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when employee without permission invalidates catalog, got %d: %s", invRR2.Code, invRR2.Body.String())
+	}
+
+	// Employee WITHOUT permission is rejected on /operations/inventory (403 Forbidden)
+	getInvReq2 := httptest.NewRequest(http.MethodGet, "/operations/inventory", nil)
+	getInvReq2.AddCookie(empCookie)
+	getInvReq2.Header.Set("X-CSRF-Token", empCSRF)
+	getInvRR2 := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(getInvRR2, getInvReq2)
+	if getInvRR2.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when employee without permission views inventory, got %d: %s", getInvRR2.Code, getInvRR2.Body.String())
+	}
+
+	// Owner can always invalidate catalog (200 OK)
+	ownerInvReq := httptest.NewRequest(http.MethodPost, "/catalog/invalidate", nil)
+	ownerInvReq.AddCookie(ownerCookie)
+	ownerInvReq.Header.Set("X-CSRF-Token", ownerCSRF)
+	ownerInvRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(ownerInvRR, ownerInvReq)
+	if ownerInvRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when owner invalidates catalog, got %d", ownerInvRR.Code)
+	}
+
+	// Owner can always view inventory (200 OK)
+	ownerGetInvReq := httptest.NewRequest(http.MethodGet, "/operations/inventory", nil)
+	ownerGetInvReq.AddCookie(ownerCookie)
+	ownerGetInvReq.Header.Set("X-CSRF-Token", ownerCSRF)
+	ownerGetInvRR := httptest.NewRecorder()
+	api.server.Handler.ServeHTTP(ownerGetInvRR, ownerGetInvReq)
+	if ownerGetInvRR.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK when owner views inventory, got %d", ownerGetInvRR.Code)
 	}
 }
