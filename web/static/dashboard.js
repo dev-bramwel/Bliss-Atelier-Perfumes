@@ -13,6 +13,10 @@
     selectedOrder = null,
     selectedException = null;
   const owner = () => context.user?.role === "owner";
+  const canManageInventory = () =>
+    owner() ||
+    (context.user?.role === "employee" &&
+      Boolean(context.user?.can_manage_inventory));
   const money = (n) => `KES ${Number(n || 0).toLocaleString("en-KE")}`;
   const date = (s) =>
     s
@@ -199,6 +203,7 @@
     updated();
   }
   async function loadInventory() {
+    if (!canManageInventory()) return;
     const data = await api(`/operations/inventory?${query("inventory")}`);
     $("metricCatalog").textContent = data.total;
     $("metricPrice").textContent = money(data.common_price_kes);
@@ -329,6 +334,31 @@
               true,
             ),
           );
+          if (u.role === "employee") {
+            const permLabel = el("label");
+            const permCheckbox = el("input");
+            permCheckbox.type = "checkbox";
+            permCheckbox.checked = Boolean(u.can_manage_inventory);
+            permCheckbox.setAttribute(
+              "aria-label",
+              `Can manage inventory for ${u.name || u.email}`,
+            );
+            permLabel.append(permCheckbox, " Can manage inventory");
+            controls.append(
+              permLabel,
+              action(
+                "Save permission",
+                () =>
+                  mutate(
+                    `/admin/users/${encodeURIComponent(u.id)}/permissions`,
+                    { can_manage_inventory: permCheckbox.checked },
+                    "Inventory permission updated.",
+                    loadUsers,
+                  ),
+                true,
+              ),
+            );
+          }
         }
         controls.append(
           action(
@@ -513,7 +543,10 @@
       : "orders";
   }
   function showSection(next) {
-    if (!owner() && ["payments", "users", "audit-logs"].includes(next)) {
+    if (
+      (!owner() && ["payments", "users", "audit-logs"].includes(next)) ||
+      (!canManageInventory() && next === "inventory")
+    ) {
       message("Your role does not permit this section.");
       next = "orders";
     }
@@ -550,6 +583,9 @@
       document.querySelectorAll("[data-owner]").forEach((node) => {
         node.hidden = !owner();
       });
+      document.querySelectorAll("[data-inventory]").forEach((node) => {
+        node.hidden = !canManageInventory();
+      });
       $("quoteForm").hidden = true;
       $("assignForm").hidden = true;
       try {
@@ -564,7 +600,7 @@
       showSection(sectionFromPath());
       await Promise.all([
         loadOrders(),
-        loadInventory(),
+        ...(canManageInventory() ? [loadInventory()] : []),
         ...(!["orders", "inventory"].includes(section) ? [refresh()] : []),
       ]);
     } catch (error) {
