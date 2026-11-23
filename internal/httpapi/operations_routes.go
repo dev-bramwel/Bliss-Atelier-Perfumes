@@ -68,8 +68,12 @@ func administrativeSessions(next http.Handler, service *auth.Service, checker *T
 			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
 			return
 		}
-		if (quote || invalidate) && !owner {
+		if quote && !owner {
 			respond(w, 401, map[string]string{"error": "Owner access is required."})
+			return
+		}
+		if invalidate && !auth.CanManageInventory(*user) {
+			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
 			return
 		}
 		if !RequireCSRF(r, ses) {
@@ -103,6 +107,11 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 	handleInventory := func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			respond(w, 503, map[string]string{"error": "Inventory unavailable"})
+			return
+		}
+		u := UserFromContext(r.Context())
+		if u != nil && !auth.CanManageInventory(*u) {
+			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
 			return
 		}
 		limit, offset := pageBounds(r)
