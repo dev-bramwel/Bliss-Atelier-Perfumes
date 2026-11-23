@@ -1,6 +1,18 @@
 (() => {
   if (/^\/(admin(?:\/|$)|dashboard)/.test(location.pathname)) return;
   const $ = (id) => document.getElementById(id);
+  const accountMenu = $("accountMenu");
+  document.addEventListener("click", (event) => {
+    if (accountMenu?.open && !accountMenu.contains(event.target))
+      accountMenu.open = false;
+  });
+  accountMenu?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      accountMenu.open = false;
+      accountMenu.querySelector("summary")?.focus();
+    }
+  });
   let user = null,
     csrf = "",
     offset = 0;
@@ -126,6 +138,7 @@
       user = null;
       csrf = "";
       profile();
+      if (accountMenu) accountMenu.open = false;
       window.dispatchEvent(new Event("bliss:identity"));
     } catch (error) {
       $("shopperAuthMessage").textContent = error.message;
@@ -147,6 +160,7 @@
     }
   }
   $("shopperDeactivate")?.addEventListener("click", () => {
+    if (accountMenu) accountMenu.open = false;
     resetDeactModal();
     if ($("deactivateModal")) $("deactivateModal").hidden = false;
   });
