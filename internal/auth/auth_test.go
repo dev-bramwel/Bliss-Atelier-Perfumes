@@ -223,14 +223,25 @@ func (m *memStore) CountActiveOwners(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (m *memStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error) {
+func (m *memStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID string, actorRole string, isSelf bool, auditEntry *AuditLogEntry) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if checkSoleOwner {
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, errors.New("user not found")
+	}
+
+	if !isSelf && actorRole != "" {
+		if !CanManageUserStatus(actorRole, u.Role) {
+			return nil, ErrPermissionDenied
+		}
+	}
+
+	if u.Role == RoleOwner && u.IsActive {
 		activeOwnerCount := 0
-		for _, u := range m.users {
-			if u.Role == RoleOwner && u.IsActive {
+		for _, o := range m.users {
+			if o.Role == RoleOwner && o.IsActive {
 				activeOwnerCount++
 			}
 		}
@@ -239,10 +250,6 @@ func (m *memStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID s
 		}
 	}
 
-	u, ok := m.users[userID]
-	if !ok {
-		return nil, errors.New("user not found")
-	}
 	u.IsActive = false
 	m.users[userID] = u
 
@@ -262,6 +269,31 @@ func (m *memStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID s
 	return revoked, nil
 }
 
+func (m *memStore) ReactivateUser(ctx context.Context, userID string, actorRole string, auditEntry *AuditLogEntry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	u, ok := m.users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+
+	if actorRole != "" {
+		if !CanManageUserStatus(actorRole, u.Role) {
+			return ErrPermissionDenied
+		}
+	}
+
+	u.IsActive = true
+	m.users[userID] = u
+
+	if auditEntry != nil {
+		m.auditLogs = append([]AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
+	return nil
+}
+
 func (m *memStore) UpdateUserRole(ctx context.Context, id string, newRole string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -270,17 +302,23 @@ func (m *memStore) UpdateUserRole(ctx context.Context, id string, newRole string
 		return errors.New("user not found")
 	}
 	u.Role = newRole
+	m.users[id] = u
 	return nil
 }
 
-func (m *memStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, checkSoleOwner bool, auditEntry *AuditLogEntry) ([]string, error) {
+func (m *memStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID string, newRole string, auditEntry *AuditLogEntry) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if checkSoleOwner {
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, errors.New("user not found")
+	}
+
+	if u.Role == RoleOwner && u.IsActive && newRole != RoleOwner {
 		activeOwnerCount := 0
-		for _, u := range m.users {
-			if u.Role == RoleOwner && u.IsActive {
+		for _, o := range m.users {
+			if o.Role == RoleOwner && o.IsActive {
 				activeOwnerCount++
 			}
 		}
@@ -289,10 +327,6 @@ func (m *memStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID s
 		}
 	}
 
-	u, ok := m.users[userID]
-	if !ok {
-		return nil, errors.New("user not found")
-	}
 	u.Role = newRole
 	m.users[userID] = u
 
@@ -320,6 +354,7 @@ func (m *memStore) UpdateUserStatus(ctx context.Context, id string, isActive boo
 		return errors.New("user not found")
 	}
 	u.IsActive = isActive
+	m.users[id] = u
 	return nil
 }
 
@@ -357,6 +392,13 @@ func (m *memStore) ConsumeLoginTransaction(ctx context.Context, stateHash string
 func (m *memStore) CreateSession(ctx context.Context, session UserSession) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	u, ok := m.users[session.UserID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	if !u.IsActive {
+		return ErrAccountDeactivated
+	}
 	m.sessions[session.TokenHash] = &session
 	return nil
 }
@@ -741,5 +783,33 @@ func TestDeactivateSelfAndStaffReactivation(t *testing.T) {
 	err = service.UpdateUserStatus(ctx, emp, owner.ID, false, "127.0.0.1")
 	if !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("expected ErrPermissionDenied when employee attempts to deactivate owner, got %v", err)
+	}
+
+	// 6. Inactive owner can be demoted or deactivated while a different sole active owner exists
+	inactiveOwnerRecord, _ := store.UpsertUserByGoogleSub(ctx, "sub-inactive-owner", "inactive.owner@blissatelier.com", "Inactive Owner", "")
+	_ = store.UpdateUserRole(ctx, inactiveOwnerRecord.ID, RoleOwner)
+	_ = store.UpdateUserStatus(ctx, inactiveOwnerRecord.ID, false)
+
+	// Sole active owner exists (owner), yet demoting inactiveOwnerRecord does not reduce active owner count
+	err = service.UpdateUserRole(ctx, owner, inactiveOwnerRecord.ID, RoleEmployee, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("expected demoting inactive owner to succeed when sole active owner exists, got %v", err)
+	}
+
+	// Re-assign role to owner (while inactive) and verify deactivating an inactive owner also succeeds
+	_ = store.UpdateUserRole(ctx, inactiveOwnerRecord.ID, RoleOwner)
+	err = service.UpdateUserStatus(ctx, owner, inactiveOwnerRecord.ID, false, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("expected deactivating inactive owner to succeed when sole active owner exists, got %v", err)
+	}
+
+	// 7. Session creation rejects deactivated user
+	err = store.CreateSession(ctx, UserSession{
+		ID:        "ses_test_inactive",
+		UserID:    inactiveOwnerRecord.ID,
+		TokenHash: "hash_test_inactive",
+	})
+	if !errors.Is(err, ErrAccountDeactivated) {
+		t.Fatalf("expected ErrAccountDeactivated when creating session for deactivated user, got %v", err)
 	}
 }
