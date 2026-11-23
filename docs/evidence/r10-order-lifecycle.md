@@ -130,6 +130,7 @@ Legacy `"Order"`, `"MpesaTransaction"`, and `_prisma_migrations` schemas remain 
 ## Rollback Plan
 
 If rollback of migration 3 is required:
+
 1. Drop additive tables:
    ```sql
    DROP TABLE public.order_fulfillment, public.stock_reservation_item, public.stock_reservation, public.order_item CASCADE;

@@ -7,6 +7,7 @@ Branch: `feat/16-order-lifecycle` / `develop`. Source: https://github.com/dev-br
 Issue #16 ([R10]) establishes snapshotted order items, separated payment and fulfillment states, atomic inventory reservations with a 15-minute hold, expiry/cancellation safety, late-payment resolution, and ports `/api/orders` and `/api/orders/{id}/payment-status` into the Go HTTP service.
 
 ### Acceptance Criteria
+
 1. **Concurrent Last-Item Purchases Cannot Oversell**:
    - Multiple shoppers attempting to buy the final unit concurrently are serialized via row-level locking (`SELECT ... FOR UPDATE` in sorted product order); exactly available quantity is reserved, subsequent requests fail with an actionable stock error (`409 Conflict` / `422 Unprocessable`).
 2. **Retries/Expiry Cannot Double-Release**:
@@ -21,6 +22,7 @@ Issue #16 ([R10]) establishes snapshotted order items, separated payment and ful
 ## 2. Architecture and Data Model
 
 ### Migration `0003_orders.sql`
+
 - **Orders Table Enhancement (`Order`)**:
   - Add `fulfillmentStatus text NOT NULL DEFAULT 'UNFULFILLED' CHECK (fulfillmentStatus IN ('UNFULFILLED', 'FULFILLED', 'CANCELLED'))`.
   - Expand `paymentStatus` allowed states: `PENDING`, `PAID`, `FAILED`, `EXPIRED`, `RESOLUTION_REQUIRED`.

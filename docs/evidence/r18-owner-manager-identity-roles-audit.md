@@ -3,7 +3,7 @@
 **Issue:** [#24 - [R18] Implement owner/manager identity, roles and audit](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/24)  
 **Milestone:** Week 4: Shopper and operator journeys  
 **Design Reference:** [ADR 006: Google Identity, Bliss-Managed Sessions, and Role-Based Access Control](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/docs/adr/006-google-identity-and-sessions.md)  
-**Status:** Completed and verified locally against unit tests, disposable PostgreSQL/Redis integration tests, and Docker Core verification  
+**Status:** Completed and verified locally against unit tests, disposable PostgreSQL/Redis integration tests, and Docker Core verification
 
 ---
 
@@ -12,6 +12,7 @@
 Bliss Atelier Perfumes requires robust, zero-trust authentication and role-based access control for owners, store managers, counter employees, and online delivery shoppers while preserving guest access for physical pickups and store browsing.
 
 ### Key Operational Invariants Enforced:
+
 1. **Google is the EXCLUSIVE Sign-In Method**:
    - Zero local email/password registration, no password storage, no password reset workflow.
    - **Zero password hashing dependencies**: `golang.org/x/crypto/argon2` or `bcrypt` are completely unnecessary and omitted.
@@ -98,18 +99,19 @@ sequenceDiagram
 
 Forward SQL migration registered at version 9:
 
-| Table | Purpose | Runtime Grants (`bliss_runtime`) |
-| --- | --- | --- |
-| `public.app_user` | Application users indexed by unique `google_sub` | `SELECT, INSERT, UPDATE` |
-| `public.login_transaction` | Single-use browser-bound PKCE state tracking | `SELECT, INSERT, UPDATE, DELETE` |
-| `public.user_session` | Authoritative server sessions with SHA-256 hashed tokens | `SELECT, INSERT, UPDATE, DELETE` |
-| `public.admin_audit_log` | Immutable administrative audit log | `SELECT, INSERT` (Append-only!) |
+| Table                      | Purpose                                                  | Runtime Grants (`bliss_runtime`) |
+| -------------------------- | -------------------------------------------------------- | -------------------------------- |
+| `public.app_user`          | Application users indexed by unique `google_sub`         | `SELECT, INSERT, UPDATE`         |
+| `public.login_transaction` | Single-use browser-bound PKCE state tracking             | `SELECT, INSERT, UPDATE, DELETE` |
+| `public.user_session`      | Authoritative server sessions with SHA-256 hashed tokens | `SELECT, INSERT, UPDATE, DELETE` |
+| `public.admin_audit_log`   | Immutable administrative audit log                       | `SELECT, INSERT` (Append-only!)  |
 
 ---
 
 ## 4. Verification Evidence
 
 ### 4.1 Automated Test Suites Passed
+
 - **`internal/auth` Unit Tests**:
   - `TestRoleHierarchyAndIsolation`: Verified role ranks, Downward Isolation (manager cannot promote to owner or inspect owner logs), Upward Visibility (owner inspects all, manager inspects operational), and pricing/opening stock authority.
   - `TestCryptoUtilities`: Verified 64-character session token entropy, RFC 7636 PKCE S256 challenge, SHA-256 token hashing, and CSRF token HMAC signature + expiration.
@@ -126,6 +128,7 @@ Forward SQL migration registered at version 9:
   - Passed all container checks: non-root execution, loopback binding, read-only rootfs, clean credential layers, and migration failure gating.
 
 ### 4.2 Live Instance & Production Google OIDC Verification
+
 - **Automated Live Harness (`scripts/test-live-auth.ps1`)**:
   - Validated local live instance running full Docker Compose topology (`bliss-frontend-1` on port 8080, `bliss-api-1` on port 5001, `bliss-db-1` on PostgreSQL 17.11, `bliss-redis-1` on Redis 7).
   - Exercised full authentication lifecycle: PKCE token initiation, callback transaction binding, session creation, sliding expiration, role promotions, Downward Isolation, session revocation on deactivation, and self-logout.

@@ -47,6 +47,7 @@ make up
 ```
 
 Once healthy, access the application:
+
 - **Storefront**: `http://127.0.0.1:8080/`
 - **Cart**: `http://127.0.0.1:8080/cart`
 - **Checkout**: `http://127.0.0.1:8080/checkout`

@@ -320,7 +320,9 @@ const exception = {
           await context.setOffline(true);
           await page.waitForSelector("#offlineOverlay[open]");
           await context.setOffline(false);
-          await page.waitForFunction(() => document.getElementById("offlineOverlay").hidden);
+          await page.waitForFunction(
+            () => document.getElementById("offlineOverlay").hidden,
+          );
           assert.equal(await roleDraft.inputValue(), "customer");
           await page.locator("#usersRows button").first().click();
           await page.waitForFunction(() =>

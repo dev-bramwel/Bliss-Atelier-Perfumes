@@ -29,10 +29,13 @@ Bliss defines four principal roles: `owner`, `manager`, `employee`, and `custome
    - **Self-Visibility**: Visibility into own profile and personal order history.
 
 ### Strict One-Time Owner Bootstrap
+
 Public sign-in always creates a standard `customer` account. Public registration can never grant staff or administrative roles. Initial owner provisioning occurs through a restricted, one-time, audited operator configuration targeting a pre-existing account created via Google sign-in (`GO_BOOTSTRAP_OWNER_EMAIL`). Once an owner exists in the database, bootstrap capability is permanently disabled.
 
 ### Server-Side Sessions & Anti-CSRF
+
 Sessions are backed by high-entropy 64-character cryptographic tokens. Only SHA-256 hashes are stored in PostgreSQL (`public.user_session`) and cached in Redis.
+
 - **Inactivity Lifetimes**: Staff (30 minutes) / Customer (7 days).
 - **Absolute Maximum Lifetimes**: Staff (12 hours) / Customer (30 days).
 - **Fail-Closed Guarantee**: Database/session-store failures deny access; cached roles are never silently authorized if authoritative verification fails. Redis outage gracefully falls back to PostgreSQL.
@@ -40,4 +43,5 @@ Sessions are backed by high-entropy 64-character cryptographic tokens. Only SHA-
 - **Anti-CSRF**: All cookie-authenticated state-modifying requests (`POST`, `PUT`, `PATCH`, `DELETE`) require a valid `X-CSRF-Token` header cryptographically bound to the session secret.
 
 ### Append-Only Administrative Audit Log
+
 All privileged mutations (role changes, user deactivations, stock approvals, manual payment settlements) are recorded in `public.admin_audit_log`. The `bliss_runtime` database role has strict `SELECT, INSERT` privileges only; `UPDATE` and `DELETE` permissions are withheld to preserve audit immutability.

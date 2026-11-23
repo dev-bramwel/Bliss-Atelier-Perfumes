@@ -2,7 +2,7 @@
 
 **Issue:** [#19 - [R13] Persist payment attempts and durable idempotency](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/19)  
 **Milestone:** Week 3: Safe payments and background work  
-**Status:** Completed and verified locally against disposable PostgreSQL  
+**Status:** Completed and verified locally against disposable PostgreSQL
 
 ---
 
@@ -11,6 +11,7 @@
 During mobile shopping and network interruptions, customer retries, double-clicks, and connection resets can cause duplicate order creation, duplicate inventory deduction, or duplicate payment charges.
 
 R13 delivers:
+
 1. **Durable Idempotency Engine (`public.idempotency_key`)**:
    - Stores caller/operation scoped keys (`key`, `caller_scope`, `operation`).
    - Tracks canonical SHA-256 request payload digests.
@@ -32,6 +33,7 @@ R13 delivers:
 ## 2. Schema Changes & Contract Evolution
 
 Added migration `internal/migration/sql/0006_payment_attempts_idempotency.sql` establishing:
+
 - `public.idempotency_key` with composite primary key `(key, caller_scope, operation)` and `expires_at` index.
 - `public.payment_attempt` with foreign key to `Order(id) ON DELETE CASCADE` and unique index `(order_id, attempt_number)`.
 - Updated migration ledger and readiness check to enforce `schema-v6.json`.
@@ -42,14 +44,18 @@ Added migration `internal/migration/sql/0006_payment_attempts_idempotency.sql` e
 ## 3. Verification & Test Evidence
 
 ### A. Unit Tests
+
 Executed across all packages (`go test -count=1 ./...`):
+
 - `TestIdempotencyLifecycle`: verified initial in-progress lock, concurrent rejection (`ErrIdempotencyInProgress`), completion, replayed response with matching hash, conflict rejection (`ErrIdempotencyConflict`) on payload mutation, and failed key retry.
 - `TestPaymentAttemptLifecycleAndExplicitRetry`: verified attempt #1 creation during order placement, in-flight unresolved attempt blocking (`ErrUnresolvedPaymentAttempt`), attempt #2 creation after attempt #1 failure, and rejection on already `PAID` order.
 - `TestIdempotentOrderCreation`: verified HTTP 201 Created on initial submission, cached replay with `X-Idempotent-Replay: true` on identical resubmission, and HTTP 409 Conflict on payload alteration.
 - `TestRetryPaymentEndpoint`: verified HTTP 401 on missing credentials, HTTP 201 on authorized retry, HTTP 409 when attempt in progress, and HTTP 409 on paid order.
 
 ### B. Integration Drills
+
 Executed `scripts/test-integration.ps1`:
+
 - Disposable PostgreSQL database container spun up.
 - Migrations 1 through 6 applied.
 - R06 backup/restore/re-adoption drill passed; full data/history fingerprint preserved.

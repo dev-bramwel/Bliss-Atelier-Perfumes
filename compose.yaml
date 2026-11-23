@@ -30,7 +30,8 @@ services:
       POSTGRES_DB: bliss_dev
       POSTGRES_PASSWORD_FILE: /run/secrets/admin_password
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
-    secrets: [admin_password, migrator_password, runtime_password, catalog_password]
+    secrets:
+      [admin_password, migrator_password, runtime_password, catalog_password]
     volumes:
       - database:/var/lib/postgresql/data
       - ./infra/docker/postgres-entrypoint.sh:/usr/local/bin/bliss-postgres-entrypoint.sh:ro
@@ -107,7 +108,18 @@ services:
     mem_limit: 128m
     cpus: 0.5
     networks: [private]
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "volatile-lru"]
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "64mb",
+        "--maxmemory-policy",
+        "volatile-lru",
+      ]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s

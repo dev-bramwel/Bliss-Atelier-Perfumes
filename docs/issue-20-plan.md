@@ -11,6 +11,7 @@
 ## 1. Problem Statement & Background
 
 The business uses **NCBA Bank** for merchant mobile money collections. Under `docs/NCBA integration`, the bank supplies three official technical specifications:
+
 1. **`NCBA TILL STK PUSH & DYNAMIC QR CODE API_2024.pdf`**:
    - Token endpoint: `GET /payments/api/v1/auth/token` via HTTP Basic auth (`username:password`). Returns JWT `access_token` with `expires_in` (typically 18,000s / 5 hours).
    - STK Push Initiate: `POST /payments/api/v1/stk-push/initiate` via Bearer token.
@@ -49,14 +50,14 @@ sequenceDiagram
     Customer->>API: POST /api/orders (or /retry-payment) with Idempotency-Key
     API->>Store: CreateOrder + CreatePaymentAttempt(status: 'created', provider: 'ncba_stk')
     API->>Adapter: InitiateSTK(orderID, attemptID, phone, amount)
-    
+
     alt Token Missing or Expired
         Adapter->>NCBA: GET /payments/api/v1/auth/token (Basic Auth)
         NCBA-->>Adapter: 200 OK (access_token, expires_in)
     end
 
     Adapter->>NCBA: POST /payments/api/v1/stk-push/initiate (Bearer token)
-    
+
     alt Network Timeout / Ambiguous
         NCBA--xAdapter: Timeout / 504 / Context Deadline
         Adapter-->>API: ErrProviderTimeout (Unknown outcome)
@@ -78,7 +79,7 @@ sequenceDiagram
     NCBA->>API: POST /api/payments/ncba/ipn (or /api/mpesa/callback)
     API->>API: Verify Username, Password, and Base64(hex(SHA256)) Signature Hash
     API->>Store: Correlate Payment Attempt (by Phone + Amount + In-flight status OR ReferenceID)
-    
+
     alt Order Already PAID
         Note over API, Store: Settled Success Never Regresses
         API-->>NCBA: 200 OK {"ResultCode": "0", "ResultDesc": "Accepted"} (Idempotent No-op)
@@ -148,6 +149,7 @@ type ReceiptTransaction struct {
 ```
 
 #### Provider Errors:
+
 - `ErrProviderTimeout`: Request timed out; outcome is **UNKNOWN**.
 - `ErrProviderRejected`: Rejection or invalid credentials; outcome is **FAILED**.
 - `ErrProviderMalformed`: Malformed JSON from provider.
@@ -156,6 +158,7 @@ type ReceiptTransaction struct {
 ---
 
 ### B. NCBA Bank Adapter (`internal/provider/ncba.go`)
+
 - **Configuration (`NCBAConfig`)**:
   - `BaseURL`: Default `https://c2bapis.ncbagroup.com` (configurable for tests / devstack).
   - `Username` & `Password`: Basic auth credentials for `/payments/api/v1/auth/token`.
@@ -172,6 +175,7 @@ type ReceiptTransaction struct {
 ---
 
 ### C. Fake Adapter (`internal/provider/fake.go`)
+
 - Supports testing all edge cases locally and in CI:
   - `ModeAccept`: Returns immediate acceptance with mock `NCBA_TX_...` and `NCBA_REF_...`.
   - `ModeReject`: Returns `StatusCode: "1"` with failure description.
@@ -181,6 +185,7 @@ type ReceiptTransaction struct {
 ---
 
 ### D. Guarded NCBA IPN & Callback Handlers (`internal/httpapi/`)
+
 1. **Endpoint**: `POST /api/payments/ncba/ipn` (and compatibility alias `POST /api/mpesa/callback`).
 2. **Authentication & Hash Verification (`VerifyNCBAIPNHash`)**:
    - Compares incoming `Username` and `Password` against configured IPN credentials in constant time.
@@ -221,6 +226,7 @@ type ReceiptTransaction struct {
 ---
 
 ### E. Integration with Order Checkout & Retries (`internal/httpapi/server.go`)
+
 - On `POST /api/orders` (and `POST /api/orders/{id}/retry-payment`) with `paymentMethod == "mpesa"`:
   - Dispatches `provider.InitiateSTK(...)`.
   - On acceptance: attempt marked `accepted`, response returns `stkPush` details.
@@ -254,6 +260,7 @@ type ReceiptTransaction struct {
 ---
 
 ## 5. Definition of Done & Delivery Evidence
+
 - Create `docs/evidence/r14-bounded-provider-callbacks.md`.
 - Update `docs/evidence/README.md`.
 - Schema changes marked not applicable with reason (`schema-v6` contains all required tables and fields).

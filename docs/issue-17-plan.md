@@ -3,7 +3,7 @@
 **Issue:** [#17 [R11]](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/17)  
 **Milestone:** Week 2: Trustworthy commerce data  
 **Branch:** `feat/17-quoted-delivery` targeting `develop`  
-**Dependencies:** [#7 [R01]](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/7) (Closed), [#16 [R10]](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/16) (Closed)  
+**Dependencies:** [#7 [R01]](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/7) (Closed), [#16 [R10]](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/16) (Closed)
 
 ---
 
@@ -12,6 +12,7 @@
 Support Mombasa delivery and customer-arranged showroom pickup with versioned, expiring manager delivery quotes. Record recipient (`merchant` vs `courier`), amount in KES, and customer agreement; collect transport only when approved policy dictates merchant receives it.
 
 ### Core Acceptance Criteria
+
 1. **No STK for an unaccepted total**:
    - For `delivery` orders, M-Pesa payment initiation or confirmation cannot proceed without explicit customer acceptance of the active delivery quote.
    - For `pickup` orders, transport charge is KES 0 and auto-accepted.
@@ -31,6 +32,7 @@ Support Mombasa delivery and customer-arranged showroom pickup with versioned, e
 ## 2. Architecture & Data Model
 
 ### Database Migration: `0004_delivery_quotes.sql`
+
 Additive schema changes preserving legacy `"Order"` and `"MpesaTransaction"` table fingerprints:
 
 ```sql
@@ -56,6 +58,7 @@ CREATE INDEX delivery_quote_status_expires_idx ON public.delivery_quote (status,
 ```
 
 ### Role Grants & Readiness Attestation
+
 - Add `GRANT SELECT, INSERT, UPDATE, DELETE ON public.delivery_quote TO bliss_runtime;` in `cmd/devstack/main.go`.
 - Document privileges in `docs/sql-migrations.md`.
 - Update `internal/migration/readiness.go` to verify `bliss_runtime` DML permissions on `delivery_quote`.
@@ -66,6 +69,7 @@ CREATE INDEX delivery_quote_status_expires_idx ON public.delivery_quote (status,
 ## 3. Domain Service: `internal/delivery`
 
 ### Models & Interfaces
+
 ```go
 package delivery
 
@@ -112,6 +116,7 @@ type Store interface {
 ```
 
 ### Business Rules
+
 1. **Quote Creation**:
    - Verifies order exists and is in `PENDING` payment status.
    - If previous quote exists, increments `version` (e.g. 1 -> 2) and marks older versions superseded.

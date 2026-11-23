@@ -2,7 +2,7 @@
 
 **Issue:** [#20 - [R14] Implement bounded provider adapter and guarded callbacks](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/20)  
 **Milestone:** Week 3: Safe payments and background work  
-**Status:** Completed and verified locally against unit tests and disposable PostgreSQL integration tests  
+**Status:** Completed and verified locally against unit tests and disposable PostgreSQL integration tests
 
 ---
 
@@ -11,6 +11,7 @@
 Mobile money and bank payment gateways (specifically NCBA Bank Kenya Till STK push, C2B Query, and Paybill IPN push notification webhooks) operate across asynchronous, potentially unreliable mobile networks. Without bounded client transports, strict signature verification, and guarded state transitions, systems are vulnerable to hanging connections, forged callbacks, replay attacks, duplicate payment credits, and race conditions where late failure notifications overwrite settled successful payments.
 
 R14 delivers:
+
 1. **Typed Provider Port & Bounded Transport (`internal/provider`)**:
    - `PaymentProvider` interface with `InitiateSTK`, `QuerySTK`, and `QueryReceipt`.
    - Concrete `NCBAAdapter` utilizing bounded HTTP client transport (`DoJSON`) with per-request timeouts (30s) and strict payload validation.
@@ -58,6 +59,7 @@ sequenceDiagram
 ```
 
 ### Safety Invariants Enforced:
+
 - **Zero Raw Secrets in Code**: All NCBA and callback secrets are injected via environment variables (`GO_NCBA_*`, `GO_MPESA_CALLBACK_SECRET`).
 - **Settled Success Non-Regression**: Once an order reaches `PAID`, any subsequent duplicate callback or late error callback acknowledges HTTP 200 OK to the bank without mutating the order state.
 - **Durable Unresolved Attempt Guard**: Retries are rejected if an unresolved attempt is currently in-flight.
@@ -68,7 +70,9 @@ sequenceDiagram
 ## 3. Verification & Test Evidence
 
 ### A. Unit Tests
+
 Executed across all packages (`go test -count=1 ./...`):
+
 - `TestNCBA_InitiateSTK_Success`: Verified request serialization, Bearer token injection, and response parsing.
 - `TestNCBA_InitiateSTK_TokenCaching`: Verified that token caching reuses the active token across calls and refreshes when expired.
 - `TestNCBA_InitiateSTK_Errors`: Verified rejection handling on HTTP 400 (`ErrProviderRejected`) and timeout handling (`ErrProviderTimeout`).
@@ -82,7 +86,9 @@ Executed across all packages (`go test -count=1 ./...`):
 - `TestNCBA_IPN_AmountMismatch`: Verified that underpaid transactions are rejected with HTTP 422 Unprocessable Entity.
 
 ### B. Integration Tests
+
 Executed `scripts/test-integration.ps1`:
+
 - Disposable PostgreSQL database container spun up.
 - All migrations 1 through 6 applied successfully.
 - Database backup/restore and table migration fingerprints verified.

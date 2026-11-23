@@ -2,13 +2,14 @@
 
 **Issue:** [#21 - [R15] Deliver transactional outbox and RabbitMQ workers](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/21)  
 **Milestone:** Week 3: Safe payments and background work  
-**Status:** Completed and verified locally against unit tests and disposable PostgreSQL integration tests  
+**Status:** Completed and verified locally against unit tests and disposable PostgreSQL integration tests
 
 ---
 
 ## 1. Problem and Outcome
 
 Directly publishing asynchronous broker events inside business request transactions introduces the classic "dual-write" failure mode:
+
 1. If the database transaction commits but the network or broker fails during publish, the event is permanently lost, leading to inconsistent downstream state (e.g. notifications never sent, audit records missing).
 2. If the broker publish succeeds but the database transaction aborts or rolls back, a phantom event is emitted to external consumers for state changes that never happened.
 3. If publishing blocks synchronously on broker responsiveness, broker network latency or outages directly degrade or take down customer checkout and payment confirmation.
@@ -16,6 +17,7 @@ Directly publishing asynchronous broker events inside business request transacti
 5. Corrupt or unparseable messages can cause perpetual retry loops that starve consumer queues ("poison message").
 
 ### R15 Outcomes Delivered:
+
 1. **Atomic Transactional Outbox (`public.outbox_event`)**:
    - Outbox records are inserted into PostgreSQL within the **exact same `pgx.Tx`** as order creations, payment confirmations, and payment attempts.
    - Zero dual-write hazard: business mutations and outbox entries either commit together or roll back together atomically.
@@ -89,6 +91,7 @@ sequenceDiagram
 ```
 
 ### Safety Invariants Enforced:
+
 - **Broker Independence**: Database mutations commit completely independent of broker state. If RabbitMQ is down, transactions succeed normally and accumulate in `outbox_event`.
 - **Publisher Confirms**: An outbox event is NEVER updated to `published` status without an explicit AMQP confirmation from the broker.
 - **Exactly-Once Side Effect Delivery**: Redelivered messages are caught by `inbox_message` constraint (`(message_id, consumer_name)` primary key) ensuring notification handlers execute at most once.
@@ -141,6 +144,7 @@ CREATE TABLE IF NOT EXISTS public.inbox_message (
 ## 4. Verification & Test Evidence
 
 ### A. Unit Tests (`go test -count=1 ./...`)
+
 - **`internal/events`**:
   - `TestNewEvent_Validation`: Validated required envelope attributes (`event_id`, `event_type`, `aggregate_id`, `schema_version`).
   - `TestPayloadSerialization`: Verified JSON serialization and deserialization for `order.created`, `order.paid`, and `payment.attempt`.
@@ -165,6 +169,7 @@ CREATE TABLE IF NOT EXISTS public.inbox_message (
   - `TestWorkerCancellation`: Verified graceful startup and cancellation of the background worker process.
 
 ### B. Integration Tests (`scripts/test-integration.ps1`)
+
 - Spun up disposable PostgreSQL container.
 - Applied migrations 1 through 7 sequentially.
 - Inspected table schema against verified `schema-v7.json`.

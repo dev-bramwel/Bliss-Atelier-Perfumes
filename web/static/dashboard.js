@@ -304,7 +304,10 @@
         const controls = el("div");
         if (owner()) {
           const select = el("select");
-          select.setAttribute("aria-label", `New role for ${u.name || u.email}`);
+          select.setAttribute(
+            "aria-label",
+            `New role for ${u.name || u.email}`,
+          );
           for (const role of ["employee", "customer"]) {
             const option = el("option", role);
             option.value = role;
@@ -349,9 +352,7 @@
   async function loadAudit() {
     const data = await api(`/admin/audit-logs?${query("audit")}`);
     const logs = (data.audit_logs || []).filter(
-      (entry) =>
-        owner() ||
-        ["employee", "customer"].includes(entry.actor_role),
+      (entry) => owner() || ["employee", "customer"].includes(entry.actor_role),
     );
     table(
       "auditRows",

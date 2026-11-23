@@ -3,7 +3,7 @@
 **Alert:** `OutboxBacklogGrowing`  
 **Severity:** Warning (P2) — Escalates to Critical if pending count > 100  
 **Responsible Owner:** Platform SRE / Backend Worker Lead  
-**Grafana Dashboard:** [Bliss Atelier - Messaging & Event SRE](http://localhost:3000/d/bliss-messaging-sre)  
+**Grafana Dashboard:** [Bliss Atelier - Messaging & Event SRE](http://localhost:3000/d/bliss-messaging-sre)
 
 ---
 
@@ -12,12 +12,14 @@
 The transactional outbox pattern guarantees reliable at-least-once message delivery from PostgreSQL (`public.outbox_event`) to the RabbitMQ event broker.
 
 When `outbox_pending_events_gauge` exceeds 20 events for more than 30 seconds:
+
 - Outbox event dispatcher latency is increasing or dispatcher processing has stalled.
 - Downstream workers (payment notifications, stock reservation releases, audit logging) experience delivery delays.
 - Eventual consistency latency between database transactions and message queues is compromised.
 
 > [!CRITICAL]
 > **Strict Operational Invariants:**
+>
 > 1. **Do not purge the outbox table**: Deleting pending events causes permanent loss of critical events (e.g. order confirmations, payment receipts).
 > 2. **Maintain deterministic event ordering**: Events must be dispatched in ascending `created_at` order per stream/aggregate.
 > 3. **Never bypass idempotency**: Downstream workers must maintain idempotent event consumption.
@@ -27,13 +29,17 @@ When `outbox_pending_events_gauge` exceeds 20 events for more than 30 seconds:
 ## 2. Immediate Triage & Diagnosis
 
 ### Step 1: Inspect Outbox Depth & Publisher Rates on Grafana
+
 Check the **Messaging & Event SRE** dashboard:
+
 - `outbox_pending_events_gauge`: Current pending event backlog.
 - `rate(outbox_events_published_total[1m])`: Current publishing rate to RabbitMQ.
 - `rabbitmq_dlq_messages_gauge`: Check if downstream poison messages are causing broker issues.
 
 ### Step 2: Query Pending Events in PostgreSQL
+
 Inspect the outbox backlog directly in PostgreSQL:
+
 ```bash
 docker compose exec db psql -U bliss_admin -d bliss_dev -c "
 SELECT id, event_type, status, retry_count, error_message, now() - created_at AS age
@@ -45,11 +51,15 @@ LIMIT 15;
 ```
 
 ### Step 3: Check Worker & Broker Logs
+
 Inspect the outbox dispatcher worker container logs:
+
 ```bash
 docker compose logs --tail=100 worker
 ```
+
 Look for connection timeouts, channel errors, or RabbitMQ connection resets:
+
 - `amqp091: connection reset by peer`
 - `broker unavailable: connection refused`
 - `database lock timeout on outbox_event`
@@ -59,6 +69,7 @@ Look for connection timeouts, channel errors, or RabbitMQ connection resets:
 ## 3. Remediation Procedures
 
 ### Scenario A: RabbitMQ Broker Disconnection or Network Partition
+
 1. Check RabbitMQ container status:
    ```bash
    docker compose ps rabbitmq
@@ -71,7 +82,9 @@ Look for connection timeouts, channel errors, or RabbitMQ connection resets:
 3. If RabbitMQ is down or restarting, allow it to stabilize. The outbox dispatcher will automatically reconnect using exponential backoff.
 
 ### Scenario B: Dispatcher Worker Stalled
+
 If PostgreSQL and RabbitMQ are healthy but `outbox_pending_events_gauge` is flat and not draining:
+
 1. Restart the background worker container:
    ```bash
    docker compose restart worker
@@ -89,7 +102,9 @@ If PostgreSQL and RabbitMQ are healthy but `outbox_pending_events_gauge` is flat
    > A gauge reading of `-1` indicates that the outbox backlog count query failed (database error) and the metric is in an unavailable state. A reading of `-1` does **not** indicate recovery. True recovery requires an active, non-negative count below 5 with zero `outbox_count_errors_total` increments.
 
 ### Scenario C: Poison Outbox Record (Serialization or Schema Error)
+
 If a specific event fails repeatedly with `retry_count >= 5`:
+
 1. Inspect the failing payload:
    ```bash
    docker compose exec db psql -U bliss_admin -d bliss_dev -c "

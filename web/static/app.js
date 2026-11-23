@@ -155,7 +155,7 @@ function renderProducts() {
             <div class="text-xs uppercase tracking-[0.35em] text-[var(--gold-soft)]">${eGender} &bull; ${eCategory}</div>
             <h3 class="text-xl font-semibold text-white">${eName}</h3>
             <p class="text-sm text-gray-400">${eSize} &bull; ${eNotes}</p>
-            <p class="stock-badge" data-low="${p.stock > 0 && p.stock <= 5}">${!p.available ? (p.stock === 0 ? 'Sold Out' : 'Currently unavailable') : p.stock <= 5 ? 'Only ' + p.stock + ' left in stock' : 'In Stock'}</p>
+            <p class="stock-badge" data-low="${p.stock > 0 && p.stock <= 5}">${!p.available ? (p.stock === 0 ? "Sold Out" : "Currently unavailable") : p.stock <= 5 ? "Only " + p.stock + " left in stock" : "In Stock"}</p>
           </div>
           <div class="text-right shrink-0">
             <div class="font-semibold text-lg text-[var(--gold-soft)]">KES ${formatKes(p.priceKes)}</div>

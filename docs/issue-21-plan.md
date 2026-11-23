@@ -3,7 +3,7 @@
 **Issue:** [#21 - [R15] Deliver transactional outbox and RabbitMQ workers](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/21)  
 **Milestone:** Week 3: Safe payments and background work  
 **Priority:** P0 | Area: messaging  
-**Branch:** `feat/21-transactional-outbox-rabbitmq-workers`  
+**Branch:** `feat/21-transactional-outbox-rabbitmq-workers`
 
 ---
 
@@ -12,10 +12,12 @@
 In an asynchronous e-commerce checkout flow, business state mutations (order creation, stock reservation, payment status transitions, and quote acceptance) must trigger background jobs and notifications (e.g. customer order confirmation, manager payment notification, delivery alerts, analytics ingestion).
 
 If the API publishes directly to RabbitMQ during HTTP request handling, a network glitch or broker restart creates the **dual-write failure problem**:
+
 1. Order commits in PostgreSQL, but RabbitMQ publish fails -> job is lost forever.
 2. RabbitMQ publish succeeds, but database commit fails -> worker processes a non-existent phantom order.
 
 ### Scope & Invariants:
+
 1. **Transactional Outbox (`public.outbox_event`)**:
    - Outbox records are inserted within the **exact same PostgreSQL transaction** (`pgx.Tx`) as the business mutation.
    - Database commit is the sole atomic source of truth.
@@ -85,6 +87,7 @@ sequenceDiagram
 ## 3. Database Migration (`0007_transactional_outbox_inbox.sql`)
 
 ### Tables:
+
 1. `public.outbox_event`:
    - `id text PRIMARY KEY` (Event UUID or prefixed `evt_...`)
    - `event_type text NOT NULL` (e.g. `order.created.v1`, `order.paid.v1`, `payment.attempt.v1`)
