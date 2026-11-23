@@ -26,6 +26,7 @@ type Store interface {
 	UpdateUserStatus(ctx context.Context, id string, isActive bool) error
 	ReactivateUser(ctx context.Context, userID string, actorRole string, auditEntry *AuditLogEntry) error
 	DeactivateUserAndRevokeSessions(ctx context.Context, userID string, actorRole string, isSelf bool, auditEntry *AuditLogEntry) ([]string, error)
+	UpdateUserPermissions(ctx context.Context, userID string, actorRole string, canManageInventory bool, auditEntry *AuditLogEntry) ([]string, error)
 	ListUsers(ctx context.Context, filterRole string) ([]User, error)
 
 	// Login transaction operations
@@ -73,19 +74,19 @@ func (s *PGStore) UpsertUserByGoogleSub(ctx context.Context, googleSub, email, n
 
 	newID := generateID("usr")
 	query := `
-		INSERT INTO public.app_user (id, google_sub, email, name, picture_url, role, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, 'customer', TRUE, now(), now())
+		INSERT INTO public.app_user (id, google_sub, email, name, picture_url, role, is_active, can_manage_inventory, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, 'customer', TRUE, FALSE, now(), now())
 		ON CONFLICT (google_sub) DO UPDATE
 		SET email = EXCLUDED.email,
 		    name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE app_user.name END,
 		    picture_url = CASE WHEN EXCLUDED.picture_url <> '' THEN EXCLUDED.picture_url ELSE app_user.picture_url END,
 		    updated_at = now()
-		RETURNING id, google_sub, email, name, picture_url, role, is_active, created_at, updated_at;
+		RETURNING id, google_sub, email, name, picture_url, role, is_active, can_manage_inventory, created_at, updated_at;
 	`
 
 	var u User
 	err := s.pool.QueryRow(ctx, query, newID, googleSub, email, name, pictureURL).Scan(
-		&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
+		&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CanManageInventory, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upsert user by google sub: %w", err)
@@ -95,10 +96,10 @@ func (s *PGStore) UpsertUserByGoogleSub(ctx context.Context, googleSub, email, n
 
 // GetUserByID fetches a user by their primary key ID.
 func (s *PGStore) GetUserByID(ctx context.Context, id string) (*User, error) {
-	query := `SELECT id, google_sub, email, name, picture_url, role, is_active, created_at, updated_at FROM public.app_user WHERE id = $1`
+	query := `SELECT id, google_sub, email, name, picture_url, role, is_active, can_manage_inventory, created_at, updated_at FROM public.app_user WHERE id = $1`
 	var u User
 	err := s.pool.QueryRow(ctx, query, id).Scan(
-		&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
+		&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CanManageInventory, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -111,10 +112,10 @@ func (s *PGStore) GetUserByID(ctx context.Context, id string) (*User, error) {
 
 // GetUserByEmail finds a user by their registered email.
 func (s *PGStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
-	query := `SELECT id, google_sub, email, name, picture_url, role, is_active, created_at, updated_at FROM public.app_user WHERE lower(email) = lower($1) LIMIT 1`
+	query := `SELECT id, google_sub, email, name, picture_url, role, is_active, can_manage_inventory, created_at, updated_at FROM public.app_user WHERE lower(email) = lower($1) LIMIT 1`
 	var u User
 	err := s.pool.QueryRow(ctx, query, email).Scan(
-		&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
+		&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CanManageInventory, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -458,14 +459,99 @@ func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID st
 	return hashes, nil
 }
 
+// UpdateUserPermissions atomically sets app_user.can_manage_inventory, records an audit log entry,
+// ensures the target is an employee, and returns active session token hashes to evict from cache.
+func (s *PGStore) UpdateUserPermissions(ctx context.Context, userID string, actorRole string, canManageInventory bool, auditEntry *AuditLogEntry) ([]string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Acquire transaction-scoped advisory lock to serialize user transitions and prevent deadlocks.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, ownerTransitionLockKey); err != nil {
+		return nil, fmt.Errorf("failed to acquire owner transition advisory lock: %w", err)
+	}
+
+	// Downward isolation authorization: only owner can manage permissions
+	if actorRole != "" && actorRole != RoleOwner {
+		return nil, ErrPermissionDenied
+	}
+
+	// Lock target user row with FOR UPDATE to inspect current role
+	var currentRole string
+	err = tx.QueryRow(ctx, `SELECT role FROM public.app_user WHERE id = $1 FOR UPDATE`, userID).Scan(&currentRole)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, errors.New("user not found")
+		}
+		return nil, fmt.Errorf("failed to lock target user: %w", err)
+	}
+
+	if currentRole != RoleEmployee {
+		return nil, fmt.Errorf("%w: permissions can only be modified for employees", ErrInvalidRole)
+	}
+
+	cmd, err := tx.Exec(ctx, `UPDATE public.app_user SET can_manage_inventory = $1, updated_at = now() WHERE id = $2`, canManageInventory, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update user permissions: %w", err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return nil, errors.New("user not found")
+	}
+
+	if auditEntry != nil {
+		id := auditEntry.ID
+		if id == "" {
+			id = generateID("aud")
+		}
+		metaBytes, err := json.Marshal(auditEntry.Metadata)
+		if err != nil {
+			metaBytes = []byte("{}")
+		}
+		query := `
+			INSERT INTO public.admin_audit_log (id, user_id, actor_role, action, resource, resource_id, ip_address, metadata, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now());
+		`
+		if _, err := tx.Exec(ctx, query, id, auditEntry.UserID, auditEntry.ActorRole, auditEntry.Action, auditEntry.Resource, auditEntry.ResourceID, auditEntry.IPAddress, metaBytes); err != nil {
+			return nil, fmt.Errorf("failed to record audit log: %w", err)
+		}
+	}
+
+	// Fetch active session token hashes to evict from cache without revoking sessions
+	rows, err := tx.Query(ctx, `SELECT token_hash FROM public.user_session WHERE user_id = $1 AND is_revoked = FALSE AND expires_at > now()`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query active sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var hashes []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("failed to scan session token hash: %w", err)
+		}
+		hashes = append(hashes, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating session token hashes: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return hashes, nil
+}
+
 // ListUsers retrieves users, optionally filtered by role.
 func (s *PGStore) ListUsers(ctx context.Context, filterRole string) ([]User, error) {
 	var rows pgx.Rows
 	var err error
 	if filterRole != "" {
-		rows, err = s.pool.Query(ctx, `SELECT id, google_sub, email, name, picture_url, role, is_active, created_at, updated_at FROM public.app_user WHERE role = $1 ORDER BY created_at DESC LIMIT 200`, filterRole)
+		rows, err = s.pool.Query(ctx, `SELECT id, google_sub, email, name, picture_url, role, is_active, can_manage_inventory, created_at, updated_at FROM public.app_user WHERE role = $1 ORDER BY created_at DESC LIMIT 200`, filterRole)
 	} else {
-		rows, err = s.pool.Query(ctx, `SELECT id, google_sub, email, name, picture_url, role, is_active, created_at, updated_at FROM public.app_user ORDER BY created_at DESC LIMIT 200`)
+		rows, err = s.pool.Query(ctx, `SELECT id, google_sub, email, name, picture_url, role, is_active, can_manage_inventory, created_at, updated_at FROM public.app_user ORDER BY created_at DESC LIMIT 200`)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
@@ -475,7 +561,7 @@ func (s *PGStore) ListUsers(ctx context.Context, filterRole string) ([]User, err
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CanManageInventory, &u.CreatedAt, &u.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
 		users = append(users, u)
@@ -571,7 +657,7 @@ func (s *PGStore) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 	query := `
 		SELECT s.id, s.user_id, s.token_hash, s.csrf_secret, s.ip_address, s.user_agent,
 		       s.is_revoked, s.expires_at, s.max_expires_at, s.created_at, s.last_seen_at,
-		       u.id, u.google_sub, u.email, u.name, u.picture_url, u.role, u.is_active, u.created_at, u.updated_at
+		       u.id, u.google_sub, u.email, u.name, u.picture_url, u.role, u.is_active, u.can_manage_inventory, u.created_at, u.updated_at
 		FROM public.user_session s
 		JOIN public.app_user u ON s.user_id = u.id
 		WHERE s.token_hash = $1 AND s.is_revoked = FALSE;
@@ -581,7 +667,7 @@ func (s *PGStore) GetSessionByTokenHash(ctx context.Context, tokenHash string) (
 	err := s.pool.QueryRow(ctx, query, tokenHash).Scan(
 		&ses.ID, &ses.UserID, &ses.TokenHash, &ses.CSRFSecret, &ses.IPAddress, &ses.UserAgent,
 		&ses.IsRevoked, &ses.ExpiresAt, &ses.MaxExpiresAt, &ses.CreatedAt, &ses.LastSeenAt,
-		&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CreatedAt, &u.UpdatedAt,
+		&u.ID, &u.GoogleSub, &u.Email, &u.Name, &u.PictureURL, &u.Role, &u.IsActive, &u.CanManageInventory, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
