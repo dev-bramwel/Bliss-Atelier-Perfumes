@@ -347,12 +347,15 @@ func (m *memStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID s
 	return revoked, nil
 }
 
-func (m *memStore) UpdateUserPermissions(ctx context.Context, userID string, actorRole string, canManageInventory bool, auditEntry *AuditLogEntry) ([]string, error) {
+func (m *memStore) UpdateUserPermissions(ctx context.Context, actorID string, userID string, canManageInventory bool, auditEntry *AuditLogEntry) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if actorRole != "" && actorRole != RoleOwner {
-		return nil, ErrPermissionDenied
+	if actorID != "" {
+		actor, ok := m.users[actorID]
+		if !ok || !actor.IsActive || actor.Role != RoleOwner {
+			return nil, ErrPermissionDenied
+		}
 	}
 
 	u, ok := m.users[userID]
@@ -957,5 +960,21 @@ func TestUpdateUserPermissions(t *testing.T) {
 	err = service.UpdateUserPermissions(ctx, owner, "non-existent-id", true, "127.0.0.1")
 	if err == nil {
 		t.Fatal("expected error when target user does not exist, got nil")
+	}
+
+	// 8. Demoted owner cannot update permissions in store
+	staleOwnerSnapshot := *owner
+	_ = store.UpdateUserRole(ctx, owner.ID, RoleCustomer)
+	err = service.UpdateUserPermissions(ctx, &staleOwnerSnapshot, emp.ID, true, "127.0.0.1")
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied when actor role is demoted in store, got %v", err)
+	}
+
+	// 9. Deactivated owner cannot update permissions in store
+	_ = store.UpdateUserRole(ctx, owner.ID, RoleOwner)
+	_ = store.UpdateUserStatus(ctx, owner.ID, false)
+	err = service.UpdateUserPermissions(ctx, &staleOwnerSnapshot, emp.ID, true, "127.0.0.1")
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied when actor is deactivated in store, got %v", err)
 	}
 }
