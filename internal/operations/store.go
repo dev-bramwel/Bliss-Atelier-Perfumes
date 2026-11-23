@@ -281,17 +281,21 @@ func (s *Store) Restock(ctx context.Context, actor *auth.User, batchID, productI
 	// If stock is reduced by adjustments, protect active checkout holds
 	if quantity < 0 {
 		var hasReservationTable bool
-		if err := tx.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasReservationTable); err == nil && hasReservationTable {
+		if err := tx.QueryRow(ctx, `SELECT to_regclass('public.stock_reservation') IS NOT NULL`).Scan(&hasReservationTable); err != nil {
+			return fmt.Errorf("failed to check reservation schema: %w", err)
+		}
+		if hasReservationTable {
 			var activeReserved int
 			if err := tx.QueryRow(ctx, `SELECT coalesce((
 				SELECT sum(ri.quantity)
 				FROM public.stock_reservation_item ri
 				JOIN public.stock_reservation r ON r.id = ri.reservation_id
 				WHERE ri.product_id = $1 AND r.status = 'active' AND r.expires_at > now()
-			), 0)`, productID).Scan(&activeReserved); err == nil {
-				if newStock < activeReserved {
-					return fmt.Errorf("%w (active holds: %d)", ErrInsufficientUnreserved, activeReserved)
-				}
+			), 0)`, productID).Scan(&activeReserved); err != nil {
+				return fmt.Errorf("failed to query active reservation holds: %w", err)
+			}
+			if newStock < activeReserved {
+				return fmt.Errorf("%w (active holds: %d)", ErrInsufficientUnreserved, activeReserved)
 			}
 		}
 	}
