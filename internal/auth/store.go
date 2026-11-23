@@ -26,7 +26,7 @@ type Store interface {
 	UpdateUserStatus(ctx context.Context, id string, isActive bool) error
 	ReactivateUser(ctx context.Context, userID string, actorRole string, auditEntry *AuditLogEntry) error
 	DeactivateUserAndRevokeSessions(ctx context.Context, userID string, actorRole string, isSelf bool, auditEntry *AuditLogEntry) ([]string, error)
-	UpdateUserPermissions(ctx context.Context, userID string, actorRole string, canManageInventory bool, auditEntry *AuditLogEntry) ([]string, error)
+	UpdateUserPermissions(ctx context.Context, actorID string, userID string, canManageInventory bool, auditEntry *AuditLogEntry) ([]string, error)
 	ListUsers(ctx context.Context, filterRole string) ([]User, error)
 
 	// Login transaction operations
@@ -461,7 +461,7 @@ func (s *PGStore) DeactivateUserAndRevokeSessions(ctx context.Context, userID st
 
 // UpdateUserPermissions atomically sets app_user.can_manage_inventory, records an audit log entry,
 // ensures the target is an employee, and returns active session token hashes to evict from cache.
-func (s *PGStore) UpdateUserPermissions(ctx context.Context, userID string, actorRole string, canManageInventory bool, auditEntry *AuditLogEntry) ([]string, error) {
+func (s *PGStore) UpdateUserPermissions(ctx context.Context, actorID string, userID string, canManageInventory bool, auditEntry *AuditLogEntry) ([]string, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -473,9 +473,20 @@ func (s *PGStore) UpdateUserPermissions(ctx context.Context, userID string, acto
 		return nil, fmt.Errorf("failed to acquire owner transition advisory lock: %w", err)
 	}
 
-	// Downward isolation authorization: only owner can manage permissions
-	if actorRole != "" && actorRole != RoleOwner {
-		return nil, ErrPermissionDenied
+	// Downward isolation authorization: revalidate acting owner under the advisory lock.
+	if actorID != "" {
+		var actorRole string
+		var actorIsActive bool
+		err = tx.QueryRow(ctx, `SELECT role, is_active FROM public.app_user WHERE id = $1 FOR UPDATE`, actorID).Scan(&actorRole, &actorIsActive)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrPermissionDenied
+			}
+			return nil, fmt.Errorf("failed to lock acting user: %w", err)
+		}
+		if !actorIsActive || actorRole != RoleOwner {
+			return nil, ErrPermissionDenied
+		}
 	}
 
 	// Lock target user row with FOR UPDATE to inspect current role
