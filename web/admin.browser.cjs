@@ -234,6 +234,14 @@ const exception = {
           await page.locator("#btnAddInventory").click();
           await page.waitForSelector("#addInventoryDialog[open]");
           assert.equal(await page.locator("#restockProduct option").count(), 1);
+          assert.equal(
+            await page.locator('#addInventoryForm button[type="submit"]').textContent(),
+            "Confirm restock",
+          );
+          assert.equal(
+            await page.locator('#addInventoryForm input[name="quantity"]').getAttribute("min"),
+            "1",
+          );
           await page
             .locator('#addInventoryForm select[name="product_id"]')
             .selectOption("prod-arabian-wood");
