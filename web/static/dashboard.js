@@ -11,7 +11,8 @@
   let section = "orders",
     busy = false,
     selectedOrder = null,
-    selectedException = null;
+    selectedException = null,
+    inventoryProducts = [];
   const owner = () => context.user?.role === "owner";
   const canManageInventory = () =>
     owner() ||
@@ -205,6 +206,7 @@
   async function loadInventory() {
     if (!canManageInventory()) return;
     const data = await api(`/operations/inventory?${query("inventory")}`);
+    inventoryProducts = data.products || [];
     $("metricCatalog").textContent = data.total;
     $("metricPrice").textContent = money(data.common_price_kes);
     $("inventoryApproval").textContent = data.approval_until
@@ -670,6 +672,31 @@
       loadInventory,
     ),
   );
+  $("btnAddInventory")?.addEventListener("click", async () => {
+    let prods = inventoryProducts;
+    if (!prods.length) {
+      try {
+        const data = await api(`/operations/inventory?limit=100&offset=0`);
+        prods = data.products || [];
+        inventoryProducts = prods;
+      } catch (error) {
+        message(error.message);
+        return;
+      }
+    }
+    const select = $("restockProduct");
+    select.replaceChildren();
+    for (const p of prods) {
+      const opt = el("option", `${p.name} (Current: ${p.stock})`);
+      opt.value = p.id;
+      select.append(opt);
+    }
+    $("addInventoryForm").reset();
+    $("addInventoryStatus").textContent = "";
+    message("");
+    $("addInventoryDialog").showModal();
+    guard();
+  });
   $("runReconciliation").addEventListener("click", () =>
     mutate(
       "/admin/payments/reconcile",
@@ -736,6 +763,22 @@
         $("settlementForm").reset();
         await loaders.payments();
         await loadOrders();
+      },
+    ),
+  );
+  form("addInventoryForm", (data) =>
+    mutate(
+      "/operations/inventory/restock",
+      {
+        product_id: data.product_id,
+        quantity: Number(data.quantity),
+        reference: data.reference,
+      },
+      "Inventory restocked successfully.",
+      async () => {
+        $("addInventoryDialog").close();
+        $("addInventoryForm").reset();
+        await loadInventory();
       },
     ),
   );
