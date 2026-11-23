@@ -402,7 +402,7 @@ func registerAuthRoutes(mux *http.ServeMux, authService *auth.Service, checker *
 				http.Error(w, `{"error":"cannot deactivate the sole owner of the store"}`, http.StatusConflict)
 				return
 			}
-			http.Error(w, `{"error":"failed to deactivate account: `+err.Error()+`"}`, http.StatusInternalServerError)
+			http.Error(w, `{"error":"failed to deactivate account"}`, http.StatusInternalServerError)
 			return
 		}
 
