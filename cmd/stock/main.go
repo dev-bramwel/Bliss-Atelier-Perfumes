@@ -40,8 +40,8 @@ func decode(r io.Reader, v any) error {
 // verifyActorPermission verifies that the actor is authorized to manage stock:
 // must be an active store owner or an active employee with can_manage_inventory = true in public.app_user.
 func verifyActorPermission(ctx context.Context, pool *pgxpool.Pool, actorID string) error {
-	var hasAppUser bool
-	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.app_user') IS NOT NULL`).Scan(&hasAppUser); err != nil || !hasAppUser {
+	var canSelect bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.app_user') IS NOT NULL AND has_table_privilege(current_user, 'public.app_user', 'select')`).Scan(&canSelect); err != nil || !canSelect {
 		return nil
 	}
 	var role string
@@ -65,8 +65,8 @@ func verifyActorPermission(ctx context.Context, pool *pgxpool.Pool, actorID stri
 
 // verifyOwnerPermission verifies that the actor is an active store owner.
 func verifyOwnerPermission(ctx context.Context, pool *pgxpool.Pool, actorID string) error {
-	var hasAppUser bool
-	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.app_user') IS NOT NULL`).Scan(&hasAppUser); err != nil || !hasAppUser {
+	var canSelect bool
+	if err := pool.QueryRow(ctx, `SELECT to_regclass('public.app_user') IS NOT NULL AND has_table_privilege(current_user, 'public.app_user', 'select')`).Scan(&canSelect); err != nil || !canSelect {
 		return nil
 	}
 	var role string
