@@ -1,16 +1,25 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from "node:child_process";
 
-const dryRun = process.argv.includes('--dry-run');
+const dryRun = process.argv.includes("--dry-run");
 
-console.log(`Starting issue dependency sync${dryRun ? ' (DRY RUN)' : ''}...`);
+console.log(`Starting issue dependency sync${dryRun ? " (DRY RUN)" : ""}...`);
 
 // 1. Fetch all repository issues
 const rawIssues = execFileSync(
-  'gh',
-  ['issue', 'list', '--limit', '100', '--state', 'all', '--json', 'number,title,body'],
-  { encoding: 'utf-8' }
+  "gh",
+  [
+    "issue",
+    "list",
+    "--limit",
+    "100",
+    "--state",
+    "all",
+    "--json",
+    "number,title,body",
+  ],
+  { encoding: "utf-8" },
 );
 const issues = JSON.parse(rawIssues);
 
@@ -23,7 +32,7 @@ let totalDepsCount = 0;
 
 for (const iss of issues.sort((a, b) => a.number - b.number)) {
   const num = iss.number;
-  const body = iss.body || '';
+  const body = iss.body || "";
 
   const targetBlockers = new Set();
 
@@ -57,9 +66,9 @@ for (const iss of issues.sort((a, b) => a.number - b.number)) {
 
   // Check current blockedBy relationships
   const rawView = execFileSync(
-    'gh',
-    ['issue', 'view', String(num), '--json', 'blockedBy'],
-    { encoding: 'utf-8' }
+    "gh",
+    ["issue", "view", String(num), "--json", "blockedBy"],
+    { encoding: "utf-8" },
   );
   const currentBlockedBy = JSON.parse(rawView).blockedBy?.nodes || [];
   const currentBlockerNums = new Set(currentBlockedBy.map((n) => n.number));
@@ -67,17 +76,21 @@ for (const iss of issues.sort((a, b) => a.number - b.number)) {
   const toAdd = [...targetBlockers].filter((n) => !currentBlockerNums.has(n));
 
   if (toAdd.length > 0) {
-    console.log(`Issue #${num} (${iss.title.slice(0, 35)}...): adding blockers: [${toAdd.join(', ')}]`);
+    console.log(
+      `Issue #${num} (${iss.title.slice(0, 35)}...): adding blockers: [${toAdd.join(", ")}]`,
+    );
     if (!dryRun) {
-      const args = ['issue', 'edit', String(num)];
+      const args = ["issue", "edit", String(num)];
       for (const blocker of toAdd) {
-        args.push('--add-blocked-by', String(blocker));
+        args.push("--add-blocked-by", String(blocker));
       }
-      execFileSync('gh', args, { encoding: 'utf-8' });
+      execFileSync("gh", args, { encoding: "utf-8" });
       updatedCount++;
     }
   } else {
-    console.log(`Issue #${num} is already up to date with blockers: [${[...targetBlockers].join(', ')}]`);
+    console.log(
+      `Issue #${num} is already up to date with blockers: [${[...targetBlockers].join(", ")}]`,
+    );
   }
 }
 

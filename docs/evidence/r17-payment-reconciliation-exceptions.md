@@ -2,13 +2,14 @@
 
 **Issue:** [#23 - [R17] Reconcile unresolved attempts and payment exceptions](https://github.com/dev-bramwel/Bliss-Atelier-Perfumes/issues/23)  
 **Milestone:** Week 4: Shopper and operator journeys  
-**Status:** Completed and verified locally against unit tests, disposable PostgreSQL/Redis/RabbitMQ integration tests, and Docker Core verification  
+**Status:** Completed and verified locally against unit tests, disposable PostgreSQL/Redis/RabbitMQ integration tests, and Docker Core verification
 
 ---
 
 ## 1. Problem and Outcome
 
 Asynchronous mobile money payments (NCBA STK Push / M-PESA) rely on asynchronous provider webhooks. In production environments, several operational hazards threaten financial and inventory integrity:
+
 1. **Dropped or Delayed Webhooks**: Network timeouts, firewall drops, or provider callback retries failing can leave payment attempts stranded indefinitely in `accepted` or `unknown` status.
 2. **Double-Debit Prompts**: If a customer encounters a delay and repeatedly triggers payment prompts while a prior prompt is actively in-flight on their phone, they risk being debited multiple times for a single order.
 3. **Mismatched and Unmapped Transactions**: Provider callbacks may deliver payments referencing unknown orders, mismatched payable amounts, or reused receipts. Handling these ad-hoc or ignoring them leads to unallocated funds and audit failures.
@@ -16,6 +17,7 @@ Asynchronous mobile money payments (NCBA STK Push / M-PESA) rely on asynchronous
 5. **Unauthorized or Unaudiable Manual Status Edits**: Operators attempting to resolve discrepancies by running raw SQL `UPDATE "Order" SET "paymentStatus" = 'PAID'` bypass stock commitment checks, create untraceable ledger gaps, and risk silent fulfillment when physical inventory is depleted.
 
 ### R17 Outcomes Delivered:
+
 1. **Automated Reconciliation Engine with Bounded Exponential Backoff (`internal/reconciliation`)**:
    - Sweeps stale payment attempts in `accepted` or `unknown` state.
    - Queries the provider gateway (`QuerySTK`) using bounded backoff (`BaseBackoff * 2^queryCount`, capped at `MaxBackoff`, max 5 queries).
@@ -118,35 +120,39 @@ flowchart TD
 
 ## 4. Delivery Summary & Code Changes
 
-| Package / File | Scope of Changes |
-| :--- | :--- |
+| Package / File                                                      | Scope of Changes                                                                                                                                                                                                                    |
+| :------------------------------------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `internal/migration/sql/0008_payment_reconciliation_exceptions.sql` | Added `query_count`, `last_queried_at`, `next_query_at` to `payment_attempt` with index `payment_attempt_reconcile_idx`. Created `payment_exception` and `payment_audit_ledger` tables with permissions granted to `bliss_runtime`. |
-| `internal/migration/migration.go` | Registered step 8 migration, updated table allowlist, embedded `schema-v8.json`. |
-| `internal/migration/readiness.go` | Added `schema-v8.json` contract verification and privilege checks on `payment_exception` and `payment_audit_ledger`. |
-| `internal/migration/schema-v8.json` | Authoritative schema baseline contract generated and verified. |
-| `cmd/devstack/main.go` | Added runtime DML grants on `payment_exception` and `payment_audit_ledger`. |
-| `internal/orders/types.go` | Added query scheduling fields to `PaymentAttempt`; defined `PaymentException`, `PaymentAuditRecord`, `ManualSettlementRequest`, `PaymentCorrectionRequest`, and reconciliation error types. |
-| `internal/orders/attempts.go` | Updated attempt queries to scan query scheduling columns; enforced prompt safety guard rejecting retries while in-flight/accepted attempts are unresolved. |
-| `internal/orders/reconciliation.go` | Implemented exception recording, filtering, and resolution; auditable manual settlements with stock verification; payment corrections; and audit ledger listings. |
-| `internal/orders/store.go` | Extended `ConfirmPayment` to automatically capture `LATE_PAYMENT` exceptions when payments arrive after stock reservation expiration. |
-| `internal/reconciliation/reconciler.go` | Engine with bounded exponential backoff (base 5s, factor 2, max 5m, max 5 queries) querying provider gateway, converging terminal states, and escalating to exceptions. |
-| `internal/reconciliation/reconciler_test.go` | Unit tests covering success convergence, failed convergence, backoff scheduling, and exception escalation on max retries. |
-| `internal/httpapi/callback.go` | Captures unmapped transactions, amount mismatches, duplicate receipts, and late payments as structured `payment_exception` rows. |
-| `internal/httpapi/server.go` | Registered protected manager routes under `/api/admin/payments/*` for exceptions, unresolved attempts, manual settlement, and corrections. |
-| `internal/httpapi/reconciliation_test.go` | Integration tests verifying manager auth, exception resolution, manual settlements, corrections, and unmapped callback exception capture. |
-| `internal/process/process.go` | Wired background reconciler sweeper running periodically (every 30s) in the worker process. |
-| `scripts/test-integration.ps1` | Added comprehensive integration tests verifying migrations 1-8, reconciler sweeps, prompt safety locks, manual settlements, and exception handling. |
+| `internal/migration/migration.go`                                   | Registered step 8 migration, updated table allowlist, embedded `schema-v8.json`.                                                                                                                                                    |
+| `internal/migration/readiness.go`                                   | Added `schema-v8.json` contract verification and privilege checks on `payment_exception` and `payment_audit_ledger`.                                                                                                                |
+| `internal/migration/schema-v8.json`                                 | Authoritative schema baseline contract generated and verified.                                                                                                                                                                      |
+| `cmd/devstack/main.go`                                              | Added runtime DML grants on `payment_exception` and `payment_audit_ledger`.                                                                                                                                                         |
+| `internal/orders/types.go`                                          | Added query scheduling fields to `PaymentAttempt`; defined `PaymentException`, `PaymentAuditRecord`, `ManualSettlementRequest`, `PaymentCorrectionRequest`, and reconciliation error types.                                         |
+| `internal/orders/attempts.go`                                       | Updated attempt queries to scan query scheduling columns; enforced prompt safety guard rejecting retries while in-flight/accepted attempts are unresolved.                                                                          |
+| `internal/orders/reconciliation.go`                                 | Implemented exception recording, filtering, and resolution; auditable manual settlements with stock verification; payment corrections; and audit ledger listings.                                                                   |
+| `internal/orders/store.go`                                          | Extended `ConfirmPayment` to automatically capture `LATE_PAYMENT` exceptions when payments arrive after stock reservation expiration.                                                                                               |
+| `internal/reconciliation/reconciler.go`                             | Engine with bounded exponential backoff (base 5s, factor 2, max 5m, max 5 queries) querying provider gateway, converging terminal states, and escalating to exceptions.                                                             |
+| `internal/reconciliation/reconciler_test.go`                        | Unit tests covering success convergence, failed convergence, backoff scheduling, and exception escalation on max retries.                                                                                                           |
+| `internal/httpapi/callback.go`                                      | Captures unmapped transactions, amount mismatches, duplicate receipts, and late payments as structured `payment_exception` rows.                                                                                                    |
+| `internal/httpapi/server.go`                                        | Registered protected manager routes under `/api/admin/payments/*` for exceptions, unresolved attempts, manual settlement, and corrections.                                                                                          |
+| `internal/httpapi/reconciliation_test.go`                           | Integration tests verifying manager auth, exception resolution, manual settlements, corrections, and unmapped callback exception capture.                                                                                           |
+| `internal/process/process.go`                                       | Wired background reconciler sweeper running periodically (every 30s) in the worker process.                                                                                                                                         |
+| `scripts/test-integration.ps1`                                      | Added comprehensive integration tests verifying migrations 1-8, reconciler sweeps, prompt safety locks, manual settlements, and exception handling.                                                                                 |
 
 ---
 
 ## 5. Verification Evidence
 
 ### Local Test Execution
+
 All unit and integration tests across all packages pass cleanly:
+
 ```powershell
 go test -count=1 ./...
 ```
+
 Output:
+
 ```text
 ok      github.com/dev-bramwel/Bliss-Atelier-Perfumes/cmd/api           0.076s
 ok      github.com/dev-bramwel/Bliss-Atelier-Perfumes/cmd/devstack      0.088s
@@ -164,10 +170,13 @@ ok      github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache       
 ```
 
 ### Full Integration Test Suite
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-integration.ps1
 ```
+
 Verified:
+
 - Step 1 through Step 8 schema migrations applied cleanly.
 - `schema-v8.json` verified by readiness check.
 - Catalog, orders, stock reservations, delivery quotes, outbox worker, RabbitMQ, and Redis cache tested.
@@ -178,10 +187,13 @@ Verified:
 - Backup, restore, and re-adoption drills verified.
 
 ### Docker Core Verification
+
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-DockerCore.ps1
 ```
+
 Verified:
+
 - All containers (`api`, `worker`, `postgres`, `redis`, `rabbitmq`) run non-root.
 - Read-only root filesystems enforced.
 - Private internal network isolation verified (internal dependencies expose zero public host ports).

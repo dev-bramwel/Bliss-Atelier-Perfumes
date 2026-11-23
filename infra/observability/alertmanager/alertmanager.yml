@@ -62,5 +62,3 @@ receivers:
         send_resolved: true
         http_config:
           bearer_token_file: "/run/secrets/drill_responder_token"
-
-

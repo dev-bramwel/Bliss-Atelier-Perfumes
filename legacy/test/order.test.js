@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { priceOrderItems, validatePaymentMethod } from "../src/services/order.js";
+import {
+  priceOrderItems,
+  validatePaymentMethod,
+} from "../src/services/order.js";
 
 test("prices products from the server catalog and ignores client totals", () => {
   const order = priceOrderItems([
@@ -36,8 +39,5 @@ test("rejects on_delivery and validates payment methods per R01 policy", () => {
     () => validatePaymentMethod("on_delivery"),
     /Payment on delivery is prohibited\. Verify payment before dispatch\./,
   );
-  assert.throws(
-    () => validatePaymentMethod("cash"),
-    /Invalid payment method/,
-  );
+  assert.throws(() => validatePaymentMethod("cash"), /Invalid payment method/);
 });

@@ -42,7 +42,8 @@ window.BlissConnection = (() => {
         description.textContent =
           "Atelier management connection dropped. Active dashboard inputs and drafts are held safely in memory.";
       else if (description)
-        description.textContent = "Your connection to the atelier dropped. Your cart and typed details are preserved. Reservation time continues while offline.";
+        description.textContent =
+          "Your connection to the atelier dropped. Your cart and typed details are preserved. Reservation time continues while offline.";
       const badge = document.getElementById("offlineBadge");
       if (badge) badge.textContent = "Connection retrying...";
       if (typeof overlay.showModal === "function" && !overlay.open)
@@ -129,7 +130,12 @@ function cartAvailable() {
     catalogFresh() &&
     Object.entries(cart).every(
       ([id, qty]) =>
-        Number.isInteger(qty) && qty > 0 && qty <= 100 && getProduct(id)?.available === true && (!Number.isInteger(getProduct(id)?.stock) || qty <= getProduct(id).stock),
+        Number.isInteger(qty) &&
+        qty > 0 &&
+        qty <= 100 &&
+        getProduct(id)?.available === true &&
+        (!Number.isInteger(getProduct(id)?.stock) ||
+          qty <= getProduct(id).stock),
     )
   );
 }
@@ -197,7 +203,8 @@ async function loadCatalog() {
     catalogState = "ready";
     catalogLoadedAt = Date.now();
   } catch (error) {
-    if (error instanceof TypeError || error.name === "TimeoutError") window.BlissConnection.dropped();
+    if (error instanceof TypeError || error.name === "TimeoutError")
+      window.BlissConnection.dropped();
     if (PRODUCTS.length > 0) {
       catalogState = "stale";
     } else {
@@ -236,7 +243,15 @@ function loadCart() {
   try {
     const saved = JSON.parse(localStorage.getItem("cart") || "{}");
     if (!saved || Array.isArray(saved) || typeof saved !== "object") return {};
-    return Object.fromEntries(Object.entries(saved).filter(([id, qty]) => /^p[0-9]+$/.test(id) && Number.isInteger(qty) && qty > 0 && qty <= 100));
+    return Object.fromEntries(
+      Object.entries(saved).filter(
+        ([id, qty]) =>
+          /^p[0-9]+$/.test(id) &&
+          Number.isInteger(qty) &&
+          qty > 0 &&
+          qty <= 100,
+      ),
+    );
   } catch {
     return {};
   }

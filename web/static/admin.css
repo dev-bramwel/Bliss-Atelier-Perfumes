@@ -384,4 +384,36 @@
 #offlineOverlay::backdrop {
   background: #120f0bf2;
 }
-.admin-brandbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.25rem max(1rem,calc((100vw - 1248px)/2));border-bottom:1px solid #514636;color:#dec9a8;background:#17130f}.admin-brandbar .lux-brand{font-size:1.1rem;letter-spacing:.05em}.admin-brandbar span{font: .7rem Manrope,sans-serif;display:block;letter-spacing:.16em;text-transform:uppercase;margin-top:.2rem}.admin-brandbar>a:last-child{font-size:.8rem}.admin-shell table{min-width:780px}.admin-shell th,.admin-shell td{overflow-wrap:normal}
+.admin-brandbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem max(1rem, calc((100vw - 1248px) / 2));
+  border-bottom: 1px solid #514636;
+  color: #dec9a8;
+  background: #17130f;
+}
+.admin-brandbar .lux-brand {
+  font-size: 1.1rem;
+  letter-spacing: 0.05em;
+}
+.admin-brandbar span {
+  font:
+    0.7rem Manrope,
+    sans-serif;
+  display: block;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-top: 0.2rem;
+}
+.admin-brandbar > a:last-child {
+  font-size: 0.8rem;
+}
+.admin-shell table {
+  min-width: 780px;
+}
+.admin-shell th,
+.admin-shell td {
+  overflow-wrap: normal;
+}

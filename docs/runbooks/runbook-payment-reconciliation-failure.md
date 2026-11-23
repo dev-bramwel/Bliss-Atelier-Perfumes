@@ -3,13 +3,14 @@
 **Alerts:** `UnresolvedPaymentSpike`, `PaymentExceptionDetected`  
 **Severity:** Critical (P1)  
 **Responsible Owner:** On-Call SRE / Finance Ops / Store Manager  
-**Grafana Dashboard:** [Bliss Atelier - Financial & Payment Operations](http://localhost:3000/d/bliss-financial-operations)  
+**Grafana Dashboard:** [Bliss Atelier - Financial & Payment Operations](http://localhost:3000/d/bliss-financial-operations)
 
 ---
 
 ## 1. Problem Overview & Invariants
 
 When M-Pesa STK push callbacks drop, NCBA IPN notifications time out, or customers pay an incorrect amount, payments transition into `unresolved` or raise actionable `payment_exceptions`:
+
 - `AMOUNT_MISMATCH`: Customer paid different amount than expected order total.
 - `UNMAPPED_TRANSACTION`: Bank/M-Pesa IPN arrived but cannot be correlated to any active checkout attempt.
 - `DUPLICATE_RECEIPT`: Provider receipt number replayed on an already settled order.
@@ -17,6 +18,7 @@ When M-Pesa STK push callbacks drop, NCBA IPN notifications time out, or custome
 
 > [!CRITICAL]
 > **Strict Operational Invariants:**
+>
 > 1. **Never initiate a second charge blindly**: Do not retry STK pushes without verifying existing attempt status.
 > 2. **Never edit `Order.paymentStatus` directly via ad-hoc SQL**: All transitions require an active stock reservation or formal payment exception resolution drawer.
 > 3. **Preserve audit trail**: Every exception resolution requires an immutable record in `public.payment_exception_resolution` and `public.admin_audit_log`.
@@ -26,20 +28,25 @@ When M-Pesa STK push callbacks drop, NCBA IPN notifications time out, or custome
 ## 2. Immediate Triage & Diagnosis
 
 ### Step 1: Check Active Exceptions via API
+
 Run authenticated query to inspect open exceptions:
+
 ```bash
 curl -s -X GET "http://localhost:8080/api/admin/payments/exceptions?status=open" \
   -H "Cookie: bliss_session=<manager_session_token>"
 ```
 
 ### Step 2: Query Unresolved Attempts Queue
+
 ```bash
 curl -s -X GET "http://localhost:8080/api/admin/payments/unresolved" \
   -H "Cookie: bliss_session=<manager_session_token>"
 ```
 
 ### Step 3: Inspect Reconciler Structured Logs
+
 Check API container logs for correlation IDs and provider transaction references:
+
 ```bash
 docker compose logs api --tail=100 | grep -E "reconciler|ncba_ipn|mpesa_callback"
 ```
@@ -49,7 +56,9 @@ docker compose logs api --tail=100 | grep -E "reconciler|ncba_ipn|mpesa_callback
 ## 3. Remediation & Safe Actions
 
 ### Action A: Trigger Immediate Automated Query Reconciliation
+
 If unresolved attempts are stuck due to transient provider timeouts, trigger a fresh sweep:
+
 ```bash
 curl -s -X POST "http://localhost:8080/api/admin/payments/reconcile" \
   -H "Cookie: bliss_session=<manager_session_token>" \
@@ -57,6 +66,7 @@ curl -s -X POST "http://localhost:8080/api/admin/payments/reconcile" \
 ```
 
 ### Action B: Resolving Amount Mismatch (`AMOUNT_MISMATCH`)
+
 1. In the Admin Dashboard (`/admin/payments`), open the **Payment Exceptions Drawer**.
 2. Compare the `ReceivedAmountKes` against `ExpectedAmountKes`.
 3. If customer underpaid:
@@ -66,7 +76,9 @@ curl -s -X POST "http://localhost:8080/api/admin/payments/reconcile" \
    - Select `applied_to_order` and record notes for excess refund via M-Pesa reversal.
 
 ### Action C: Manual Settlement for Verified Physical / Bank Counter Payments
+
 If a customer paid via offline direct Paybill or counter Till:
+
 ```bash
 curl -s -X POST "http://localhost:8080/api/admin/payments/manual-settlement" \
   -H "Cookie: bliss_session=<manager_session_token>" \

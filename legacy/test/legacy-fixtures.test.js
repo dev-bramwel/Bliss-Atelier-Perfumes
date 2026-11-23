@@ -4,7 +4,9 @@ import { readFileSync } from "node:fs";
 import { priceOrderItems } from "../src/services/order.js";
 
 const fixtures = JSON.parse(
-  readFileSync(new URL("../../testdata/legacy/contracts.json", import.meta.url)),
+  readFileSync(
+    new URL("../../testdata/legacy/contracts.json", import.meta.url),
+  ),
 );
 
 test("legacy checkout fixture retains server pricing despite client tampering", () => {

@@ -42,5 +42,3 @@ scrape_configs:
         labels:
           service: "bliss-drill-responder"
           environment: "local-dev"
-
-

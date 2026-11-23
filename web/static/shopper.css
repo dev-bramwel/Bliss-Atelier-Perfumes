@@ -212,7 +212,9 @@
   margin-bottom: 0.5rem;
 }
 .deactivate-modal-panel h2 {
-  font: 1.5rem "Playfair Display", serif;
+  font:
+    1.5rem "Playfair Display",
+    serif;
   color: #fff;
   margin: 0 0 1rem;
 }

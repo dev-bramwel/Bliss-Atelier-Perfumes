@@ -35,6 +35,7 @@ and displays the sign-in prompt.
 Authenticated users can self-deactivate their accounts via `POST /api/auth/deactivate`
 or through the double-confirmation modal on the storefront header.
 Self-deactivation:
+
 - Sets `is_active = false` on `app_user`.
 - Atomically revokes all active database sessions across all devices.
 - Evicts all cached sessions from Redis.
@@ -45,6 +46,7 @@ Self-deactivation:
   returning HTTP 409 Conflict).
 
 Reactivation and downward status isolation:
+
 - Store owners can activate or deactivate any account via `POST /admin/users/:id/status`.
 - Employees can reactivate or deactivate customer accounts via `POST /admin/users/:id/status`.
   Downward isolation strictly prevents employees from modifying the active status of
@@ -55,13 +57,13 @@ Reactivation and downward status isolation:
 
 All URLs below have the `/api` prefix when accessed through the storefront.
 
-| Screen | Reads | Mutations |
-| --- | --- | --- |
-| Orders | `GET /operations/orders`, `GET /orders/:id` | `POST /orders/:id/assign`, `POST /orders/:id/fulfill`, `POST /orders/:id/delivery-quote` |
-| Inventory | `GET /operations/inventory` | `POST /catalog/invalidate` |
-| Payments | `GET /admin/payments/exceptions`, `.../exceptions/:id`, `.../unresolved`, `.../audit-ledger` | `POST .../exceptions/:id/resolve`, `.../manual-settlement`, `.../reconcile` |
-| Users | `GET /admin/users` | `POST /admin/users/:id/role`, `.../:id/status` |
-| Security audit | `GET /admin/audit-logs` | None |
+| Screen         | Reads                                                                                        | Mutations                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Orders         | `GET /operations/orders`, `GET /orders/:id`                                                  | `POST /orders/:id/assign`, `POST /orders/:id/fulfill`, `POST /orders/:id/delivery-quote` |
+| Inventory      | `GET /operations/inventory`                                                                  | `POST /catalog/invalidate`                                                               |
+| Payments       | `GET /admin/payments/exceptions`, `.../exceptions/:id`, `.../unresolved`, `.../audit-ledger` | `POST .../exceptions/:id/resolve`, `.../manual-settlement`, `.../reconcile`              |
+| Users          | `GET /admin/users`                                                                           | `POST /admin/users/:id/role`, `.../:id/status`                                           |
+| Security audit | `GET /admin/audit-logs`                                                                      | None                                                                                     |
 
 Lists use `limit` and `offset`; the UI requests 25 records, the API defaults to
 50 and caps requests at 100. Queries use stable ordering. The inventory response

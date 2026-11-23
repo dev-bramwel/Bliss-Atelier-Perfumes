@@ -38,7 +38,9 @@ Dependencies are tracked in two complementary ways:
 The workflow at [`.github/workflows/enforce-issue-dependencies.yaml`](file:///C:/Users/mutug/Documents/Bliss-Atelier-Perfumes/.github/workflows/enforce-issue-dependencies.yaml) enforces dependency rules continuously:
 
 ### A. Automatic Reopening on Closure (`issues: [closed]`)
+
 When any issue is closed (either manually via the GitHub UI or programmatically):
+
 1. The action queries the closed issue's blockers via GitHub GraphQL.
 2. If any blocking issue is still in state `OPEN`:
    - The issue is **immediately reopened**.
@@ -46,7 +48,9 @@ When any issue is closed (either manually via the GitHub UI or programmatically)
    - The workflow run is failed to provide an audit trail.
 
 ### B. Pull Request Auto-Closure Guard (`pull_request`)
+
 When a pull request is opened or updated:
+
 1. The action scans the PR description for closing keywords (`Closes #X`, `Fixes #X`, `Resolves #X`).
 2. If any referenced issue has active open blockers, the PR check fails, preventing accidental closure upon PR merge.
 
@@ -55,6 +59,7 @@ When a pull request is opened or updated:
 ## 4. How to Manage Issue Dependencies
 
 ### Adding a Dependency
+
 - **Via GitHub Web UI:** On the issue page, locate the **Relationships** section in the right-hand sidebar, click **Add blocker**, and select or enter the issue number.
 - **Via GitHub CLI:**
   ```bash
@@ -66,6 +71,7 @@ When a pull request is opened or updated:
   ```
 
 ### Removing a Dependency
+
 - **Via GitHub Web UI:** Click the trash/remove icon next to the blocker under **Relationships**.
 - **Via GitHub CLI:**
   ```bash
@@ -73,11 +79,15 @@ When a pull request is opened or updated:
   ```
 
 ### Synchronizing the Backlog
+
 To reconcile all issue dependencies defined in issue descriptions across the entire repository:
+
 ```bash
 node scripts/sync-issue-dependencies.mjs
 ```
+
 Use `--dry-run` to preview additions without writing:
+
 ```bash
 node scripts/sync-issue-dependencies.mjs --dry-run
 ```
