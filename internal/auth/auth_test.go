@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -344,6 +345,41 @@ func (m *memStore) UpdateUserRoleAndRevokeSessions(ctx context.Context, userID s
 	}
 
 	return revoked, nil
+}
+
+func (m *memStore) UpdateUserPermissions(ctx context.Context, userID string, actorRole string, canManageInventory bool, auditEntry *AuditLogEntry) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if actorRole != "" && actorRole != RoleOwner {
+		return nil, ErrPermissionDenied
+	}
+
+	u, ok := m.users[userID]
+	if !ok {
+		return nil, errors.New("user not found")
+	}
+
+	if u.Role != RoleEmployee {
+		return nil, fmt.Errorf("%w: permissions can only be modified for employees", ErrInvalidRole)
+	}
+
+	u.CanManageInventory = canManageInventory
+	m.users[userID] = u
+
+	var sessionHashes []string
+	now := time.Now()
+	for tokenHash, s := range m.sessions {
+		if s.UserID == userID && !s.IsRevoked && s.ExpiresAt.After(now) {
+			sessionHashes = append(sessionHashes, tokenHash)
+		}
+	}
+
+	if auditEntry != nil {
+		m.auditLogs = append([]AuditLogEntry{*auditEntry}, m.auditLogs...)
+	}
+
+	return sessionHashes, nil
 }
 
 func (m *memStore) UpdateUserStatus(ctx context.Context, id string, isActive bool) error {
@@ -811,5 +847,115 @@ func TestDeactivateSelfAndStaffReactivation(t *testing.T) {
 	})
 	if !errors.Is(err, ErrAccountDeactivated) {
 		t.Fatalf("expected ErrAccountDeactivated when creating session for deactivated user, got %v", err)
+	}
+}
+
+func TestCanManageInventory(t *testing.T) {
+	// 1. Owner always can manage inventory
+	owner := User{ID: "usr-owner", Role: RoleOwner, CanManageInventory: false}
+	if !CanManageInventory(owner) {
+		t.Fatal("expected owner to be permitted to manage inventory")
+	}
+
+	// 2. Employee with permission can manage inventory
+	empAllowed := User{ID: "usr-emp1", Role: RoleEmployee, CanManageInventory: true}
+	if !CanManageInventory(empAllowed) {
+		t.Fatal("expected employee with CanManageInventory=true to be permitted")
+	}
+
+	// 3. Employee without permission cannot manage inventory
+	empDenied := User{ID: "usr-emp2", Role: RoleEmployee, CanManageInventory: false}
+	if CanManageInventory(empDenied) {
+		t.Fatal("expected employee with CanManageInventory=false to be denied")
+	}
+
+	// 4. Customer cannot manage inventory
+	customer := User{ID: "usr-cust", Role: RoleCustomer, CanManageInventory: true}
+	if CanManageInventory(customer) {
+		t.Fatal("expected customer to be denied even if CanManageInventory is set")
+	}
+
+	// 5. Empty role cannot manage inventory
+	anon := User{ID: "usr-anon", Role: "", CanManageInventory: true}
+	if CanManageInventory(anon) {
+		t.Fatal("expected anonymous/empty role to be denied")
+	}
+}
+
+func TestUpdateUserPermissions(t *testing.T) {
+	ctx := context.Background()
+	store := newMemStore()
+	service := NewService(store, nil, nil)
+
+	owner, _ := store.UpsertUserByGoogleSub(ctx, "sub-owner", "owner@blissatelier.com", "Owner User", "")
+	_ = store.UpdateUserRole(ctx, owner.ID, RoleOwner)
+	owner, _ = store.GetUserByID(ctx, owner.ID)
+
+	emp, _ := store.UpsertUserByGoogleSub(ctx, "sub-emp", "employee@blissatelier.com", "Staff Emp", "")
+	_ = store.UpdateUserRole(ctx, emp.ID, RoleEmployee)
+	emp, _ = store.GetUserByID(ctx, emp.ID)
+
+	cust, _ := store.UpsertUserByGoogleSub(ctx, "sub-cust", "customer@example.com", "Customer One", "")
+
+	// 1. Owner grants permission to employee
+	err := service.UpdateUserPermissions(ctx, owner, emp.ID, true, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error updating user permissions: %v", err)
+	}
+	updatedEmp, _ := store.GetUserByID(ctx, emp.ID)
+	if !updatedEmp.CanManageInventory {
+		t.Fatal("expected employee CanManageInventory to be true")
+	}
+
+	// Verify audit log entry
+	logs, err := store.QueryAuditLogs(ctx, 10, 0)
+	if err != nil || len(logs) == 0 {
+		t.Fatalf("expected audit log, got err: %v, len: %d", err, len(logs))
+	}
+	if logs[0].Action != "update_user_permissions" || logs[0].ResourceID != emp.ID {
+		t.Fatalf("unexpected audit log entry: %+v", logs[0])
+	}
+	if v, ok := logs[0].Metadata["can_manage_inventory"].(bool); !ok || !v {
+		t.Fatalf("unexpected metadata in audit log: %+v", logs[0].Metadata)
+	}
+
+	// 2. Owner revokes permission from employee
+	err = service.UpdateUserPermissions(ctx, owner, emp.ID, false, "127.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error revoking user permissions: %v", err)
+	}
+	revokedEmp, _ := store.GetUserByID(ctx, emp.ID)
+	if revokedEmp.CanManageInventory {
+		t.Fatal("expected employee CanManageInventory to be false")
+	}
+
+	// 3. Employee CANNOT update permissions (ErrPermissionDenied)
+	err = service.UpdateUserPermissions(ctx, emp, emp.ID, true, "127.0.0.1")
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied when employee updates permissions, got %v", err)
+	}
+
+	// 4. Customer CANNOT update permissions (ErrPermissionDenied)
+	err = service.UpdateUserPermissions(ctx, cust, emp.ID, true, "127.0.0.1")
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied when customer updates permissions, got %v", err)
+	}
+
+	// 5. Cannot set permissions on customer (target must be employee)
+	err = service.UpdateUserPermissions(ctx, owner, cust.ID, true, "127.0.0.1")
+	if !errors.Is(err, ErrInvalidRole) {
+		t.Fatalf("expected ErrInvalidRole when target is customer, got %v", err)
+	}
+
+	// 6. Cannot set permissions on owner (target must be employee)
+	err = service.UpdateUserPermissions(ctx, owner, owner.ID, true, "127.0.0.1")
+	if !errors.Is(err, ErrInvalidRole) {
+		t.Fatalf("expected ErrInvalidRole when target is owner, got %v", err)
+	}
+
+	// 7. Non-existent target user returns error
+	err = service.UpdateUserPermissions(ctx, owner, "non-existent-id", true, "127.0.0.1")
+	if err == nil {
+		t.Fatal("expected error when target user does not exist, got nil")
 	}
 }
