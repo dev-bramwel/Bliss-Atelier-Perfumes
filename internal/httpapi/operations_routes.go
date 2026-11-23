@@ -20,6 +20,7 @@ type OperationsService interface {
 	Orders(context.Context, string, int, int) (*operations.OrderPage, error)
 	Assign(context.Context, string, string, *auth.User, string) error
 	Fulfill(context.Context, string, *auth.User, string) error
+	Restock(context.Context, *auth.User, string, int, string, string) error
 }
 
 func pageBounds(r *http.Request) (int, int) {
@@ -122,6 +123,40 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 		}
 		respond(w, 200, p)
 	}
+	handleRestock := func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			respond(w, 503, map[string]string{"error": "Operations unavailable"})
+			return
+		}
+		u := UserFromContext(r.Context())
+		if u == nil || !auth.CanManageInventory(*u) {
+			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
+			return
+		}
+		var req struct {
+			ProductID string `json:"product_id"`
+			Quantity  int    `json:"quantity"`
+			Reference string `json:"reference"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respond(w, 400, map[string]string{"error": "Invalid request payload"})
+			return
+		}
+		if req.ProductID == "" || req.Quantity <= 0 || strings.TrimSpace(req.Reference) == "" {
+			respond(w, 400, map[string]string{"error": "Product ID, positive quantity, and reference note are required."})
+			return
+		}
+		err := store.Restock(r.Context(), u, req.ProductID, req.Quantity, req.Reference, SafeClientIP(r, checker))
+		if err != nil {
+			if errors.Is(err, auth.ErrPermissionDenied) {
+				respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
+				return
+			}
+			respond(w, 400, map[string]string{"error": err.Error()})
+			return
+		}
+		respond(w, 200, map[string]any{"status": "restocked", "product_id": req.ProductID, "quantity": req.Quantity})
+	}
 	handleMutation := func(assign bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			u := UserFromContext(r.Context())
@@ -163,6 +198,7 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 	for _, prefix := range []string{"", "/api"} {
 		mux.HandleFunc("GET "+prefix+"/operations/orders", handleOrders)
 		mux.HandleFunc("GET "+prefix+"/operations/inventory", handleInventory)
+		mux.HandleFunc("POST "+prefix+"/operations/inventory/restock", handleRestock)
 		mux.HandleFunc("POST "+prefix+"/orders/{id}/assign", handleMutation(true))
 		mux.HandleFunc("POST "+prefix+"/orders/{id}/fulfill", handleMutation(false))
 	}
