@@ -500,12 +500,18 @@ func (s *Service) DeactivateSelf(ctx context.Context, actor *User, ip string) er
 	return nil
 }
 
-// ListUsers retrieves users respecting Upward Visibility and Downward Isolation:
-// - Owner: can list all users of all roles.
-// - Employee / Customer: denied access (Downward Isolation).
+// ListUsers retrieves users respecting Downward Isolation.
+// Owners can view all users; employees can view customers only.
 func (s *Service) ListUsers(ctx context.Context, actor *User, filterRole string) ([]User, error) {
-	if actor == nil || actor.Role != RoleOwner {
+	if actor == nil || !IsStaff(actor.Role) {
 		return nil, ErrPermissionDenied
+	}
+
+	if actor.Role == RoleEmployee {
+		if filterRole != "" && filterRole != RoleCustomer {
+			return nil, ErrPermissionDenied
+		}
+		filterRole = RoleCustomer
 	}
 
 	return s.store.ListUsers(ctx, filterRole)
