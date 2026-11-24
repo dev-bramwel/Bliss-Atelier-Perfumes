@@ -310,32 +310,46 @@
         ].forEach((v) => cell(row, v));
         const controls = el("div");
         if (owner()) {
-          const select = el("select");
-          select.setAttribute(
-            "aria-label",
-            `New role for ${u.name || u.email}`,
-          );
-          for (const role of ["employee", "customer"]) {
-            const option = el("option", role);
-            option.value = role;
-            select.append(option);
+          if (u.role === "customer") {
+            controls.append(
+              action(
+                "Promote to Employee",
+                () =>
+                  mutate(
+                    `/admin/users/${encodeURIComponent(u.id)}/role`,
+                    { role: "employee" },
+                    "Customer promoted to employee.",
+                    loadUsers,
+                  ),
+                true,
+              ),
+            );
           }
-          if ([...select.options].some((option) => option.value === u.role))
-            select.value = u.role;
-          controls.append(
-            select,
-            action(
-              "Update role",
-              () =>
-                mutate(
-                  `/admin/users/${encodeURIComponent(u.id)}/role`,
-                  { role: select.value },
-                  "Role updated; the affected account must sign in again.",
-                  loadUsers,
-                ),
-              true,
-            ),
-          );
+
+          if (u.role === "employee") {
+            controls.append(
+              action(
+                "Revoke Staff",
+                () => {
+                  if (
+                    !window.confirm(
+                      "Revoke staff access and terminate all active sessions?",
+                    )
+                  ) {
+                    return;
+                  }
+
+                  return mutate(
+                    `/admin/users/${encodeURIComponent(u.id)}/role`,
+                    { role: "customer" },
+                    "Staff access revoked.",
+                    loadUsers,
+                  );
+                },
+                true,
+              ),
+            );
+          }
           if (u.role === "employee") {
             const permLabel = el("label");
             const permCheckbox = el("input");
