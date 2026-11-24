@@ -227,73 +227,78 @@ function getOrCreateModal() {
 
   _modal = overlay;
 
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeProductModal();
-  });
-  document
-    .getElementById("modalClose")
-    ?.addEventListener("click", closeProductModal);
-  document
-    .getElementById("modalPrev")
-    ?.addEventListener("click", () => shiftModalImage(-1));
-  document
-    .getElementById("modalNext")
-    ?.addEventListener("click", () => shiftModalImage(1));
-  document.getElementById("modalAddToCart").addEventListener("click", () => {
-    const id = overlay.dataset.productId;
-    if (id) {
-      addToCart(id);
-      updateCartBadges();
-    }
-  });
+  if (!overlay.dataset.initialized) {
+    overlay.dataset.initialized = "true";
 
-  document.addEventListener("keydown", (e) => {
-    if (!overlay.classList.contains("open")) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      closeProductModal();
-      return;
-    }
-    if (e.key === "Tab") {
-      const focusable = Array.from(overlay.querySelectorAll(
-        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )).filter((el) => el.getClientRects().length > 0);
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (!first) return;
-      if (e.shiftKey && (document.activeElement === first || !overlay.contains(document.activeElement))) {
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeProductModal();
+    });
+    document
+      .getElementById("modalClose")
+      ?.addEventListener("click", closeProductModal);
+    document
+      .getElementById("modalPrev")
+      ?.addEventListener("click", () => shiftModalImage(-1));
+    document
+      .getElementById("modalNext")
+      ?.addEventListener("click", () => shiftModalImage(1));
+    document
+      .getElementById("modalAddToCart")
+      ?.addEventListener("click", () => {
+        const id = overlay.dataset.productId;
+        if (id) {
+          addToCart(id);
+          updateCartBadges();
+        }
+      });
+
+    document.addEventListener("keydown", (e) => {
+      if (!overlay.classList.contains("open")) return;
+      if (e.key === "Escape") {
         e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (document.activeElement === last || !overlay.contains(document.activeElement))) {
-        e.preventDefault();
-        first.focus();
+        closeProductModal();
+        return;
       }
-    }
-    if (e.key === "ArrowRight") shiftModalImage(1);
-    if (e.key === "ArrowLeft") shiftModalImage(-1);
-  });
+      if (e.key === "Tab") {
+        const focusable = Array.from(overlay.querySelectorAll(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        )).filter((el) => el.getClientRects().length > 0);
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first) return;
+        if (e.shiftKey && (document.activeElement === first || !overlay.contains(document.activeElement))) {
+          e.preventDefault();
+          last?.focus?.();
+        } else if (!e.shiftKey && (document.activeElement === last || !overlay.contains(document.activeElement))) {
+          e.preventDefault();
+          first?.focus?.();
+        }
+      }
+      if (e.key === "ArrowRight") shiftModalImage(1);
+      if (e.key === "ArrowLeft") shiftModalImage(-1);
+    });
 
-  // Touch swipe support
-  let _touchX = null;
-  overlay.addEventListener(
-    "touchstart",
-    (e) => {
-      _touchX = e.touches[0].clientX;
-    },
-    { passive: true },
-  );
-  overlay.addEventListener(
-    "touchend",
-    (e) => {
-      if (_touchX === null) return;
-      const dx = e.changedTouches[0].clientX - _touchX;
-      if (Math.abs(dx) > 50) shiftModalImage(dx < 0 ? 1 : -1);
-      _touchX = null;
-    },
-    { passive: true },
-  );
+    // Touch swipe support
+    let _touchX = null;
+    overlay.addEventListener(
+      "touchstart",
+      (e) => {
+        _touchX = e.touches[0].clientX;
+      },
+      { passive: true },
+    );
+    overlay.addEventListener(
+      "touchend",
+      (e) => {
+        if (_touchX === null) return;
+        const dx = e.changedTouches[0].clientX - _touchX;
+        if (Math.abs(dx) > 50) shiftModalImage(dx < 0 ? 1 : -1);
+        _touchX = null;
+      },
+      { passive: true },
+    );
+  }
 
-  _modal = overlay;
   return overlay;
 }
 
@@ -336,7 +341,7 @@ function openProductModal(id, opener = null) {
   renderModalImages();
   modal.classList.add("open");
   document.body.style.overflow = "hidden";
-  document.getElementById("modalClose")?.focus();
+  document.getElementById("modalClose")?.focus?.();
 }
 
 function closeProductModal() {
@@ -461,6 +466,7 @@ if (productGrid && productGrid.children.length === 0) {
 }
 updateCartBadges();
 updateBackToTopVisibility();
+getOrCreateModal();
 
 let catalogFiltersInitialized = PRODUCTS.length > 0;
 document.addEventListener("catalogUpdated", () => {
