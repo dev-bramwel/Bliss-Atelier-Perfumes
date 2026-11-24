@@ -22,15 +22,16 @@ const (
 
 // User represents an authenticated application user identified primarily by Google subject ID (`google_sub`).
 type User struct {
-	ID         string    `json:"id"`
-	GoogleSub  string    `json:"google_sub"`
-	Email      string    `json:"email"`
-	Name       string    `json:"name"`
-	PictureURL string    `json:"picture_url"`
-	Role       string    `json:"role"`
-	IsActive   bool      `json:"is_active"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	GoogleSub          string    `json:"google_sub"`
+	Email              string    `json:"email"`
+	Name               string    `json:"name"`
+	PictureURL         string    `json:"picture_url"`
+	Role               string    `json:"role"`
+	IsActive           bool      `json:"is_active"`
+	CanManageInventory bool      `json:"can_manage_inventory"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // UserSession represents an authoritative server-side session.

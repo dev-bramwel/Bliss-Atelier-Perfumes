@@ -153,6 +153,54 @@ func registerAdminRoutes(mux *http.ServeMux, authService *auth.Service, checker 
 	mux.HandleFunc("POST /admin/users/{id}/status", handleUpdateStatus)
 	mux.HandleFunc("POST /api/admin/users/{id}/status", handleUpdateStatus)
 
+	// POST /admin/users/{id}/permissions & /api/admin/users/{id}/permissions - Update employee inventory permissions
+	handleUpdatePermissions := func(w http.ResponseWriter, r *http.Request) {
+		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)
+		if err != nil {
+			http.Error(w, `{"error":"unauthenticated"}`, http.StatusUnauthorized)
+			return
+		}
+		RefreshSessionCookie(w, r, ses)
+
+		if !RequireCSRF(r, ses) {
+			http.Error(w, `{"error":"invalid csrf token"}`, http.StatusForbidden)
+			return
+		}
+
+		targetUserID := r.PathValue("id")
+		if targetUserID == "" {
+			http.Error(w, `{"error":"target user id required"}`, http.StatusBadRequest)
+			return
+		}
+
+		var req struct {
+			CanManageInventory *bool `json:"can_manage_inventory"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.CanManageInventory == nil {
+			http.Error(w, `{"error":"invalid request payload; can_manage_inventory is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		clientIP := SafeClientIP(r, checker)
+		if err := authService.UpdateUserPermissions(r.Context(), user, targetUserID, *req.CanManageInventory, clientIP); err != nil {
+			if errors.Is(err, auth.ErrPermissionDenied) {
+				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusForbidden)
+				return
+			}
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":               "updated",
+			"user_id":              targetUserID,
+			"can_manage_inventory": *req.CanManageInventory,
+		})
+	}
+	mux.HandleFunc("POST /admin/users/{id}/permissions", handleUpdatePermissions)
+	mux.HandleFunc("POST /api/admin/users/{id}/permissions", handleUpdatePermissions)
+
 	// 4. GET /admin/audit-logs & /api/admin/audit-logs - Inspect audit logs with Downward Isolation
 	handleListAudit := func(w http.ResponseWriter, r *http.Request) {
 		user, ses, err := AuthenticateRequest(r.Context(), r, authService, checker)

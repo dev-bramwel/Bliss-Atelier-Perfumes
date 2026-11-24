@@ -2,9 +2,13 @@ package operations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net/url"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +17,15 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type mockInvalidator struct {
+	called atomic.Bool
+}
+
+func (m *mockInvalidator) Invalidate(ctx context.Context) error {
+	m.called.Store(true)
+	return nil
+}
 
 // Uses the same explicitly disposable database guard as the other integration suites.
 func TestAssignedFulfillmentAndInventory(t *testing.T) {
@@ -99,5 +112,243 @@ func TestAssignedFulfillmentAndInventory(t *testing.T) {
 	inv, err = s.Inventory(ctx, 25, 0)
 	if err != nil || inv.Products[0].Stock != 3 || inv.Products[0].Held != 0 {
 		t.Fatalf("paid stock: %+v %v", inv, err)
+	}
+}
+
+func TestRestockPermissionsAndLedger(t *testing.T) {
+	dsn := os.Getenv("GO_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("set GO_TEST_DATABASE_URL to the disposable integration database")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || u.Hostname() != "127.0.0.1" || u.Path != "/bliss_foundation_test" || u.User == nil || u.User.Username() != "bliss_test" || len(u.Query()) != 1 || u.Query().Get("sslmode") != "disable" {
+		t.Fatal("refusing non-test database")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err = pool.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = migration.Run(ctx, pool, "init", 15*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	users := auth.NewPGStore(pool)
+	makeUser := func(role string) *auth.User {
+		user, err := users.UpsertUserByGoogleSub(ctx, "restock-"+role, role+"@restock.test", role, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = users.UpdateUserRole(ctx, user.ID, role); err != nil {
+			t.Fatal(err)
+		}
+		user.Role = role
+		return user
+	}
+	owner := makeUser(auth.RoleOwner)
+	empDenied := makeUser(auth.RoleEmployee)
+	empAllowed := makeUser(auth.RoleEmployee)
+	if _, err = users.UpdateUserPermissions(ctx, owner.ID, empAllowed.ID, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	empAllowed.CanManageInventory = true
+
+	inv := &mockInvalidator{}
+	s := &Store{Pool: pool, Invalidator: inv}
+
+	// 1. Employee without permission is rejected
+	if _, err := s.Restock(ctx, empDenied, "batch_denied", "p1", 10, "INV-100", "127.0.0.1"); !errors.Is(err, auth.ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied for unpermitted employee, got: %v", err)
+	}
+
+	// 2. Negative or zero quantity rejected
+	if _, err := s.Restock(ctx, empAllowed, "batch_zero", "p1", 0, "INV-100", "127.0.0.1"); err == nil {
+		t.Fatal("expected error for zero quantity, got nil")
+	}
+
+	// 3. Unconfirmed stock authority rejected
+	if _, err := pool.Exec(ctx, `UPDATE public.stock_control SET authority='unconfirmed' WHERE singleton`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Restock(ctx, empAllowed, "batch_authority", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); !errors.Is(err, ErrAuthorityRequired) {
+		t.Fatalf("expected ErrAuthorityRequired, got: %v", err)
+	}
+
+	// Set authority to replacement
+	if _, err := pool.Exec(ctx, `UPDATE public.stock_control SET authority='replacement', reconciled_until=now() + interval '1 hour' WHERE singleton`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Ensure p1 is unopened before testing unopened check
+	if _, err := pool.Exec(ctx, `UPDATE public.catalog_product SET opened=false WHERE id='p1'`); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. Unopened product rejected before opening count
+	if _, err := s.Restock(ctx, empAllowed, "batch_unopened", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1"); !errors.Is(err, ErrUnopenedProduct) {
+		t.Fatalf("expected ErrUnopenedProduct, got: %v", err)
+	}
+
+	// Record opening balance for p1 and p2
+	if _, err := pool.Exec(ctx, `UPDATE public.catalog_product SET opened=true WHERE id IN ('p1', 'p2')`); err != nil {
+		t.Fatal(err)
+	}
+
+	// 5. Employee with permission restocks p1
+	var initialStock int
+	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&initialStock)
+	res, err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("unexpected error during restock: %v", err)
+	}
+	if res.Stock != initialStock+5 || res.Quantity != 5 || res.ProductID != "p1" {
+		t.Fatalf("unexpected RestockResult: %+v", res)
+	}
+	var newStock int
+	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&newStock)
+	if newStock != initialStock+5 {
+		t.Fatalf("expected stock %d, got %d", initialStock+5, newStock)
+	}
+
+	// Verify reconciled_until was cleared
+	var recUntil *time.Time
+	if err := pool.QueryRow(ctx, `SELECT reconciled_until FROM public.stock_control WHERE singleton`).Scan(&recUntil); err != nil {
+		t.Fatal(err)
+	}
+	if recUntil != nil {
+		t.Fatal("expected reconciled_until to be cleared after restock")
+	}
+
+	// Verify ledger entry
+	var delta int
+	if err := pool.QueryRow(ctx, `SELECT e.delta FROM public.stock_entry e JOIN public.stock_batch b ON e.batch_id = b.id WHERE e.product_id='p1' ORDER BY b.created_at DESC LIMIT 1`).Scan(&delta); err != nil || delta != 5 {
+		t.Fatalf("expected stock_entry delta 5, got %d (err: %v)", delta, err)
+	}
+
+	// Verify audit log
+	var auditCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM public.admin_audit_log WHERE action='restock_inventory' AND resource_id='p1'`).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("expected 1 audit log entry for restock, got %d (err: %v)", auditCount, err)
+	}
+
+	// 6. Idempotent replay with identical batch ID and content
+	replayedRes, err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 5, "INV-ARRIVAL-1", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("expected idempotent replay to succeed, got: %v", err)
+	}
+	if replayedRes.Stock != newStock || replayedRes.AuditAction != "replay" {
+		t.Fatalf("unexpected replayed RestockResult: %+v", replayedRes)
+	}
+	var replayedStock int
+	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&replayedStock)
+	if replayedStock != newStock {
+		t.Fatalf("expected replayed stock to remain %d, got %d", newStock, replayedStock)
+	}
+
+	// 6b. Idempotent replay with missing product fails with ErrProductNotFound
+	rawDigest := sha256.Sum256([]byte("batch_orphan" + "nonexistent" + "5" + "REF"))
+	orphanDigest := hex.EncodeToString(rawDigest[:])
+	if _, err := pool.Exec(ctx, `INSERT INTO public.stock_batch(id,digest,kind,actor,evidence) VALUES ('batch_orphan',$1,'receipt',$2,'REF')`, orphanDigest, empAllowed.ID); err != nil {
+		t.Fatalf("failed to insert test batch for replay test: %v", err)
+	}
+	if _, err := s.Restock(ctx, empAllowed, "batch_orphan", "nonexistent", 5, "REF", "127.0.0.1"); !errors.Is(err, ErrProductNotFound) {
+		t.Fatalf("expected ErrProductNotFound for replayed batch with missing product, got: %v", err)
+	}
+	_, _ = pool.Exec(ctx, `DELETE FROM public.stock_batch WHERE id='batch_orphan'`)
+
+	// 7. Batch ID collision with different content rejected
+	if _, err := s.Restock(ctx, empAllowed, "batch_test_1", "p1", 10, "DIFFERENT-REF", "127.0.0.1"); err == nil || !strings.Contains(err.Error(), "already used with different content") {
+		t.Fatalf("expected batch ID reuse error, got: %v", err)
+	}
+
+	// 8. Owner restocks p2
+	if _, err := s.Restock(ctx, owner, "batch_test_2", "p2", 3, "OWNER-ARRIVAL", "127.0.0.1"); err != nil {
+		t.Fatalf("owner restock failed: %v", err)
+	}
+
+	// 9. Negative stock adjustment (correction/damage) by permitted employee
+	adjRes, err := s.Restock(ctx, empAllowed, "batch_adj_1", "p1", -2, "DAMAGED-INSPECTION", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("negative stock adjustment failed: %v", err)
+	}
+	if adjRes.Stock != newStock-2 || adjRes.Quantity != -2 {
+		t.Fatalf("unexpected adjRes: %+v", adjRes)
+	}
+	var adjustedStock int
+	if err := pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&adjustedStock); err != nil || adjustedStock != newStock-2 {
+		t.Fatalf("expected stock %d after -2 adjustment from %d, got %d (err: %v)", newStock-2, newStock, adjustedStock, err)
+	}
+	var adjKind string
+	if err := pool.QueryRow(ctx, `SELECT kind FROM public.stock_batch WHERE id='batch_adj_1'`).Scan(&adjKind); err != nil || adjKind != "adjustment" {
+		t.Fatalf("expected batch kind 'adjustment', got %q (err: %v)", adjKind, err)
+	}
+
+	// 10. Insufficient stock error
+	if _, err := s.Restock(ctx, empAllowed, "batch_adj_fail", "p1", -(adjustedStock + 10), "EXCESS-DEDUCTION", "127.0.0.1"); !errors.Is(err, ErrInsufficientStock) {
+		t.Fatalf("expected ErrInsufficientStock, got: %v", err)
+	}
+
+	// 11. Zero quantity error
+	if _, err := s.Restock(ctx, empAllowed, "batch_zero", "p1", 0, "ZERO-QTY", "127.0.0.1"); !errors.Is(err, ErrInvalidQuantity) {
+		t.Fatalf("expected ErrInvalidQuantity, got: %v", err)
+	}
+
+	// 12. Active checkout hold protection prevents stock reduction below active holds
+	// Restock p1 to ensure stock exceeds reservation holds
+	if _, err := s.Restock(ctx, empAllowed, "batch_hold_prep", "p1", 10, "HOLD-PREP", "127.0.0.1"); err != nil {
+		t.Fatalf("failed to restock before hold test: %v", err)
+	}
+	var holdBaseStock int
+	_ = pool.QueryRow(ctx, `SELECT stock FROM public.catalog_product WHERE id='p1'`).Scan(&holdBaseStock)
+
+	// Ensure test order exists for reservation foreign key
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO public."Order" (id, "customerName", "customerPhone", "deliveryLocation", "totalKes", items, "updatedAt")
+		VALUES ('ord_res_test', 'Test Customer', '+254700000000', 'Nairobi', 1000, '[]'::jsonb, now())
+		ON CONFLICT (id) DO NOTHING
+	`); err != nil {
+		t.Fatalf("failed to insert test order: %v", err)
+	}
+
+	var resID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO public.stock_reservation (order_id, status, expires_at)
+		VALUES ('ord_res_test', 'active', now() + interval '10 minutes')
+		ON CONFLICT (order_id) DO UPDATE SET status = 'active', expires_at = now() + interval '10 minutes'
+		RETURNING id::text
+	`).Scan(&resID); err != nil {
+		t.Fatalf("failed to insert test reservation: %v", err)
+	}
+	holdQty := holdBaseStock - 1
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO public.stock_reservation_item (reservation_id, product_id, quantity)
+		VALUES ($1::uuid, 'p1', $2)
+		ON CONFLICT (reservation_id, product_id) DO UPDATE SET quantity = $2
+	`, resID, holdQty); err != nil {
+		t.Fatalf("failed to insert test reservation item: %v", err)
+	}
+	// Reducing by 2 leaves holdBaseStock - 2, which is < holdQty (holdBaseStock - 1), but >= 0.
+	// This cleanly triggers ErrInsufficientUnreserved.
+	if _, err := s.Restock(ctx, empAllowed, "batch_adj_res_fail", "p1", -2, "HOLD-VIOLATION", "127.0.0.1"); !errors.Is(err, ErrInsufficientUnreserved) {
+		t.Fatalf("expected ErrInsufficientUnreserved, got: %v", err)
+	}
+	// Clean up reservation and test order
+	_, _ = pool.Exec(ctx, `DELETE FROM public.stock_reservation WHERE id = $1::uuid`, resID)
+	_, _ = pool.Exec(ctx, `DELETE FROM public."Order" WHERE id = 'ord_res_test'`)
+
+	// 13. Empty batch ID error
+	if _, err := s.Restock(ctx, empAllowed, "   ", "p1", 5, "NO-BATCH-ID", "127.0.0.1"); !errors.Is(err, ErrBatchIDRequired) {
+		t.Fatalf("expected ErrBatchIDRequired for empty batch ID, got: %v", err)
+	}
+
+	// Verify catalog invalidation
+	time.Sleep(50 * time.Millisecond)
+	if !inv.called.Load() {
+		t.Fatal("expected Invalidate to be called after restock")
 	}
 }

@@ -36,7 +36,15 @@ const exception = {
 (async () => {
   const browser = await chromium.launch({ headless: true });
   try {
-    for (const role of ["owner", "employee", "customer"]) {
+    for (const testCase of [
+      { role: "owner", canManageInventory: false },
+      { role: "employee", canManageInventory: false },
+      { role: "employee", canManageInventory: true, label: "permitted-employee" },
+      { role: "customer", canManageInventory: false },
+    ]) {
+      const role = testCase.role;
+      const canManage =
+        role === "owner" || (role === "employee" && testCase.canManageInventory);
       const context = await browser.newContext({
         viewport: { width: 1280, height: 850 },
       });
@@ -62,10 +70,11 @@ const exception = {
               ? { error: "session revoked" }
               : {
                   user: {
-                    id: "usr-" + role,
-                    name: "Test " + role,
-                    email: role + "@example.test",
+                    id: "usr-" + (testCase.label || role),
+                    name: "Test " + (testCase.label || role),
+                    email: (testCase.label || role) + "@example.test",
                     role,
+                    can_manage_inventory: testCase.canManageInventory,
                   },
                   csrf_token: "csrf-test",
                 },
@@ -98,6 +107,16 @@ const exception = {
             };
             return route.fulfill({ status: 201, json: { quote: offered } });
           }
+          if (endpoint.endsWith("/operations/inventory/restock")) {
+            return route.fulfill({
+              status: 200,
+              json: {
+                status: "restocked",
+                product_id: request.postDataJSON()?.product_id,
+                quantity: request.postDataJSON()?.quantity,
+              },
+            });
+          }
           return route.fulfill({ json: { status: "updated" } });
         }
         if (endpoint === "/api/operations/orders")
@@ -113,6 +132,7 @@ const exception = {
             json: {
               products: [
                 {
+                  id: "prod-arabian-wood",
                   name: "Arabian Wood",
                   priceKes: 2500,
                   stock: 5,
@@ -200,6 +220,60 @@ const exception = {
           await page.locator('[data-section="users"]').isVisible(),
           role !== "employee",
         );
+        assert.equal(
+          await page.locator('[data-section="inventory"]').isVisible(),
+          canManage,
+        );
+        if (canManage) {
+          await page.goto(base + "/admin/inventory");
+          await page.waitForSelector("#inventoryRows tr");
+          assert.equal(
+            await page.locator("#btnAddInventory").isVisible(),
+            true,
+          );
+          await page.locator("#btnAddInventory").click();
+          await page.waitForSelector("#addInventoryDialog[open]");
+          assert.equal(await page.locator("#restockProduct option").count(), 1);
+          assert.equal(
+            await page.locator('#addInventoryForm button[type="submit"]').textContent(),
+            "Confirm restock",
+          );
+          assert.equal(
+            await page.locator('#addInventoryForm input[name="quantity"]').getAttribute("min"),
+            "1",
+          );
+          await page
+            .locator('#addInventoryForm select[name="product_id"]')
+            .selectOption("prod-arabian-wood");
+          await page
+            .locator('#addInventoryForm input[name="quantity"]')
+            .fill("12");
+          await page
+            .locator('#addInventoryForm input[name="reference"]')
+            .fill("Restock batch INV-001");
+          await page.locator('#addInventoryForm button[type="submit"]').click();
+          await page.waitForFunction(
+            () => !document.getElementById("addInventoryDialog").open,
+          );
+          assert.ok(
+            writes.some(
+              (w) =>
+                w.endpoint.endsWith("/operations/inventory/restock") &&
+                w.body.product_id === "prod-arabian-wood" &&
+                w.body.quantity === 12 &&
+                w.body.reference === "Restock batch INV-001" &&
+                typeof w.body.batch_id === "string" &&
+                w.body.batch_id.startsWith("restock_"),
+            ),
+          );
+          await page.goto(base + "/admin");
+          await page.waitForSelector("#ordersRows button");
+        } else {
+          assert.equal(
+            await page.locator("#btnAddInventory").isVisible(),
+            false,
+          );
+        }
         if (role === "employee")
           assert.equal(
             requests.some((p) => p.startsWith("/api/admin/")),
@@ -335,7 +409,7 @@ const exception = {
         }
         await page.setViewportSize({ width: 390, height: 844 });
         await page.screenshot({
-          path: path.join(artifactDir, role + "-mobile.png"),
+          path: path.join(artifactDir, (testCase.label || role) + "-mobile.png"),
           fullPage: true,
         });
         assert.ok(
@@ -354,8 +428,8 @@ const exception = {
         await page.goto(base + "/admin");
         await page.waitForSelector("#adminSignIn:not([hidden])");
       }
-      assert.deepEqual(errors, [], role + " browser errors");
-      console.log("PASS admin browser:", role);
+      assert.deepEqual(errors, [], (testCase.label || role) + " browser errors");
+      console.log("PASS admin browser:", testCase.label || role);
       await context.close();
     }
   } finally {

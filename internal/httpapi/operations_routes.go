@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ type OperationsService interface {
 	Orders(context.Context, string, int, int) (*operations.OrderPage, error)
 	Assign(context.Context, string, string, *auth.User, string) error
 	Fulfill(context.Context, string, *auth.User, string) error
+	Restock(context.Context, *auth.User, string, string, int, string, string) (*operations.RestockResult, error)
 }
 
 func pageBounds(r *http.Request) (int, int) {
@@ -68,8 +70,12 @@ func administrativeSessions(next http.Handler, service *auth.Service, checker *T
 			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
 			return
 		}
-		if (quote || invalidate) && !owner {
+		if quote && !owner {
 			respond(w, 401, map[string]string{"error": "Owner access is required."})
+			return
+		}
+		if invalidate && !auth.CanManageInventory(*user) {
+			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
 			return
 		}
 		if !RequireCSRF(r, ses) {
@@ -105,6 +111,11 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 			respond(w, 503, map[string]string{"error": "Inventory unavailable"})
 			return
 		}
+		u := UserFromContext(r.Context())
+		if u != nil && !auth.CanManageInventory(*u) {
+			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
+			return
+		}
 		limit, offset := pageBounds(r)
 		p, err := store.Inventory(r.Context(), limit, offset)
 		if err != nil {
@@ -112,6 +123,73 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 			return
 		}
 		respond(w, 200, p)
+	}
+	handleRestock := func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			respond(w, 503, map[string]string{"error": "Operations unavailable"})
+			return
+		}
+		u := UserFromContext(r.Context())
+		if u == nil || !auth.CanManageInventory(*u) {
+			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
+			return
+		}
+		var req struct {
+			BatchID   string `json:"batch_id"`
+			ProductID string `json:"product_id"`
+			Quantity  int    `json:"quantity"`
+			Reference string `json:"reference"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respond(w, 400, map[string]string{"error": "Invalid request payload"})
+			return
+		}
+		if strings.TrimSpace(req.BatchID) == "" || strings.TrimSpace(req.ProductID) == "" || req.Quantity == 0 || strings.TrimSpace(req.Reference) == "" {
+			respond(w, 400, map[string]string{"error": "Batch ID, product ID, non-zero quantity, and reference note are required."})
+			return
+		}
+		isRestock := strings.HasSuffix(r.URL.Path, "/restock")
+		if isRestock && req.Quantity <= 0 {
+			respond(w, 400, map[string]string{"error": "Restock quantity must be a positive integer."})
+			return
+		}
+		res, err := store.Restock(r.Context(), u, req.BatchID, req.ProductID, req.Quantity, req.Reference, SafeClientIP(r, checker))
+		if err != nil {
+			switch {
+			case errors.Is(err, auth.ErrPermissionDenied):
+				respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
+			case errors.Is(err, operations.ErrProductNotFound):
+				respond(w, 404, map[string]string{"error": err.Error()})
+			case errors.Is(err, operations.ErrBatchDigestMismatch):
+				respond(w, 409, map[string]string{"error": err.Error()})
+			case errors.Is(err, operations.ErrUnopenedProduct),
+				errors.Is(err, operations.ErrAuthorityRequired),
+				errors.Is(err, operations.ErrBatchIDRequired),
+				errors.Is(err, operations.ErrInvalidQuantity),
+				errors.Is(err, operations.ErrInsufficientStock),
+				errors.Is(err, operations.ErrInsufficientUnreserved),
+				errors.Is(err, operations.ErrStockLimitExceeded):
+				respond(w, 400, map[string]string{"error": err.Error()})
+			default:
+				log.Printf("ERROR: restock storage failure: %v", err)
+				respond(w, 500, map[string]string{"error": "Failed to update inventory due to an internal server error."})
+			}
+			return
+		}
+		status := "restocked"
+		if req.Quantity < 0 {
+			status = "adjusted"
+		}
+		resp := map[string]any{
+			"status":     status,
+			"product_id": req.ProductID,
+			"quantity":   req.Quantity,
+		}
+		if res != nil {
+			resp["stock"] = res.Stock
+			resp["unreserved"] = res.Unreserved
+		}
+		respond(w, 200, resp)
 	}
 	handleMutation := func(assign bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +232,8 @@ func registerOperationsRoutes(mux *http.ServeMux, store OperationsService, check
 	for _, prefix := range []string{"", "/api"} {
 		mux.HandleFunc("GET "+prefix+"/operations/orders", handleOrders)
 		mux.HandleFunc("GET "+prefix+"/operations/inventory", handleInventory)
+		mux.HandleFunc("POST "+prefix+"/operations/inventory/restock", handleRestock)
+		mux.HandleFunc("POST "+prefix+"/operations/inventory/adjust", handleRestock)
 		mux.HandleFunc("POST "+prefix+"/orders/{id}/assign", handleMutation(true))
 		mux.HandleFunc("POST "+prefix+"/orders/{id}/fulfill", handleMutation(false))
 	}

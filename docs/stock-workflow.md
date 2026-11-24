@@ -25,12 +25,13 @@ GRANT USAGE ON SCHEMA public TO bliss_stock_operator;
 GRANT SELECT ON public.catalog_product, public.stock_control,
  public.stock_batch, public.stock_entry, public.stock_approval,
  public.stock_reservation, public.stock_reservation_item TO bliss_stock_operator;
+GRANT SELECT(id, email, role, is_active, can_manage_inventory) ON public.app_user TO bliss_stock_operator;
 GRANT UPDATE(stock,opened) ON public.catalog_product TO bliss_stock_operator;
 GRANT UPDATE ON public.stock_control TO bliss_stock_operator;
 GRANT INSERT ON public.stock_batch, public.stock_entry, public.stock_approval TO bliss_stock_operator;
 ```
 
-Create the login and securely distribute its credential separately. This trusted owner/operator role can assert approval and record verified sales; `actor` is an audit label, not authentication. Employees must not receive this role. Employee-scoped login, payment-evidence access, sales review and an entry UI remain later roadmap work. Use opaque staff IDs and references to restricted evidence, not phone numbers, receipt payloads or customer names in input/audit fields. No runtime role may mutate stock or read approval history.
+Create the login and securely distribute its credential separately. The operator role verifies that batch actors exist and hold active permissions (`owner` or `employee` with `can_manage_inventory = true`), and replacement approvals strictly require an active owner actor. These checks fail closed if `public.app_user` cannot be selected by the operator role. Employees must not receive the direct database operator role; delegated employees manage receipts and adjustments through the authenticated administrative dashboard. Use opaque staff IDs and references to restricted evidence, not phone numbers, receipt payloads or customer names in input/audit fields. No runtime role may mutate stock or read approval history.
 
 Owner-only pricing changes currently use reviewed SQL in a transaction, for example `UPDATE public.catalog_settings SET common_price_kes=2500 WHERE singleton;` or `UPDATE public.catalog_product SET price_override_kes=3000 WHERE id='p1';`. Set an override to NULL to restore common pricing. The employee/operator grants above do not permit pricing changes. The administration UI and pricing audit controls remain their own roadmap deliverables.
 
