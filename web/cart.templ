@@ -2,41 +2,44 @@ package web
 
 templ CartPage() {
     <main class="max-w-4xl mx-auto px-4 py-10">
-        <div class="glass-panel p-6 sm:p-8">
+        <div class="atelier-panel p-6 sm:p-8">
             <div class="flex items-center justify-between mb-6">
-                <h1 class="text-2xl sm:text-3xl font-display text-white">
-                    Your Cart
-                </h1>
-                <span class="text-sm text-gray-400">
+                <div>
+                    <p class="admin-eyebrow text-[#d8c4a1] text-xs font-semibold">Your selection</p>
+                    <h1 class="text-2xl sm:text-3xl font-serif text-[#f7f3eb] mt-1">
+                        Shopping Cart
+                    </h1>
+                </div>
+                <span class="text-sm text-[#c8bba7]">
                     <span data-cart-count>0</span> item(s)
                 </span>
             </div>
             <div id="cartItems" class="space-y-3"></div>
             <div
                 id="cartFooter"
-                class="mt-6 border-t border-white/10 pt-5 space-y-4"
+                class="mt-6 border-t border-[#4a3e30] pt-5 space-y-4"
             >
                 <div class="flex items-center justify-between text-base">
-                    <span class="text-gray-300 font-medium">Total</span>
-                    <span class="text-white font-semibold text-lg">
+                    <span class="text-[#c9bfb1] font-medium">Subtotal</span>
+                    <span class="text-[#e6cfa9] font-bold text-xl">
                         KES <span id="cartTotal">0</span>
                     </span>
                 </div>
                 <button
                     id="toCheckoutBtn"
-                    class="w-full py-3 rounded-2xl gold-btn font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                    class="w-full py-3 rounded-[10px] gold-btn font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed"
                     disabled
                 >
                     Continue to Checkout
                 </button>
                 <button
                     id="clearCartBtn"
-                    class="w-full py-2 rounded-2xl border border-white/15 text-sm text-gray-300 hover:text-white hover:border-white/40 disabled:opacity-40 disabled:cursor-not-allowed"
+                    class="w-full py-2.5 rounded-[10px] border border-[#72634e] bg-[#241f19] text-sm text-[#faf7f2] hover:bg-[#514534] disabled:opacity-40 disabled:cursor-not-allowed"
                     disabled
                 >
                     Clear Cart
                 </button>
-                <p class="text-xs text-gray-500 text-center">
+                <p class="text-xs text-[#c8bba7] text-center">
                     Payment is verified before dispatch via M-Pesa.
                 </p>
             </div>
