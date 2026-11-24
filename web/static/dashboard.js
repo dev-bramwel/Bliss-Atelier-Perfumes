@@ -301,19 +301,22 @@
       "usersRows",
       users,
       (row, u) => {
-        [
-          u.id,
-          `${u.name} · ${u.email}`,
-          u.role,
-          u.is_active ? "Yes" : "No",
-          date(u.created_at),
-        ].forEach((v) => cell(row, v));
+        const name = u.name?.trim() || "Anonymous Shopper";
+        cell(row, name).className = "admin-user-name";
+        cell(row, u.email).className = "admin-user-email";
+        const role = el("span", u.role.charAt(0).toUpperCase() + u.role.slice(1));
+        role.className = "admin-role-badge";
+        cell(row, role);
+        const status = el("span", u.is_active ? "Active" : "Inactive");
+        status.className = `admin-status-pill ${u.is_active ? "is-active" : "is-inactive"}`;
+        cell(row, status);
+        cell(row, u.created_at ? new Date(u.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Nairobi" }) : "—");
         const controls = el("div");
         if (owner()) {
           const select = el("select");
           select.setAttribute(
             "aria-label",
-            `New role for ${u.name || u.email}`,
+            `New role for ${name}`,
           );
           for (const role of ["employee", "customer"]) {
             const option = el("option", role);
@@ -343,7 +346,7 @@
             permCheckbox.checked = Boolean(u.can_manage_inventory);
             permCheckbox.setAttribute(
               "aria-label",
-              `Can manage inventory for ${u.name || u.email}`,
+              `Can manage inventory for ${name}`,
             );
             permLabel.append(permCheckbox, " Can manage inventory");
             controls.append(

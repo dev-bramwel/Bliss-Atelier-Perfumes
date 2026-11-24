@@ -53,7 +53,7 @@ templ DashboardPage(products []catalog.Product) {
    </section>
    <section id="panelUsers" data-panel="users" class="admin-panel" hidden>
     <div class="admin-section-heading"><div><h2>User administration</h2><p>Role changes and deactivation immediately revoke the affected account’s sessions.</p></div><button type="button" data-refresh="users">Refresh users</button></div>
-    <div class="admin-table-wrap"><table><caption class="sr-only">Users visible to your role</caption><thead><tr><th>User ID</th><th>Name / email</th><th>Role</th><th>Active</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usersRows"></tbody></table></div>
+    <div class="admin-table-wrap"><table><caption class="sr-only">Users visible to your role</caption><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usersRows"></tbody></table></div>
     @AdminPager("users")
    </section>
    <section id="panelAudit" data-panel="audit-logs" class="admin-panel" hidden>

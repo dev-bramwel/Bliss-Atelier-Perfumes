@@ -93,7 +93,7 @@ func DashboardPage(products []catalog.Product) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</section><section id=\"panelUsers\" data-panel=\"users\" class=\"admin-panel\" hidden><div class=\"admin-section-heading\"><div><h2>User administration</h2><p>Role changes and deactivation immediately revoke the affected account’s sessions.</p></div><button type=\"button\" data-refresh=\"users\">Refresh users</button></div><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Users visible to your role</caption><thead><tr><th>User ID</th><th>Name / email</th><th>Role</th><th>Active</th><th>Created</th><th>Actions</th></tr></thead><tbody id=\"usersRows\"></tbody></table></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</section><section id=\"panelUsers\" data-panel=\"users\" class=\"admin-panel\" hidden><div class=\"admin-section-heading\"><div><h2>User administration</h2><p>Role changes and deactivation immediately revoke the affected account’s sessions.</p></div><button type=\"button\" data-refresh=\"users\">Refresh users</button></div><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Users visible to your role</caption><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id=\"usersRows\"></tbody></table></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
