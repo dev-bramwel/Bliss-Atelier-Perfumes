@@ -1,16 +1,18 @@
 (() => {
   if (/^\/(admin(?:\/|$)|dashboard)/.test(location.pathname)) return;
   const $ = (id) => document.getElementById(id);
-  const accountMenu = $("accountMenu");
+  const getAccountMenu = () => $("accountMenu");
   document.addEventListener("click", (event) => {
-    if (accountMenu?.open && !accountMenu.contains(event.target))
-      accountMenu.open = false;
+    const menu = getAccountMenu();
+    if (menu?.open && !menu.contains(event.target))
+      menu.open = false;
   });
-  accountMenu?.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
+  document.addEventListener("keydown", (event) => {
+    const menu = getAccountMenu();
+    if (event.key === "Escape" && menu?.open) {
       event.preventDefault();
-      accountMenu.open = false;
-      accountMenu.querySelector("summary")?.focus();
+      menu.open = false;
+      menu.querySelector("summary")?.focus?.();
     }
   });
   let user = null,
