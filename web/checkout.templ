@@ -6,8 +6,8 @@ templ CheckoutPage() {
   <h1>Make it your signature</h1>
   <p id="checkoutMessage" class="shopper-message" role="status" aria-live="polite" hidden></p>
   <div id="checkoutWorkspace" class="checkout-columns">
-   <aside class="glass-panel shopper-panel"><h2>Your selection</h2><div id="checkoutItems"></div><p class="shopper-total">Items subtotal <strong>KES <span id="checkoutTotal">—</span></strong></p><p>Delivery transport is quoted separately before payment.</p><a href="/cart">Edit your cart</a></aside>
-   <section class="glass-panel shopper-panel">
+   <aside class="atelier-panel shopper-panel"><h2>Your selection</h2><div id="checkoutItems"></div><p class="shopper-total">Items subtotal <strong>KES <span id="checkoutTotal">—</span></strong></p><p>Delivery transport is quoted separately before payment.</p><a href="/cart">Edit your cart</a></aside>
+   <section class="atelier-panel shopper-panel">
     <h2>Your details</h2>
     <form id="checkoutForm">
      <label for="customerName">Full name</label><input id="customerName" name="name" autocomplete="name" maxlength="100" required/>
@@ -20,7 +20,7 @@ templ CheckoutPage() {
     </form>
    </section>
   </div>
-  <section id="orderJourney" class="glass-panel shopper-panel" hidden aria-labelledby="journeyTitle">
+  <section id="orderJourney" class="atelier-panel shopper-panel" hidden aria-labelledby="journeyTitle">
    <p class="shopper-eyebrow">Your atelier order</p><h2 id="journeyTitle">Order saved</h2><p id="journeyOrderID"></p>
    <p id="holdTimer" class="hold-timer" role="timer" aria-live="off"></p><p id="holdExpired" role="status" hidden>Reservation Hold Expired. Check payment status before starting a new order.</p>
    <div id="savedItems"></div>

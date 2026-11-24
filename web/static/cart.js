@@ -63,11 +63,11 @@ function renderCart() {
   if (entries.length === 0) {
     cartItemsEl.innerHTML = `
       <div class="text-center py-16 space-y-5">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-12 h-12 mx-auto text-gray-600" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-12 h-12 mx-auto text-[#72634e]" fill="currentColor">
           <path d="M7 4h-.75a.75.75 0 0 0 0 1.5h.53l.63 2.52L9 14.25A2.25 2.25 0 0 0 11.2 16h5.18a2.25 2.25 0 0 0 2.2-1.75l1.2-5.4A1.25 1.25 0 0 0 18.56 7H8.75L8.2 4.98A1.5 1.5 0 0 0 7 4Zm3.05 4.5h8.51l-1.2 5.4a.75.75 0 0 1-.73.6h-5.18a.75.75 0 0 1-.73-.6L10.05 8.5ZM10 19.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm8 0a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" />
         </svg>
-        <p class="text-gray-400 text-base">Your cart is empty.</p>
-        <a href="/" class="inline-block px-6 py-3 rounded-2xl gold-btn text-sm font-semibold">
+        <p class="text-[#c9bfb1] text-base">Your cart is empty.</p>
+        <a href="/" class="inline-block px-6 py-3 rounded-[10px] gold-btn text-sm font-semibold">
           Browse Collection
         </a>
       </div>`;
@@ -79,23 +79,23 @@ function renderCart() {
       const p = getProduct(id);
       if (!p) return "";
       return `
-      <div class="glass-panel rounded-2xl p-4 flex items-center justify-between gap-3 border border-white/10">
+      <div class="atelier-card rounded-[14px] p-4 flex items-center justify-between gap-3 border border-[#4b4032] bg-[#241f19]">
         <div class="min-w-0">
-          <div class="font-medium text-white truncate">${escapeHTML(p.name)}</div>
-          <div class="text-sm text-gray-300">${escapeHTML(p.size)} • KES ${formatKes(p.priceKes)}</div>
-          <div class="text-xs text-gray-500">${escapeHTML(p.gender ?? "Unisex")} • ${escapeHTML(p.category)} • ${escapeHTML(p.notes)}</div>
+          <div class="font-medium text-[#faf7f2] truncate">${escapeHTML(p.name)}</div>
+          <div class="text-sm text-[#e6cfa9]">${escapeHTML(p.size)} • KES ${formatKes(p.priceKes)}</div>
+          <div class="text-xs text-[#c8bba7]">${escapeHTML(p.gender ?? "Unisex")} • ${escapeHTML(p.category)} • ${escapeHTML(p.notes)}</div>
         </div>
 
         <div class="flex items-center gap-2 shrink-0">
-          <button class="px-2.5 py-1 rounded-2xl border border-white/20 text-white hover:border-white/40" data-dec="${id}">−</button>
+          <button class="px-3 py-1 rounded-[8px] border border-[#72634e] bg-[#241f19] text-[#faf7f2] hover:bg-[#514534]" data-dec="${id}">−</button>
           <input
-            class="w-14 text-center glass-field rounded-2xl py-1 text-sm"
+            class="w-14 text-center atelier-input rounded-[8px] py-1 text-sm bg-[#1c1813] border border-[#72634e] text-[#faf7f2]"
             type="number"
             min="1"
             value="${qty}"
             data-qty="${id}"
           />
-          <button class="px-2.5 py-1 rounded-2xl border border-white/20 text-white hover:border-white/40" data-inc="${id}">+</button>
+          <button class="px-3 py-1 rounded-[8px] border border-[#72634e] bg-[#241f19] text-[#faf7f2] hover:bg-[#514534]" data-inc="${id}">+</button>
         </div>
       </div>`;
     })
