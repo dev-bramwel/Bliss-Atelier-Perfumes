@@ -437,6 +437,7 @@ async function offered(f) {
         ),
         true,
       );
+      await g.page.click("#accountMenu summary");
       await g.page.click("#shopperLogout");
       await g.page.waitForFunction(
         () => document.getElementById("shopperSignIn").hidden === false,
