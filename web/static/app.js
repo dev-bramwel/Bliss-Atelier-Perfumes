@@ -214,9 +214,9 @@ function getOrCreateModal() {
           <div class="product-modal-meta" id="modalMeta"></div>
           <p class="product-modal-description" id="modalDescription"></p>
           <div class="product-modal-actions">
-            <button id="modalAddToCart" class="gold-btn py-3 rounded-2xl font-medium text-sm w-full">Add to Cart</button>
+            <button id="modalAddToCart" class="gold-btn py-3 rounded-[10px] font-semibold text-sm w-full">Add to Cart</button>
             <a id="modalWhatsApp" href="#" target="_blank" rel="noreferrer"
-               class="gold-outline-btn py-3 rounded-2xl text-sm font-semibold text-center w-full block">WhatsApp Order</a>
+               class="gold-outline-btn py-3 rounded-[10px] text-sm font-semibold text-center w-full block">WhatsApp Order</a>
           </div>
         </div>
       </div>
