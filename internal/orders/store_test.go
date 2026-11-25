@@ -122,6 +122,9 @@ func TestCreateOrderAndPriceSnapshot(t *testing.T) {
 	if order.TotalKes != 5000 {
 		t.Fatalf("expected totalKes 5000, got %d", order.TotalKes)
 	}
+	if order.Channel != "online" {
+		t.Fatalf("expected default online channel, got %q", order.Channel)
+	}
 	if order.PaymentStatus != PaymentPending {
 		t.Fatalf("expected status %s, got %s", PaymentPending, order.PaymentStatus)
 	}
@@ -193,6 +196,55 @@ func TestCreateOrderAndPriceSnapshot(t *testing.T) {
 	ok, err = store.ValidateGuestAccess(ctx, order.ID, wrongToken)
 	if err != nil || ok {
 		t.Fatalf("expected ValidateGuestAccess with wrong token to return false, got ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCounterOrderAssignmentAndAutomaticCollection(t *testing.T) {
+	pool := testPool(t)
+	store := &Store{Pool: pool}
+	ctx := context.Background()
+	setupCatalogFixture(t, pool, "p1", 4, true, nil)
+
+	_, err := pool.Exec(ctx, `INSERT INTO public.app_user(id,google_sub,email,name,role) VALUES('counter-employee','counter-google-sub','counter@example.com','Counter Employee','employee')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := validReq("p1", 2)
+	req.Channel = "counter"
+	req.AssignedEmployeeID = "counter-employee"
+	req.Customer.Delivery = "showroom_pickup"
+
+	order, err := store.CreateOrder(ctx, req)
+	if err != nil {
+		t.Fatalf("CreateOrder failed: %v", err)
+	}
+	if order.Channel != "counter" {
+		t.Fatalf("expected counter channel, got %q", order.Channel)
+	}
+	var assigned string
+	if err = pool.QueryRow(ctx, `SELECT user_id FROM public.order_assignment WHERE order_id=$1`, order.ID).Scan(&assigned); err != nil || assigned != "counter-employee" {
+		t.Fatalf("counter order assignment = %q, %v", assigned, err)
+	}
+
+	if err = store.ConfirmPayment(ctx, order.ID, "COUNTER-RECEIPT", order.TotalKes); err != nil {
+		t.Fatalf("ConfirmPayment failed: %v", err)
+	}
+	retrieved, err := store.GetOrder(ctx, order.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retrieved.PaymentStatus != PaymentPaid || retrieved.FulfillmentStatus != FulfillmentFulfilled {
+		t.Fatalf("expected paid and collected counter order, got payment=%s fulfillment=%s", retrieved.PaymentStatus, retrieved.FulfillmentStatus)
+	}
+	if retrieved.Channel != "counter" {
+		t.Fatalf("counter channel was not exposed by GetOrder: %q", retrieved.Channel)
+	}
+	avail, err := store.GetAvailableStock(ctx, "p1")
+	if err != nil || avail != 2 {
+		t.Fatalf("expected remaining stock 2, got %d (err: %v)", avail, err)
+	}
+	if retrieved.Reservation.Status != ReservationCommitted {
+		t.Fatalf("expected committed reservation, got %s", retrieved.Reservation.Status)
 	}
 }
 

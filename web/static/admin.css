@@ -243,6 +243,89 @@
   font-size: 0.75rem !important;
   text-align: right;
 }
+.counter-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(19rem, 0.8fr);
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+.counter-search {
+  max-width: none !important;
+  font-size: 1rem !important;
+}
+.counter-products {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 0.8rem;
+}
+.counter-products article,
+.counter-cart {
+  border: 1px solid #514636;
+  border-radius: 14px;
+  background: #1c1813;
+  padding: 1rem;
+}
+.counter-products h3 {
+  margin: 0 0 0.4rem;
+  font-family: "Playfair Display", serif;
+}
+.counter-products p,
+.counter-cart p,
+.counter-cart label {
+  font-size: 1rem;
+}
+.counter-cart {
+  align-self: start;
+  position: sticky;
+  top: 1rem;
+}
+.counter-cart-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid #4b4032;
+}
+.counter-cart-line > span {
+  white-space: pre-line;
+}
+.counter-cart-line > div {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.counter-cart-line button {
+  padding: 0.4rem 0.6rem;
+}
+.counter-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 1rem 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid #72634e;
+}
+.counter-total strong {
+  color: #e6cfa9;
+  font-size: 1.35rem;
+}
+.counter-payment-state {
+  margin: 1rem 0;
+  padding: 0.85rem;
+  border: 1px solid #d3b46f;
+  border-radius: 10px;
+  background: #342b1e;
+}
+.counter-payment-state[data-kind="success"] {
+  border-color: #95bf9a;
+  background: #233126;
+}
+.counter-payment-state[data-kind="error"] {
+  border-color: #e89c8d;
+  background: #36221f;
+}
 #offlineOverlay {
   position: fixed;
   inset: 0;
@@ -361,6 +444,15 @@
   }
   .admin-shell {
     padding-top: 1rem;
+  }
+  .counter-layout {
+    grid-template-columns: 1fr;
+  }
+  .counter-cart {
+    position: static;
+  }
+  .counter-products {
+    grid-template-columns: 1fr;
   }
 }
 @media (prefers-reduced-motion: reduce) {

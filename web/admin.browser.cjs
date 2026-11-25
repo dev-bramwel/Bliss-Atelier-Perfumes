@@ -79,6 +79,25 @@ const exception = {
                   csrf_token: "csrf-test",
                 },
           });
+        if (endpoint === "/api/catalog")
+          return route.fulfill({
+            json: {
+              products: [{
+                id: "prod-arabian-wood",
+                name: "Arabian Wood",
+                priceKes: 2500,
+                stock: 3,
+                size: "50ml",
+              }],
+            },
+          });
+        if (endpoint === "/api/orders/counter-test/payment-status")
+          return route.fulfill({
+            json: {
+              paymentStatus: "PAID",
+              fulfillmentStatus: "fulfilled",
+            },
+          });
         if (request.method() === "POST") {
           writes.push({
             endpoint,
@@ -99,6 +118,17 @@ const exception = {
             "csrf-test",
             endpoint + " omitted CSRF",
           );
+          if (endpoint === "/api/operations/counter-order") {
+            assert.ok(request.headers()["idempotency-key"], "Missing idempotency key");
+            return route.fulfill({
+              status: 201,
+              json: {
+                order: { id: "counter-test", channel: "counter" },
+                quote_required: false,
+                stkPush: {},
+              },
+            });
+          }
           if (endpoint.endsWith("/delivery-quote")) {
             offered = {
               status: "pending",
@@ -125,6 +155,8 @@ const exception = {
               orders: [{ ...order, delivery_quote: offered }],
               total: 26,
               pending_dispatch: 1,
+              counter_sales: writes.filter(w => w.endpoint === "/api/operations/counter-order").length,
+              counter_revenue_kes: writes.filter(w => w.endpoint === "/api/operations/counter-order").length * 5000,
             },
           });
         if (endpoint === "/api/operations/inventory")
@@ -224,6 +256,26 @@ const exception = {
           await page.locator('[data-section="inventory"]').isVisible(),
           canManage,
         );
+        if (role === "employee") {
+          await page.goto(base + "/admin/counter");
+          await page.getByRole("button", { name: "Add to sale" }).click();
+          await page.getByRole("button", { name: "Increase Arabian Wood quantity" }).click();
+          assert.match(await page.locator("#counterTotal").textContent(), /5,000/);
+          await page.locator("#counterCheckoutForm input[name=phone]").fill("0712345678");
+          await page.locator("#counterPay").evaluate(button => {
+            button.click();
+            if (!button.disabled) throw new Error("Checkout button was not disabled");
+            button.click();
+          });
+          await page.waitForSelector("#counterPaymentState[data-kind=success]");
+          assert.match(await page.locator("#counterPaymentState").textContent(), /Sale collected successfully/);
+          assert.equal(writes.filter(w => w.endpoint === "/api/operations/counter-order").length, 1);
+          await page.locator("#counterNewSale").click();
+          await page.goto(base + "/admin");
+          await page.waitForSelector("#ordersRows button");
+          assert.equal(await page.locator("#metricCounterSales").textContent(), "1");
+          assert.match(await page.locator("#metricCounterRevenue").textContent(), /5,000/);
+        }
         if (canManage) {
           await page.goto(base + "/admin/inventory");
           await page.waitForSelector("#inventoryRows tr");

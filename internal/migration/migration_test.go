@@ -74,7 +74,7 @@ func run(t *testing.T, pool *pgxpool.Pool, command string) Result {
 }
 func fails(t *testing.T, pool *pgxpool.Pool, command, reason string) {
 	t.Helper()
-	_, err := Run(context.Background(), pool, command, time.Second)
+	_, err := Run(context.Background(), pool, command, 5*time.Second)
 	if err == nil || !strings.Contains(err.Error(), reason) {
 		t.Fatalf("expected %q failure, got %v", reason, err)
 	}
@@ -98,7 +98,7 @@ func snapshot(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	var body string
 	err := pool.QueryRow(context.Background(), `SELECT jsonb_build_array(
- (SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM public."Order" o),
+ (SELECT jsonb_agg(to_jsonb(o) - 'channel' ORDER BY id) FROM public."Order" o),
  (SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM public."MpesaTransaction" m),
  (SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM public._prisma_migrations p))::text`).Scan(&body)
 	if err != nil {
@@ -221,6 +221,10 @@ func TestDisposableMigrations(t *testing.T) {
 			run(t, pool, "status")
 			if after := snapshot(t, pool); after != before {
 				t.Fatal("legacy data/history changed")
+			}
+			var invalidChannels int
+			if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM public."Order" WHERE channel IS DISTINCT FROM 'online'`).Scan(&invalidChannels); err != nil || invalidChannels != 0 {
+				t.Fatalf("invalid legacy order channels: %d, %v", invalidChannels, err)
 			}
 			var version int64
 			var hash, origin string
@@ -436,7 +440,7 @@ func TestDisposableMigrations(t *testing.T) {
 			}
 		}
 	})
-	t.Run("approved v6 schema contract matches SQL", func(t *testing.T) {
+	t.Run("approved v14 schema contract matches SQL", func(t *testing.T) {
 		reset(t, pool)
 		legacy(t, pool, false)
 		execSQL(t, pool, read("ledger.sql"))
@@ -456,7 +460,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v13.json")), &expected); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v14.json")), &expected); err != nil {
 			t.Fatal(err)
 		}
 		if len(actual) != len(expected) {

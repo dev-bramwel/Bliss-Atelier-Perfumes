@@ -93,6 +93,15 @@ func (s *Store) GetAvailableStock(ctx context.Context, productID string) (int, e
 // Reservation availability is tracked separately from physical on-hand stock, maintaining
 // ledger consistency until payment is confirmed.
 func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order, error) {
+	if req.Channel == "" {
+		req.Channel = "online"
+	}
+	if req.Channel != "online" && req.Channel != "counter" {
+		return nil, fmt.Errorf("invalid order channel")
+	}
+	if req.Channel == "counter" && req.AssignedEmployeeID == "" {
+		return nil, fmt.Errorf("counter order requires an assigned employee")
+	}
 	if err := ValidateCustomer(&req.Customer); err != nil {
 		return nil, err
 	}
@@ -256,11 +265,18 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 	}
 
 	// Insert into Order table
-	_, err = tx.Exec(ctx, `INSERT INTO public."Order" (id, "createdAt", "updatedAt", "customerName", "customerPhone", "deliveryLocation", "deliveryOption", notes, "paymentMethod", "paymentStatus", "totalKes", items)
-		VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		orderID, now, req.Customer.Name, req.Customer.Phone, req.Customer.Location, req.Customer.Delivery, req.Customer.Notes, req.Customer.Payment, PaymentPending, totalKes, legacyJSON)
+	_, err = tx.Exec(ctx, `INSERT INTO public."Order" (id, "createdAt", "updatedAt", "customerName", "customerPhone", "deliveryLocation", "deliveryOption", notes, "paymentMethod", "paymentStatus", "totalKes", items, channel)
+		VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		orderID, now, req.Customer.Name, req.Customer.Phone, req.Customer.Location, req.Customer.Delivery, req.Customer.Notes, req.Customer.Payment, PaymentPending, totalKes, legacyJSON, req.Channel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert order: %w", err)
+	}
+
+	if req.Channel == "counter" {
+		_, err = tx.Exec(ctx, `INSERT INTO public.order_assignment (order_id, user_id, assigned_by, updated_at) VALUES ($1, $2, $2, $3)`, orderID, req.AssignedEmployeeID, now)
+		if err != nil {
+			return nil, fmt.Errorf("failed to assign counter order: %w", err)
+		}
 	}
 
 	// Insert snapshotted order_item rows
@@ -304,16 +320,20 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 	}
 
 	// Generate high-entropy guest token and persist its SHA-256 hash (30-day lifetime)
-	rawGuestToken, tokenHash, err := GenerateGuestToken()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate guest token: %w", err)
-	}
-	tokenExpiresAt := now.Add(30 * 24 * time.Hour)
-	_, err = tx.Exec(ctx, `INSERT INTO public.guest_order_access (order_id, token_hash, created_at, expires_at, user_id)
+	var rawGuestToken string
+	if req.Channel != "counter" {
+		var tokenHash string
+		rawGuestToken, tokenHash, err = GenerateGuestToken()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate guest token: %w", err)
+		}
+		tokenExpiresAt := now.Add(30 * 24 * time.Hour)
+		_, err = tx.Exec(ctx, `INSERT INTO public.guest_order_access (order_id, token_hash, created_at, expires_at, user_id)
 		VALUES ($1, $2, $3, $4, NULLIF($5,''))`,
-		orderID, tokenHash, now, tokenExpiresAt, req.UserID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert guest order access: %w", err)
+			orderID, tokenHash, now, tokenExpiresAt, req.UserID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert guest order access: %w", err)
+		}
 	}
 
 	// Insert initial payment_attempt row (attempt #1, status created)
@@ -365,15 +385,9 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		return nil, fmt.Errorf("failed to enqueue order created outbox event: %w", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
-	}
-
-	telemetry.StockReservationsActiveGauge.Inc()
-	invalidateCatalogDetached(s.Invalidator)
-
-	return &Order{
+	order := &Order{
 		ID:                orderID,
+		Channel:           req.Channel,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 		CustomerName:      req.Customer.Name,
@@ -396,7 +410,32 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		GuestToken:    rawGuestToken,
 		HoldExpiresAt: &expiresAt,
 		LatestAttempt: initialAttempt,
-	}, nil
+	}
+	// Save a replayable response in the order transaction. A lost response or
+	// interrupted provider call must never make the same key create another sale.
+	if req.Channel == "counter" && req.CounterIdempotencyKey != "" {
+		body, err := json.Marshal(map[string]any{"order": order, "quote_required": false, "stkPush": nil})
+		if err != nil {
+			return nil, err
+		}
+		tag, err := tx.Exec(ctx, `UPDATE public.idempotency_key
+			SET status = $1, status_code = 201, response_body = $2, resource_id = $3
+			WHERE key = $4 AND caller_scope = $5 AND operation = 'create_order' AND status = $6 AND expires_at > now()`,
+			IdempotencyCompleted, string(body), orderID, req.CounterIdempotencyKey, "counter:"+req.AssignedEmployeeID, IdempotencyInProgress)
+		if err != nil {
+			return nil, fmt.Errorf("failed to save counter checkout replay: %w", err)
+		}
+		if tag.RowsAffected() != 1 {
+			return nil, ErrIdempotencyInProgress
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
+	}
+
+	telemetry.StockReservationsActiveGauge.Inc()
+	invalidateCatalogDetached(s.Invalidator)
+	return order, nil
 }
 
 // ReleaseExpired finds active reservations expired by `now` and marks them released.
@@ -611,8 +650,9 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 
 	var currentPaymentStatus string
 	var deliveryOption string
+	var channel string
 	var totalKes int
-	err = tx.QueryRow(ctx, `SELECT "paymentStatus", COALESCE("deliveryOption", 'delivery'), "totalKes" FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&currentPaymentStatus, &deliveryOption, &totalKes)
+	err = tx.QueryRow(ctx, `SELECT "paymentStatus", COALESCE("deliveryOption", 'delivery'), "totalKes", channel FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&currentPaymentStatus, &deliveryOption, &totalKes, &channel)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrOrderNotFound
@@ -691,6 +731,12 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2 WHERE id = $3`, PaymentPaid, now, orderID)
 		if err != nil {
 			return fmt.Errorf("failed to mark order %s as PAID: %w", orderID, err)
+		}
+		if channel == "counter" {
+			_, err = tx.Exec(ctx, `UPDATE public.order_fulfillment SET status = $1, updated_at = $2 WHERE order_id = $3`, FulfillmentFulfilled, now, orderID)
+			if err != nil {
+				return fmt.Errorf("failed to collect paid counter order %s: %w", orderID, err)
+			}
 		}
 
 		// Update latest payment attempt to SUCCEEDED
@@ -926,12 +972,12 @@ func (s *Store) GetOrder(ctx context.Context, orderID string) (*Order, error) {
 	var o Order
 	var fulfillmentStatus string
 	var notes *string
-	err := s.Pool.QueryRow(ctx, `SELECT o.id, o."createdAt", o."updatedAt", o."customerName", o."customerPhone", o."deliveryLocation",
+	err := s.Pool.QueryRow(ctx, `SELECT o.id, o.channel, o."createdAt", o."updatedAt", o."customerName", o."customerPhone", o."deliveryLocation",
 		o."deliveryOption", o.notes, o."paymentMethod", o."paymentStatus", f.status, o."totalKes"
 		FROM public."Order" o
 		JOIN public.order_fulfillment f ON f.order_id = o.id
 		WHERE o.id = $1`, orderID).Scan(
-		&o.ID, &o.CreatedAt, &o.UpdatedAt, &o.CustomerName, &o.CustomerPhone, &o.DeliveryLocation,
+		&o.ID, &o.Channel, &o.CreatedAt, &o.UpdatedAt, &o.CustomerName, &o.CustomerPhone, &o.DeliveryLocation,
 		&o.DeliveryOption, &notes, &o.PaymentMethod, &o.PaymentStatus, &fulfillmentStatus, &o.TotalKes)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1058,7 +1104,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Order, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
-	rows, err := s.Pool.Query(ctx, `SELECT o.id, o."createdAt", o."updatedAt", o."customerName", o."customerPhone",
+	rows, err := s.Pool.Query(ctx, `SELECT o.id, o.channel, o."createdAt", o."updatedAt", o."customerName", o."customerPhone",
 		o."deliveryLocation", o."deliveryOption", o.notes, o."paymentMethod", o."paymentStatus", f.status, o."totalKes"
 		FROM public."Order" o
 		JOIN public.order_fulfillment f ON f.order_id = o.id
@@ -1074,7 +1120,7 @@ func (s *Store) ListRecent(ctx context.Context, limit int) ([]Order, error) {
 		var o Order
 		var notes *string
 		var fulfillmentStatus string
-		if err := rows.Scan(&o.ID, &o.CreatedAt, &o.UpdatedAt, &o.CustomerName, &o.CustomerPhone,
+		if err := rows.Scan(&o.ID, &o.Channel, &o.CreatedAt, &o.UpdatedAt, &o.CustomerName, &o.CustomerPhone,
 			&o.DeliveryLocation, &o.DeliveryOption, &notes, &o.PaymentMethod, &o.PaymentStatus,
 			&fulfillmentStatus, &o.TotalKes); err != nil {
 			return nil, fmt.Errorf("failed to scan recent order: %w", err)

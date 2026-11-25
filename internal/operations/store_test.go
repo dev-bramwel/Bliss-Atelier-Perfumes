@@ -113,6 +113,21 @@ func TestAssignedFulfillmentAndInventory(t *testing.T) {
 	if err != nil || inv.Products[0].Stock != 3 || inv.Products[0].Held != 0 {
 		t.Fatalf("paid stock: %+v %v", inv, err)
 	}
+	counter, err := osStore.CreateOrder(ctx, orders.CreateOrderRequest{Channel: "counter", AssignedEmployeeID: employee.ID, Customer: orders.CustomerInput{Name: "Walk-in customer", Phone: "0712345678", Location: "Mombasa", Delivery: "showroom_pickup", Payment: "pay_now"}, Items: []orders.ItemInput{{ID: "p1", Qty: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err = s.Orders(ctx, employee.ID, 25, 0)
+	if err != nil || page.CounterSales != 0 || page.CounterRevenue != 0 {
+		t.Fatalf("unpaid counter metrics: %+v %v", page, err)
+	}
+	if err = osStore.ConfirmPayment(ctx, counter.ID, "COUNTER-OPS-RECEIPT", counter.TotalKes); err != nil {
+		t.Fatal(err)
+	}
+	page, err = s.Orders(ctx, employee.ID, 25, 0)
+	if err != nil || page.CounterSales != 1 || page.CounterRevenue != counter.TotalKes {
+		t.Fatalf("paid counter metrics: %+v %v", page, err)
+	}
 }
 
 func TestRestockPermissionsAndLedger(t *testing.T) {

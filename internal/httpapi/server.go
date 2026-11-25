@@ -434,6 +434,39 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				callerScope = "manager:" + mgr
 			}
 
+			counter := strings.TrimPrefix(r.URL.Path, "/api") == "/operations/counter-order"
+			if counter {
+				actor := UserFromContext(r.Context())
+				if actor == nil || !auth.IsStaff(actor.Role) {
+					respond(w, 403, map[string]string{"error": "Staff access required"})
+					return
+				}
+				if rawIdempotencyKey == "" {
+					respond(w, 400, map[string]string{"error": "Idempotency-Key required"})
+					return
+				}
+				req.Channel = "counter"
+				req.AssignedEmployeeID = actor.ID
+				req.UserID = ""
+				// Counter checkout is an authoritative staff workflow. Never accept
+				// delivery or alternative payment choices supplied by the browser.
+				req.Customer.Name = strings.TrimSpace(req.Customer.Name)
+				if req.Customer.Name == "" {
+					req.Customer.Name = "Walk-in customer"
+				}
+				req.Customer.Location = "Bliss Atelier showroom"
+				req.Customer.Delivery = "showroom_pickup"
+				req.Customer.Payment = "pay_now"
+				phone, phoneErr := orders.ValidateCounterPhone(req.Customer.Phone)
+				if phoneErr != nil {
+					respond(w, 400, map[string]string{"error": "Enter a valid Kenyan M-Pesa phone number"})
+					return
+				}
+				req.Customer.Phone = phone
+				req.CounterIdempotencyKey = idempotencyKey
+				callerScope = "counter:" + actor.ID
+			}
+
 			reqHash := orders.CanonicalRequestHash(bodyBytes)
 			rec, isReplay, err := orderStore.BeginIdempotent(ctx, idempotencyKey, callerScope, "create_order", reqHash, orders.DefaultIdempotencyTTL)
 			if err != nil {
@@ -456,7 +489,7 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 				// Replay cached response without leaking plaintext tokens from database.
 				// Issue a fresh guest token dynamically for the customer session if resource ID is present
 				// and the client explicitly provided an idempotency key (preventing cross-session token minting for implicit/auto keys).
-				if rec.ResourceID != "" && rawIdempotencyKey != "" {
+				if !counter && rec.ResourceID != "" && rawIdempotencyKey != "" {
 					freshGuestToken, tokenErr := orderStore.IssueGuestToken(ctx, rec.ResourceID)
 					if tokenErr == nil && freshGuestToken != "" {
 						var replayData map[string]any
@@ -592,7 +625,9 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 			if err := orderStore.CompleteIdempotent(ctx, idempotencyKey, callerScope, "create_order", http.StatusCreated, map[string]string{"Content-Type": "application/json"}, string(cachedRespBytes), order.ID); err != nil {
 				slog.ErrorContext(ctx, "complete_idempotent_failed", "key", idempotencyKey, "reason", err.Error())
-				_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "create_order")
+				if !counter {
+					_ = orderStore.FailIdempotent(ctx, idempotencyKey, callerScope, "create_order")
+				}
 				respond(w, 500, map[string]string{"error": "internal error; please retry order submission"})
 				return
 			}
@@ -1062,6 +1097,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 
 		mux.HandleFunc("POST /orders", handleCreateOrder)
 		mux.HandleFunc("POST /api/orders", handleCreateOrder)
+		mux.HandleFunc("POST /api/operations/counter-order", handleCreateOrder)
+		mux.HandleFunc("POST /operations/counter-order", handleCreateOrder)
 		mux.HandleFunc("GET /orders/{id}/payment-status", handlePaymentStatus)
 		mux.HandleFunc("GET /api/orders/{id}/payment-status", handlePaymentStatus)
 		mux.HandleFunc("GET /orders/{id}", handleGetOrder)

@@ -106,9 +106,12 @@ type ItemInput struct {
 }
 
 type CreateOrderRequest struct {
-	UserID   string        `json:"-"` // Bound only from the authoritative server session.
-	Customer CustomerInput `json:"customer"`
-	Items    []ItemInput   `json:"items"`
+	UserID             string        `json:"-"` // Bound only from the authoritative server session.
+	Channel            string        `json:"-"`
+	AssignedEmployeeID string        `json:"-"`
+	CounterIdempotencyKey string      `json:"-"`
+	Customer           CustomerInput `json:"customer"`
+	Items              []ItemInput   `json:"items"`
 }
 
 type OrderItem struct {
@@ -171,6 +174,7 @@ type RetryPaymentRequest struct {
 
 type Order struct {
 	ID                string            `json:"id"`
+	Channel           string            `json:"channel"`
 	CreatedAt         time.Time         `json:"createdAt"`
 	UpdatedAt         time.Time         `json:"updatedAt"`
 	CustomerName      string            `json:"customerName"`
