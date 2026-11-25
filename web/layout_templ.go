@@ -28,14 +28,14 @@ func Layout(title string, pageScript string, products []catalog.Product, childre
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><meta name=\"api-base-url\" content=\"\"><title>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><meta name=\"api-base-url\" content=\"\"><link rel=\"manifest\" href=\"/manifest.json\"><meta name=\"theme-color\" content=\"#14110d\"><link rel=\"apple-touch-icon\" href=\"/static/icons/icon-192.png\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><title>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/layout.templ`, Line: 12, Col: 25}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/layout.templ`, Line: 16, Col: 25}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -84,7 +84,7 @@ func Layout(title string, pageScript string, products []catalog.Product, childre
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<script src=\"/static/shared.js\"></script><script src=\"/static/shopper.js\"></script>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<script src=\"/static/shared.js\"></script><script src=\"/static/shopper.js\"></script><script src=\"/static/pwa.js\"></script>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -96,7 +96,7 @@ func Layout(title string, pageScript string, products []catalog.Product, childre
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templruntime.NewAttributeExpression(pageScript).ResolveURL(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/layout.templ`, Line: 70, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/layout.templ`, Line: 75, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 			if templ_7745c5c3_Err != nil {
@@ -157,7 +157,7 @@ func Header() templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<header id=\"top\" class=\"site-header sticky top-0 z-10\"><div class=\"site-header-inner\"><a href=\"/\" class=\"site-brand\" aria-label=\"Bliss Atelier Perfumes home\"><span class=\"site-monogram\" aria-hidden=\"true\">BP</span> <span class=\"site-brand-copy\"><span class=\"site-brand-name\">Bliss Atelier Perfumes</span> <span class=\"site-brand-location\">Mombasa · Kenya</span></span></a><nav class=\"site-nav\" aria-label=\"Main navigation\"><a href=\"/#collection\">Collection</a> <a href=\"/dashboard\">Dashboard</a></nav><details id=\"accountMenu\" class=\"account-menu\"><summary aria-label=\"Open account menu\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"21\" height=\"21\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"><circle cx=\"12\" cy=\"8\" r=\"3.5\"></circle><path d=\"M5 20c.6-3.3 3.2-5 7-5s6.4 1.7 7 5\"></path></svg> <span class=\"sr-only\">Account</span></summary><div class=\"account-dropdown\"><div id=\"shopperProfile\" class=\"shopper-profile\" aria-live=\"polite\"><a id=\"shopperSignIn\" href=\"/api/auth/google?return_url=/checkout\">Sign in with Google</a> <img id=\"shopperAvatar\" width=\"36\" height=\"36\" alt=\"\" hidden> <span id=\"shopperName\" hidden></span> <button id=\"shopperLogout\" type=\"button\" data-mutation hidden>Sign out</button> <button id=\"shopperDeactivate\" type=\"button\" class=\"shopper-deactivate-btn\" data-mutation hidden>Deactivate account</button> <a id=\"resumeOrder\" href=\"/checkout\" hidden>Resume order</a> <span id=\"shopperAuthMessage\" role=\"status\"></span></div><a class=\"account-dashboard\" href=\"/dashboard\">Atelier dashboard</a></div></details> <button type=\"button\" data-open-cart class=\"site-cart\" aria-label=\"Open cart\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"><path d=\"M3 4h2l2.2 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 1.9-1.5L20 9H6\"></path><circle cx=\"9.5\" cy=\"20\" r=\"1\"></circle><circle cx=\"17.5\" cy=\"20\" r=\"1\"></circle></svg> <span data-cart-count class=\"site-cart-count\">0</span></button></div></header>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<header id=\"top\" class=\"site-header sticky top-0 z-10\"><div class=\"site-header-inner\"><a href=\"/\" class=\"site-brand\" aria-label=\"Bliss Atelier Perfumes home\"><span class=\"site-monogram\" aria-hidden=\"true\">BP</span> <span class=\"site-brand-copy\"><span class=\"site-brand-name\">Bliss Atelier Perfumes</span> <span class=\"site-brand-location\">Mombasa · Kenya</span></span></a><nav class=\"site-nav\" aria-label=\"Main navigation\"><a href=\"/#collection\">Collection</a> <a href=\"/dashboard\">Dashboard</a></nav><details id=\"accountMenu\" class=\"account-menu\"><summary aria-label=\"Open account menu\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"21\" height=\"21\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"><circle cx=\"12\" cy=\"8\" r=\"3.5\"></circle><path d=\"M5 20c.6-3.3 3.2-5 7-5s6.4 1.7 7 5\"></path></svg> <span class=\"sr-only\">Account</span></summary><div class=\"account-dropdown\"><div id=\"shopperProfile\" class=\"shopper-profile\" aria-live=\"polite\"><a id=\"shopperSignIn\" href=\"/api/auth/google?return_url=/checkout\">Sign in with Google</a> <img id=\"shopperAvatar\" width=\"36\" height=\"36\" alt=\"\" hidden> <span id=\"shopperName\" hidden></span> <button id=\"shopperLogout\" type=\"button\" data-mutation hidden>Sign out</button> <button id=\"shopperDeactivate\" type=\"button\" class=\"shopper-deactivate-btn\" data-mutation hidden>Deactivate account</button> <a id=\"resumeOrder\" href=\"/checkout\" hidden>Resume order</a> <span id=\"shopperAuthMessage\" role=\"status\"></span></div><button id=\"pwaInstallButton\" type=\"button\" hidden>Install App</button> <a class=\"account-dashboard\" href=\"/dashboard\">Atelier dashboard</a></div></details> <button type=\"button\" data-open-cart class=\"site-cart\" aria-label=\"Open cart\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"><path d=\"M3 4h2l2.2 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 1.9-1.5L20 9H6\"></path><circle cx=\"9.5\" cy=\"20\" r=\"1\"></circle><circle cx=\"17.5\" cy=\"20\" r=\"1\"></circle></svg> <span data-cart-count class=\"site-cart-count\">0</span></button></div><aside id=\"pwaIOSBanner\" class=\"pwa-ios-banner\" aria-label=\"Installation instructions\" hidden><div><strong>Install Bliss Atelier</strong><p>Tap Share, then Add to Home Screen.</p></div><button id=\"pwaIOSDismiss\" type=\"button\" aria-label=\"Dismiss installation instructions\">×</button></aside></header>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

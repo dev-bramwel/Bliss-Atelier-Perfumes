@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "Bliss Atelier Perfumes",
+  "short_name": "Bliss Atelier",
+  "description": "Discover and shop your favourite fragrances.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#14110d",
+  "theme_color": "#14110d",
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

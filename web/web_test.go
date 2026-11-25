@@ -130,3 +130,70 @@ func TestWebHandler_CacheControl(t *testing.T) {
 		}
 	}
 }
+
+func TestWebHandler_PWAAssets(t *testing.T) {
+	h := Handler(&mockCatalog{})
+
+	tests := []struct {
+		path        string
+		contentType string
+	}{
+		{"/manifest.json", "application/manifest+json"},
+		{"/sw.js", "application/javascript"},
+		{"/offline.html", "text/html"},
+		{"/static/icons/icon-192.png", "image/png"},
+		{"/static/icons/icon-512.png", "image/png"},
+		{"/static/pwa.js", "javascript"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d", rec.Code)
+			}
+
+			if !strings.Contains(rec.Header().Get("Content-Type"), tc.contentType) {
+				t.Fatalf("unexpected content type: %s",
+					rec.Header().Get("Content-Type"))
+			}
+
+			if rec.Body.Len() == 0 {
+				t.Fatal("expected non-empty response")
+			}
+		})
+	}
+}
+
+func TestWebHandler_PWAMetadata(t *testing.T) {
+	h := Handler(&mockCatalog{})
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	expected := []string{
+		`rel="manifest"`,
+		`href="/manifest.json"`,
+		`name="theme-color"`,
+		`rel="apple-touch-icon"`,
+		`src="/static/pwa.js"`,
+		`id="pwaInstallButton"`,
+		`id="pwaIOSBanner"`,
+		`id="pwaIOSDismiss"`,
+	}
+
+	for _, value := range expected {
+		if !strings.Contains(body, value) {
+			t.Errorf("missing PWA element: %s", value)
+		}
+	}
+}
