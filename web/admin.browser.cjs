@@ -59,7 +59,8 @@ const exception = {
         requests = [];
       let revoked = false,
         offered = null,
-        failWrite = false;
+        failWrite = false,
+        customerActive = true;
       const userRoles = {
         "usr-owner": "owner",
         "usr-employee": "employee",
@@ -135,6 +136,10 @@ const exception = {
             userRoles[id] = request.postDataJSON().role;
             return route.fulfill({ json: { status: "updated" } });
           }
+          if (endpoint.endsWith("/admin/users/usr-customer/status")) {
+            customerActive = request.postDataJSON().is_active;
+            return route.fulfill({ json: { status: "updated" } });
+          }
           return route.fulfill({ json: { status: "updated" } });
         }
         if (endpoint === "/api/operations/orders")
@@ -200,7 +205,7 @@ const exception = {
                   name: "Customer",
                   email: "customer@example.test",
                   role: userRoles["usr-customer"],
-                  is_active: true,
+                  is_active: customerActive,
                   created_at: now,
                 },
               ],
@@ -244,7 +249,7 @@ const exception = {
         assert.equal(await page.locator("#staffRole").textContent(), role);
         assert.equal(
           await page.locator('[data-section="users"]').isVisible(),
-          role !== "employee",
+          true,
         );
         assert.equal(
           await page.locator('[data-section="inventory"]').isVisible(),
@@ -462,6 +467,53 @@ const exception = {
           assert.deepEqual(writes.at(-1).body, { role: "customer" });
           await page.goto(base + "/admin/audit-logs");
           await page.waitForSelector("#auditRows tr");
+        }
+        if (role === "employee") {
+          await page.goto(base + "/admin/users");
+          await page.waitForSelector("#usersRows tr");
+
+          const usersText = await page.locator("#usersRows").textContent();
+
+          assert.ok(usersText.includes("customer@example.test"));
+          assert.ok(!usersText.includes("owner@example.test"));
+          assert.ok(!usersText.includes("employee@example.test"));
+
+          assert.equal(await page.locator("#usersRows select").count(), 0);
+
+          assert.equal(await page.locator("#usersRows button").count(), 1);
+          await page
+            .getByRole("button", { name: "Deactivate", exact: true })
+            .click();
+
+          await page
+            .getByRole("button", { name: "Activate", exact: true })
+            .waitFor();
+
+          assert.equal(customerActive, false);
+          assert.ok(
+            writes.some(
+              (w) =>
+                w.endpoint.endsWith("/usr-customer/status") &&
+                w.body.is_active === false,
+            ),
+          );
+
+          await page
+            .getByRole("button", { name: "Activate", exact: true })
+            .click();
+
+          await page
+            .getByRole("button", { name: "Deactivate", exact: true })
+            .waitFor();
+
+          assert.equal(customerActive, true);
+          assert.ok(
+            writes.some(
+              (w) =>
+                w.endpoint.endsWith("/usr-customer/status") &&
+                w.body.is_active === true,
+            ),
+          );
         }
         await page.setViewportSize({ width: 390, height: 844 });
         await page.screenshot({
