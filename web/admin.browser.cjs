@@ -60,7 +60,7 @@ const exception = {
       let revoked = false,
         offered = null,
         failWrite = false,
-        customerActive = true;
+        customerActive = role !== "owner";
       page.on("pageerror", (error) => errors.push(error.message));
       await page.route("**/api/**", async (route) => {
         const request = route.request(),
@@ -191,11 +191,11 @@ const exception = {
                 },
                 {
                   id: "usr-customer",
-                  name: "Customer",
+                  name: "",
                   email: "customer@example.test",
                   role: "customer",
                   is_active: customerActive,
-                  created_at: now,
+                  created_at: "2026-11-20T10:00:00Z",
                 },
               ],
             },
@@ -391,6 +391,27 @@ const exception = {
           assert.equal(writes.at(-1).body.amount_kes, 2500);
           await page.goto(base + "/admin/users");
           await page.waitForSelector("#usersRows select");
+          assert.deepEqual(
+            await page.locator("table:has(#usersRows) th").allTextContents(),
+            ["Name", "Email", "Role", "Status", "Created", "Actions"],
+          );
+          const anonymous = page.locator("#usersRows tr").filter({ hasText: "customer@example.test" });
+          const cells = anonymous.locator("td");
+          assert.equal(await cells.count(), 6);
+          assert.equal(await cells.nth(0).textContent(), "Anonymous Shopper");
+          assert.equal(await cells.nth(1).textContent(), "customer@example.test");
+          assert.equal(await cells.nth(2).textContent(), "Customer");
+          assert.equal(await cells.nth(3).textContent(), "Inactive");
+          assert.equal(await cells.nth(4).textContent(), "20 Nov 2026");
+          assert.equal(await anonymous.locator(".admin-status-pill.is-inactive").count(), 1);
+          assert.equal(await page.locator("#usersRows .admin-status-pill.is-active").count(), 2);
+          assert.ok(!(await page.locator("#usersRows").textContent()).includes("usr-"));
+          assert.equal(await anonymous.locator("select").getAttribute("aria-label"), "New role for Anonymous Shopper");
+          const desktopViewport = page.viewportSize();
+          await page.setViewportSize({ width: 390, height: 844 });
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+          assert.ok(await page.locator("#usersRows").isVisible());
+          await page.setViewportSize(desktopViewport);
           assert.equal(
             await page.locator('#usersRows option[value="owner"]').count(),
             0,
