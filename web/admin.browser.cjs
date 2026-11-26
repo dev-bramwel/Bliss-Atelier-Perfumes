@@ -200,24 +200,6 @@ const exception = {
               ],
             },
           });
-        if (endpoint.endsWith("/admin/audit-logs"))
-          return route.fulfill({
-            json: {
-              audit_logs: [
-                {
-                  actor_role: "owner",
-                  action: "owner-secret-event",
-                  created_at: now,
-                },
-                {
-                  actor_role: "employee",
-                  action: "staff_login",
-                  created_at: now,
-                  metadata: {},
-                },
-              ],
-            },
-          });
         return route.fulfill({
           status: 404,
           json: { error: "unexpected fixture request " + endpoint },
@@ -449,8 +431,6 @@ const exception = {
               .getElementById("adminMessage")
               .textContent.includes("Role updated"),
           );
-          await page.goto(base + "/admin/audit-logs");
-          await page.waitForSelector("#auditRows tr");
         }
         if (role === "employee") {
           await page.goto(base + "/admin/users");
@@ -523,11 +503,11 @@ const exception = {
         await page.goto(base + "/admin");
         await page.waitForSelector("#adminSignIn:not([hidden])");
       }
-      assert.deepEqual(
-        errors,
-        [],
-        (testCase.label || role) + " browser errors",
-      );
+      assert.equal(await page.locator('[data-section="audit-logs"]').count(), 0);
+      assert.equal(await page.locator("#panelAudit, #auditRows").count(), 0);
+      assert.equal(await page.locator('[data-panel="audit-logs"], [data-refresh="audit-logs"]').count(), 0);
+      assert.equal(requests.some((p) => p.includes("/admin/audit-logs")), false);
+      assert.deepEqual(errors, [], (testCase.label || role) + " browser errors");
       console.log("PASS admin browser:", testCase.label || role);
       await context.close();
     }
