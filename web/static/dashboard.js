@@ -380,28 +380,6 @@
     );
     pager("users", data.users?.length || 0);
   }
-  async function loadAudit() {
-    const data = await api(`/admin/audit-logs?${query("audit")}`);
-    const logs = (data.audit_logs || []).filter(
-      (entry) => owner() || ["employee", "customer"].includes(entry.actor_role),
-    );
-    table(
-      "auditRows",
-      logs,
-      (row, entry) => {
-        [
-          date(entry.created_at),
-          `${entry.user_id || "System"} · ${entry.actor_role}`,
-          entry.action,
-          `${entry.resource} · ${entry.resource_id}`,
-          entry.ip_address,
-        ].forEach((v) => cell(row, v));
-        cell(row, el("pre", JSON.stringify(entry.metadata || {}, null, 2)));
-      },
-      6,
-    );
-    pager("audit", data.audit_logs?.length || 0);
-  }
   const loaders = {
     orders: loadOrders,
     inventory: loadInventory,
@@ -409,8 +387,6 @@
     unresolved: loadUnresolved,
     paymentAudit: loadPaymentAudit,
     users: loadUsers,
-    audit: loadAudit,
-    "audit-logs": loadAudit,
     payments: async () => {
       await Promise.all([
         loadExceptions(),
@@ -539,13 +515,13 @@
   }
   function sectionFromPath() {
     const last = window.location.pathname.split("/").filter(Boolean).pop();
-    return ["inventory", "payments", "users", "audit-logs"].includes(last)
+    return ["inventory", "payments", "users"].includes(last)
       ? last
       : "orders";
   }
   function showSection(next) {
     if (
-      (!owner() && ["payments", "audit-logs"].includes(next)) ||
+      (!owner() && next === "payments") ||
       (!canManageInventory() && next === "inventory")
     ) {
       message("Your role does not permit this section.");
