@@ -15,10 +15,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  docker-core:
-    name: Docker core validation
+  go-checks:
+    name: Go checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -29,7 +29,7 @@ jobs:
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
-          cache: false
+          cache: true
 
       - name: Check Go formatting, modules, tests and commands
         shell: bash
@@ -46,13 +46,47 @@ jobs:
           go test -race ./...
           go build ./cmd/...
 
+  browser-tests:
+    name: Browser journeys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up matching Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tools/ci/package-lock.json
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('tools/ci/package-lock.json') }}
+
       - name: Verify administrative and shopper browser journeys
         shell: bash
         run: |
           set -euo pipefail
           npm ci --ignore-scripts --prefix tools/ci
-          (cd tools/ci && npx playwright install --with-deps chromium firefox webkit)
-          mkdir -p .local/ci-build/admin-browser
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            (cd tools/ci && npx playwright install-deps chromium firefox webkit)
+          else
+            (cd tools/ci && npx playwright install --with-deps chromium firefox webkit)
+          fi
+          mkdir -p .local/ci-build/admin-browser .local/ci-build/shopper-browser
           go build -o .local/ci-build/admin-web ./cmd/web
           GO_HTTP_ADDR=127.0.0.1:8086 .local/ci-build/admin-web > .local/ci-build/admin-browser/server.log 2>&1 &
           web_pid=$!
@@ -65,28 +99,100 @@ jobs:
           BLISS_BROWSER_ARTIFACTS=.local/ci-build/admin-browser node web/admin.browser.cjs
           BLISS_BROWSER_ARTIFACTS=.local/ci-build/shopper-browser node web/shopper.browser.cjs
 
+      - name: Retain browser test evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: browser-artifacts-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .local/ci-build/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: ignore
+
+  frontend-css:
+    name: Frontend CSS and deps
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
       - name: Check frontend CSS reproducibility and dependencies
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p .local/ci-build
           docker run --rm \
             --mount "type=bind,source=$PWD,target=/source,readonly" \
             --mount "type=bind,source=$PWD/.local/ci-build,target=/evidence" \
             node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 \
             sh -ec 'mkdir -p /tmp/run; cp -R /source/web /tmp/run/web; cd /tmp/run/web; npm ci --ignore-scripts; npm audit --audit-level=high; npm test; npm run build:css; cp static/tailwind.css /evidence/tailwind.generated.css; cmp static/tailwind.css /source/web/static/tailwind.css'
 
+      - name: Retain CSS reproducibility evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: frontend-css-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .local/ci-build/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: ignore
+
+  sql-integration:
+    name: SQL migration and restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up matching Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - name: Exercise SQL migration and restore fixtures
         shell: pwsh
         run: ./scripts/test-integration.ps1
+
+  docker-core:
+    name: Docker core build and scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up matching Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Build and exercise Docker core acceptance gates
         shell: pwsh
         run: ./scripts/Test-DockerCore.ps1 -EvidenceDirectory .local/ci-build
 
+      - name: Cache checksum-verified image scanners
+        id: scanner-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/scanners
+          key: ${{ runner.os }}-scanners-${{ hashFiles('scripts/ci/install-scanners.sh') }}
+
       - name: Install checksum-verified image scanner
         shell: bash
         run: |
-          bash scripts/ci/install-scanners.sh "$RUNNER_TEMP/scanners"
+          if [ "${{ steps.scanner-cache.outputs.cache-hit }}" != "true" ]; then
+            bash scripts/ci/install-scanners.sh "$RUNNER_TEMP/scanners"
+          fi
           echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
 
       - name: Scan built images and generate SBOMs
@@ -102,3 +208,30 @@ jobs:
           include-hidden-files: true
           retention-days: 7
           if-no-files-found: error
+
+  docker-core-validation:
+    name: Docker core validation
+    runs-on: ubuntu-24.04
+    if: always()
+    needs:
+      - go-checks
+      - browser-tests
+      - frontend-css
+      - sql-integration
+      - docker-core
+    steps:
+      - name: Verify all validation jobs succeeded
+        shell: bash
+        run: |
+          set -euo pipefail
+          for result in \
+            "${{ needs.go-checks.result }}" \
+            "${{ needs.browser-tests.result }}" \
+            "${{ needs.frontend-css.result }}" \
+            "${{ needs.sql-integration.result }}" \
+            "${{ needs.docker-core.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "Upstream validation job did not succeed (result=$result)"
+              exit 1
+            fi
+          done
