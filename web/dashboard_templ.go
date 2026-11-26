@@ -53,7 +53,7 @@ func DashboardPage(products []catalog.Product) templ.Component {
 		}
 		ctx = templ.InitializeContext(ctx)
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<main id=\"adminApp\" class=\"admin-shell\" aria-labelledby=\"adminTitle\"><header class=\"admin-heading\"><div><p class=\"admin-eyebrow\">Bliss Atelier · Mombasa</p><h1 id=\"adminTitle\">Atelier operations</h1><p>Orders, stock and the people behind every scent.</p></div><div id=\"adminProfile\" aria-live=\"polite\"><span id=\"staffName\">Checking your session…</span><span id=\"staffEmail\"></span><strong id=\"staffRole\"></strong><button id=\"adminLogout\" type=\"button\" data-mutation hidden>Sign out</button></div></header><p id=\"adminMessage\" class=\"admin-message\" role=\"status\" aria-live=\"polite\" hidden></p><section id=\"adminSignIn\" class=\"admin-panel\" hidden><h2>Staff sign-in required</h2><p id=\"signInReason\">Use your approved Google account to manage the atelier.</p><a id=\"adminLogin\" class=\"admin-button\" href=\"/api/auth/google?return_url=/admin\">Sign in with Google</a><a href=\"/\">Return to the collection</a></section><div id=\"adminWorkspace\" hidden><nav class=\"admin-nav\" aria-label=\"Atelier administration\"><a href=\"/admin/orders\" data-section=\"orders\">Orders &amp; fulfillment</a> <a href=\"/admin/inventory\" data-section=\"inventory\" data-inventory hidden>Catalog &amp; inventory</a> <a href=\"/admin/payments\" data-section=\"payments\" data-owner hidden>Payment exceptions</a> <a href=\"/admin/users\" data-section=\"users\" data-owner hidden>Users</a> <a href=\"/admin/audit-logs\" data-section=\"audit-logs\" data-owner hidden>Security audit</a></nav><section class=\"admin-metrics\" aria-label=\"Operational metrics\"><article><span>Catalog fragrances</span><strong id=\"metricCatalog\">—</strong></article><article><span>Common bottle price</span><strong id=\"metricPrice\">—</strong></article><article><span>Staged counter sales</span><strong id=\"metricStaged\">0</strong><small>Apply verified batches using the stock tool</small></article><article><span>Pending dispatch</span><strong id=\"metricDispatch\">—</strong></article></section><section id=\"panelOrders\" class=\"admin-panel\" data-panel=\"orders\" hidden><div class=\"admin-section-heading\"><div><h2>Orders &amp; fulfillment</h2><p id=\"orderScope\">Live orders from the authoritative database.</p></div><button type=\"button\" data-refresh=\"orders\">Refresh orders</button></div><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Orders, payment and delivery status</caption><thead><tr><th>Order</th><th>Customer / location</th><th>Total</th><th>Payment</th><th>Fulfillment</th><th>Delivery quote</th><th>Actions</th></tr></thead><tbody id=\"ordersRows\"></tbody></table></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<main id=\"adminApp\" class=\"admin-shell\" aria-labelledby=\"adminTitle\"><header class=\"admin-heading\"><div><p class=\"admin-eyebrow\">Bliss Atelier · Mombasa</p><h1 id=\"adminTitle\">Atelier operations</h1><p>Orders, stock and the people behind every scent.</p></div><div id=\"adminProfile\" aria-live=\"polite\"><span id=\"staffName\">Checking your session…</span><span id=\"staffEmail\"></span><strong id=\"staffRole\"></strong><button id=\"adminLogout\" type=\"button\" data-mutation hidden>Sign out</button></div></header><p id=\"adminMessage\" class=\"admin-message\" role=\"status\" aria-live=\"polite\" hidden></p><section id=\"adminSignIn\" class=\"admin-panel\" hidden><h2>Staff sign-in required</h2><p id=\"signInReason\">Use your approved Google account to manage the atelier.</p><a id=\"adminLogin\" class=\"admin-button\" href=\"/api/auth/google?return_url=/admin\">Sign in with Google</a><a href=\"/\">Return to the collection</a></section><div id=\"adminWorkspace\" hidden><nav class=\"admin-nav\" aria-label=\"Atelier administration\"><a href=\"/admin/orders\" data-section=\"orders\">Orders &amp; fulfillment</a> <a href=\"/admin/inventory\" data-section=\"inventory\" data-inventory hidden>Catalog &amp; inventory</a> <a href=\"/admin/payments\" data-section=\"payments\" data-owner hidden>Payment exceptions</a> <a href=\"/admin/users\" data-section=\"users\">Users</a> <a href=\"/admin/audit-logs\" data-section=\"audit-logs\" data-owner hidden>Security audit</a></nav><section class=\"admin-metrics\" aria-label=\"Operational metrics\"><article><span>Catalog fragrances</span><strong id=\"metricCatalog\">—</strong></article><article><span>Common bottle price</span><strong id=\"metricPrice\">—</strong></article><article><span>Staged counter sales</span><strong id=\"metricStaged\">0</strong><small>Apply verified batches using the stock tool</small></article><article><span>Pending dispatch</span><strong id=\"metricDispatch\">—</strong></article></section><section id=\"panelOrders\" class=\"admin-panel\" data-panel=\"orders\" hidden><div class=\"admin-section-heading\"><div><h2>Orders &amp; fulfillment</h2><p id=\"orderScope\">Live orders from the authoritative database.</p></div><button type=\"button\" data-refresh=\"orders\">Refresh orders</button></div><div class=\"admin-table-wrap\"><table><caption class=\"sr-only\">Orders, payment and delivery status</caption><thead><tr><th>Order</th><th>Customer / location</th><th>Total</th><th>Payment</th><th>Fulfillment</th><th>Delivery quote</th><th>Actions</th></tr></thead><tbody id=\"ordersRows\"></tbody></table></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -141,7 +141,7 @@ func AdminPager(name string) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templruntime.NewAttributeExpression(name).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 81, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `dashboard.templ`, Line: 81, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var4)
 		if templ_7745c5c3_Err != nil {
@@ -154,7 +154,7 @@ func AdminPager(name string) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templruntime.NewAttributeExpression(name).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 81, Col: 86}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `dashboard.templ`, Line: 81, Col: 86}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var5)
 		if templ_7745c5c3_Err != nil {
@@ -167,7 +167,7 @@ func AdminPager(name string) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templruntime.NewAttributeExpression(name).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 81, Col: 132}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `dashboard.templ`, Line: 81, Col: 132}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var6)
 		if templ_7745c5c3_Err != nil {
@@ -180,7 +180,7 @@ func AdminPager(name string) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templruntime.NewAttributeExpression(name).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/dashboard.templ`, Line: 81, Col: 189}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `dashboard.templ`, Line: 81, Col: 189}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var7)
 		if templ_7745c5c3_Err != nil {

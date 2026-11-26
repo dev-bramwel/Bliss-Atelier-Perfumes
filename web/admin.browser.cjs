@@ -39,12 +39,17 @@ const exception = {
     for (const testCase of [
       { role: "owner", canManageInventory: false },
       { role: "employee", canManageInventory: false },
-      { role: "employee", canManageInventory: true, label: "permitted-employee" },
+      {
+        role: "employee",
+        canManageInventory: true,
+        label: "permitted-employee",
+      },
       { role: "customer", canManageInventory: false },
     ]) {
       const role = testCase.role;
       const canManage =
-        role === "owner" || (role === "employee" && testCase.canManageInventory);
+        role === "owner" ||
+        (role === "employee" && testCase.canManageInventory);
       const context = await browser.newContext({
         viewport: { width: 1280, height: 850 },
       });
@@ -54,7 +59,8 @@ const exception = {
         requests = [];
       let revoked = false,
         offered = null,
-        failWrite = false;
+        failWrite = false,
+        customerActive = true;
       page.on("pageerror", (error) => errors.push(error.message));
       await page.route("**/api/**", async (route) => {
         const request = route.request(),
@@ -117,6 +123,12 @@ const exception = {
               },
             });
           }
+          if (endpoint.endsWith("/admin/users/usr-customer/status")) {
+            customerActive = request.postDataJSON().is_active;
+            return route.fulfill({
+              json: { status: "updated" },
+            });
+          }
           return route.fulfill({ json: { status: "updated" } });
         }
         if (endpoint === "/api/operations/orders")
@@ -177,6 +189,14 @@ const exception = {
                   is_active: true,
                   created_at: now,
                 },
+                {
+                  id: "usr-customer",
+                  name: "Customer",
+                  email: "customer@example.test",
+                  role: "customer",
+                  is_active: customerActive,
+                  created_at: now,
+                },
               ],
             },
           });
@@ -218,7 +238,7 @@ const exception = {
         assert.equal(await page.locator("#staffRole").textContent(), role);
         assert.equal(
           await page.locator('[data-section="users"]').isVisible(),
-          role !== "employee",
+          true,
         );
         assert.equal(
           await page.locator('[data-section="inventory"]').isVisible(),
@@ -235,11 +255,15 @@ const exception = {
           await page.waitForSelector("#addInventoryDialog[open]");
           assert.equal(await page.locator("#restockProduct option").count(), 1);
           assert.equal(
-            await page.locator('#addInventoryForm button[type="submit"]').textContent(),
+            await page
+              .locator('#addInventoryForm button[type="submit"]')
+              .textContent(),
             "Confirm restock",
           );
           assert.equal(
-            await page.locator('#addInventoryForm input[name="quantity"]').getAttribute("min"),
+            await page
+              .locator('#addInventoryForm input[name="quantity"]')
+              .getAttribute("min"),
             "1",
           );
           await page
@@ -407,9 +431,59 @@ const exception = {
           await page.goto(base + "/admin/audit-logs");
           await page.waitForSelector("#auditRows tr");
         }
+        if (role === "employee") {
+          await page.goto(base + "/admin/users");
+          await page.waitForSelector("#usersRows tr");
+
+          const usersText = await page.locator("#usersRows").textContent();
+
+          assert.ok(usersText.includes("customer@example.test"));
+          assert.ok(!usersText.includes("owner@example.test"));
+          assert.ok(!usersText.includes("employee@example.test"));
+
+          assert.equal(await page.locator("#usersRows select").count(), 0);
+
+          assert.equal(await page.locator("#usersRows button").count(), 1);
+          await page
+            .getByRole("button", { name: "Deactivate", exact: true })
+            .click();
+
+          await page
+            .getByRole("button", { name: "Activate", exact: true })
+            .waitFor();
+
+          assert.equal(customerActive, false);
+          assert.ok(
+            writes.some(
+              (w) =>
+                w.endpoint.endsWith("/usr-customer/status") &&
+                w.body.is_active === false,
+            ),
+          );
+
+          await page
+            .getByRole("button", { name: "Activate", exact: true })
+            .click();
+
+          await page
+            .getByRole("button", { name: "Deactivate", exact: true })
+            .waitFor();
+
+          assert.equal(customerActive, true);
+          assert.ok(
+            writes.some(
+              (w) =>
+                w.endpoint.endsWith("/usr-customer/status") &&
+                w.body.is_active === true,
+            ),
+          );
+        }
         await page.setViewportSize({ width: 390, height: 844 });
         await page.screenshot({
-          path: path.join(artifactDir, (testCase.label || role) + "-mobile.png"),
+          path: path.join(
+            artifactDir,
+            (testCase.label || role) + "-mobile.png",
+          ),
           fullPage: true,
         });
         assert.ok(
@@ -428,7 +502,11 @@ const exception = {
         await page.goto(base + "/admin");
         await page.waitForSelector("#adminSignIn:not([hidden])");
       }
-      assert.deepEqual(errors, [], (testCase.label || role) + " browser errors");
+      assert.deepEqual(
+        errors,
+        [],
+        (testCase.label || role) + " browser errors",
+      );
       console.log("PASS admin browser:", testCase.label || role);
       await context.close();
     }
