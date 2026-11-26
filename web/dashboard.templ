@@ -20,7 +20,6 @@ templ DashboardPage(products []catalog.Product) {
     <a href="/admin/inventory" data-section="inventory" data-inventory hidden>Catalog &amp; inventory</a>
     <a href="/admin/payments" data-section="payments" data-owner hidden>Payment exceptions</a>
     <a href="/admin/users" data-section="users">Users</a>
-    <a href="/admin/audit-logs" data-section="audit-logs" data-owner hidden>Security audit</a>
    </nav>
    <section class="admin-metrics" aria-label="Operational metrics">
     <article><span>Catalog fragrances</span><strong id="metricCatalog">—</strong></article>
@@ -53,13 +52,8 @@ templ DashboardPage(products []catalog.Product) {
    </section>
    <section id="panelUsers" data-panel="users" class="admin-panel" hidden>
     <div class="admin-section-heading"><div><h2>User administration</h2><p>Role changes and deactivation immediately revoke the affected account’s sessions.</p></div><button type="button" data-refresh="users">Refresh users</button></div>
-    <div class="admin-table-wrap"><table><caption class="sr-only">Users visible to your role</caption><thead><tr><th>User ID</th><th>Name / email</th><th>Role</th><th>Active</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usersRows"></tbody></table></div>
+    <div class="admin-table-wrap"><table><caption class="sr-only">Users visible to your role</caption><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usersRows"></tbody></table></div>
     @AdminPager("users")
-   </section>
-   <section id="panelAudit" data-panel="audit-logs" class="admin-panel" hidden>
-    <div class="admin-section-heading"><div><h2>Security audit logs</h2><p>Times shown in Africa/Nairobi. Owner events are visible only to owners.</p></div><button type="button" data-refresh="audit-logs">Refresh audit</button></div>
-    <div class="admin-table-wrap"><table><caption class="sr-only">Administrative security events</caption><thead><tr><th>Timestamp</th><th>Actor / role</th><th>Action</th><th>Resource</th><th>IP address</th><th>Metadata</th></tr></thead><tbody id="auditRows"></tbody></table></div>
-    @AdminPager("audit")
    </section>
    <p id="adminUpdated" class="admin-updated" aria-live="polite"></p>
   </div>
