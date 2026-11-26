@@ -678,10 +678,24 @@ func TestAuthServiceFullFlow(t *testing.T) {
 		t.Fatalf("expected permission denied when employee attempts to inspect audit logs, got %v", err)
 	}
 
-	// Downward Isolation: Employee cannot list users
-	_, err = service.ListUsers(ctx, empUpdated, "")
-	if !errors.Is(err, ErrPermissionDenied) {
-		t.Fatalf("expected permission denied when employee attempts to list users, got %v", err)
+	// Downward Isolation: Employee can list customers only.
+	employeeVisibleUsers, err := service.ListUsers(ctx, empUpdated, "")
+	if err != nil {
+		t.Fatalf("employee failed to list customers: %v", err)
+	}
+
+	for _, u := range employeeVisibleUsers {
+		if u.Role != RoleCustomer {
+			t.Fatalf("employee must not see role %s", u.Role)
+		}
+	}
+
+	// Employee cannot explicitly list employees or owners.
+	for _, role := range []string{RoleEmployee, RoleOwner} {
+		_, err = service.ListUsers(ctx, empUpdated, role)
+		if !errors.Is(err, ErrPermissionDenied) {
+			t.Fatalf("expected permission denied for role %s, got %v", role, err)
+		}
 	}
 
 	// Owner can inspect audit logs

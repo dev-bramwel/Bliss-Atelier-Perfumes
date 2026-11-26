@@ -78,9 +78,9 @@
           Accept: "application/json",
           ...(mutation
             ? {
-                "Content-Type": "application/json",
-                "X-CSRF-Token": context.csrfToken,
-              }
+              "Content-Type": "application/json",
+              "X-CSRF-Token": context.csrfToken,
+            }
             : {}),
           ...options.headers,
         },
@@ -111,9 +111,9 @@
         connection.dropped();
       throw new Error(
         data.error ||
-          (response.status === 403
-            ? "Your role does not permit this action. Refresh your session if your permissions changed."
-            : `Request failed (${response.status}). Your draft is retained.`),
+        (response.status === 403
+          ? "Your role does not permit this action. Refresh your session if your permissions changed."
+          : `Request failed (${response.status}). Your draft is retained.`),
       );
     }
     return data;
@@ -292,10 +292,9 @@
   }
   async function loadUsers() {
     const data = await api(`/admin/users?${query("users")}`);
-    // The server filters before pagination. This also protects UI controls if an
-    // older server accidentally returns an owner to a non-owner.
+    // Employees can only view customer accounts.
     const users = (data.users || []).filter(
-      (u) => owner() || ["employee", "customer"].includes(u.role),
+      (u) => owner() || u.role === "customer",
     );
     table(
       "usersRows",
@@ -522,7 +521,7 @@
   }
   function showSection(next) {
     if (
-      (!owner() && ["payments", "users"].includes(next)) ||
+      (!owner() && next === "payments") ||
       (!canManageInventory() && next === "inventory")
     ) {
       message("Your role does not permit this section.");
