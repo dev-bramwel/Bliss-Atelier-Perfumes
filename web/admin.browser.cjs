@@ -61,6 +61,11 @@ const exception = {
         offered = null,
         failWrite = false,
         customerActive = role !== "owner";
+      const userRoles = {
+        "usr-owner": "owner",
+        "usr-employee": "employee",
+        "usr-customer": "customer",
+      };
       page.on("pageerror", (error) => errors.push(error.message));
       await page.route("**/api/**", async (route) => {
         const request = route.request(),
@@ -123,11 +128,17 @@ const exception = {
               },
             });
           }
+          if (
+            endpoint.startsWith("/api/admin/users/") &&
+            endpoint.endsWith("/role")
+          ) {
+            const id = endpoint.split("/")[4];
+            userRoles[id] = request.postDataJSON().role;
+            return route.fulfill({ json: { status: "updated" } });
+          }
           if (endpoint.endsWith("/admin/users/usr-customer/status")) {
             customerActive = request.postDataJSON().is_active;
-            return route.fulfill({
-              json: { status: "updated" },
-            });
+            return route.fulfill({ json: { status: "updated" } });
           }
           return route.fulfill({ json: { status: "updated" } });
         }
@@ -177,7 +188,7 @@ const exception = {
                   id: "usr-owner",
                   name: "Owner",
                   email: "owner@example.test",
-                  role: "owner",
+                  role: userRoles["usr-owner"],
                   is_active: true,
                   created_at: now,
                 },
@@ -185,7 +196,7 @@ const exception = {
                   id: "usr-employee",
                   name: "Employee",
                   email: "employee@example.test",
-                  role: "employee",
+                  role: userRoles["usr-employee"],
                   is_active: true,
                   created_at: now,
                 },
@@ -193,7 +204,7 @@ const exception = {
                   id: "usr-customer",
                   name: "",
                   email: "customer@example.test",
-                  role: "customer",
+                  role: userRoles["usr-customer"],
                   is_active: customerActive,
                   created_at: "2026-11-20T10:00:00Z",
                 },
@@ -390,47 +401,71 @@ const exception = {
           );
           assert.equal(writes.at(-1).body.amount_kes, 2500);
           await page.goto(base + "/admin/users");
-          await page.waitForSelector("#usersRows select");
+          await page.waitForSelector("#usersRows tr");
           assert.deepEqual(
             await page.locator("table:has(#usersRows) th").allTextContents(),
             ["Name", "Email", "Role", "Status", "Created", "Actions"],
           );
-          const anonymous = page.locator("#usersRows tr").filter({ hasText: "customer@example.test" });
-          const cells = anonymous.locator("td");
+          const ownerRow = page
+            .locator("#usersRows tr")
+            .filter({ hasText: "owner@example.test" });
+          const employeeRow = page
+            .locator("#usersRows tr")
+            .filter({ hasText: "employee@example.test" });
+          const customerRow = page
+            .locator("#usersRows tr")
+            .filter({ hasText: "customer@example.test" });
+          const cells = customerRow.locator("td");
           assert.equal(await cells.count(), 6);
           assert.equal(await cells.nth(0).textContent(), "Anonymous Shopper");
           assert.equal(await cells.nth(1).textContent(), "customer@example.test");
           assert.equal(await cells.nth(2).textContent(), "Customer");
           assert.equal(await cells.nth(3).textContent(), "Inactive");
           assert.equal(await cells.nth(4).textContent(), "20 Nov 2026");
-          assert.equal(await anonymous.locator(".admin-status-pill.is-inactive").count(), 1);
+          assert.equal(await customerRow.locator(".admin-status-pill.is-inactive").count(), 1);
           assert.equal(await page.locator("#usersRows .admin-status-pill.is-active").count(), 2);
           assert.ok(!(await page.locator("#usersRows").textContent()).includes("usr-"));
-          assert.equal(await anonymous.locator("select").getAttribute("aria-label"), "New role for Anonymous Shopper");
           const desktopViewport = page.viewportSize();
           await page.setViewportSize({ width: 390, height: 844 });
           assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
           assert.ok(await page.locator("#usersRows").isVisible());
           await page.setViewportSize(desktopViewport);
+          assert.equal(await page.locator("#usersRows select").count(), 0);
           assert.equal(
-            await page.locator('#usersRows option[value="owner"]').count(),
+            await ownerRow
+              .getByRole("button", { name: /Promote to Employee|Revoke Staff/ })
+              .count(),
             0,
           );
-          const roleDraft = page.locator("#usersRows select").first();
-          await roleDraft.selectOption("customer");
-          await context.setOffline(true);
-          await page.waitForSelector("#offlineOverlay[open]");
-          await context.setOffline(false);
-          await page.waitForFunction(
-            () => document.getElementById("offlineOverlay").hidden,
+          await customerRow
+            .getByRole("button", { name: "Promote to Employee" })
+            .click();
+          await customerRow
+            .getByRole("button", { name: "Revoke Staff" })
+            .waitFor();
+          assert.equal(
+            writes.at(-1).endpoint,
+            "/api/admin/users/usr-customer/role",
           );
-          assert.equal(await roleDraft.inputValue(), "customer");
-          await page.locator("#usersRows button").first().click();
-          await page.waitForFunction(() =>
-            document
-              .getElementById("adminMessage")
-              .textContent.includes("Role updated"),
+          assert.deepEqual(writes.at(-1).body, { role: "employee" });
+          const beforeCancel = writes.length;
+          page.once("dialog", (dialog) => dialog.dismiss());
+          await employeeRow
+            .getByRole("button", { name: "Revoke Staff" })
+            .click();
+          assert.equal(writes.length, beforeCancel);
+          page.once("dialog", (dialog) => dialog.accept());
+          await employeeRow
+            .getByRole("button", { name: "Revoke Staff" })
+            .click();
+          await employeeRow
+            .getByRole("button", { name: "Promote to Employee" })
+            .waitFor();
+          assert.equal(
+            writes.at(-1).endpoint,
+            "/api/admin/users/usr-employee/role",
           );
+          assert.deepEqual(writes.at(-1).body, { role: "customer" });
         }
         if (role === "employee") {
           await page.goto(base + "/admin/users");
