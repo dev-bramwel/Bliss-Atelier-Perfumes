@@ -38,6 +38,12 @@ type Config struct {
 	// RabbitMQ messaging configuration
 	RabbitMQURL string
 
+	// Kafka analytics streaming configuration
+	KafkaBrokers       []string
+	KafkaTopic         string
+	KafkaConsumerGroup string
+	KafkaRetentionMs   int64
+
 	// Redis caching & rate limiting configuration
 	RedisURL string
 
@@ -211,6 +217,30 @@ func Load(get func(string) string) (Config, error) {
 			return Config{}, errors.New("GO_RABBITMQ_URL_FILE could not be read")
 		}
 		c.RabbitMQURL = strings.TrimSpace(string(data))
+	}
+
+	if v := strings.TrimSpace(get("GO_KAFKA_BROKERS")); v != "" {
+		for _, b := range strings.Split(v, ",") {
+			if s := strings.TrimSpace(b); s != "" {
+				c.KafkaBrokers = append(c.KafkaBrokers, s)
+			}
+		}
+	}
+	c.KafkaTopic = strings.TrimSpace(get("GO_KAFKA_TOPIC"))
+	if c.KafkaTopic == "" {
+		c.KafkaTopic = "bliss.analytics.events.v1"
+	}
+	c.KafkaConsumerGroup = strings.TrimSpace(get("GO_KAFKA_CONSUMER_GROUP"))
+	if c.KafkaConsumerGroup == "" {
+		c.KafkaConsumerGroup = "bliss-analytics-consumer"
+	}
+	c.KafkaRetentionMs = 90 * 24 * 60 * 60 * 1000
+	if v := strings.TrimSpace(get("GO_KAFKA_RETENTION_MS")); v != "" {
+		ms, e := strconv.ParseInt(v, 10, 64)
+		if e != nil || ms < 60000 {
+			return Config{}, errors.New("GO_KAFKA_RETENTION_MS must be an integer >= 60000")
+		}
+		c.KafkaRetentionMs = ms
 	}
 
 	c.RedisURL = strings.TrimSpace(get("GO_REDIS_URL"))
