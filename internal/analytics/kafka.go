@@ -2,17 +2,83 @@ package analytics
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
+	"github.com/jackc/pgx/v5"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sasl/plain"
+	"github.com/twmb/franz-go/pkg/sasl/scram"
 )
+
+// ClientConfig configures Kafka broker connectivity, topic retention, TLS, and SASL authentication.
+type ClientConfig struct {
+	Brokers       []string
+	Topic         string
+	ConsumerGroup string
+	RetentionMs   int64
+	TLS           bool
+	SASLMechanism string // "", "plain", "scram-sha-256", "scram-sha-512"
+	SASLUsername  string
+	SASLPassword  string
+}
+
+func (c ClientConfig) normalized() ClientConfig {
+	if c.Topic == "" {
+		c.Topic = DefaultTopic
+	}
+	if c.ConsumerGroup == "" {
+		c.ConsumerGroup = DefaultConsumerGroup
+	}
+	if c.RetentionMs <= 0 {
+		c.RetentionMs = DefaultRetentionMs
+	}
+	c.SASLMechanism = strings.ToLower(strings.TrimSpace(c.SASLMechanism))
+	return c
+}
+
+func kafkaDialOpts(cfg ClientConfig) ([]kgo.Opt, error) {
+	if len(cfg.Brokers) == 0 {
+		return nil, errors.New("analytics: at least one Kafka broker is required")
+	}
+	opts := []kgo.Opt{kgo.SeedBrokers(cfg.Brokers...)}
+	if cfg.TLS {
+		opts = append(opts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
+	}
+	if cfg.SASLMechanism != "" {
+		if cfg.SASLUsername == "" || cfg.SASLPassword == "" {
+			return nil, errors.New("analytics: SASL username and password are required")
+		}
+		switch cfg.SASLMechanism {
+		case "plain":
+			opts = append(opts, kgo.SASL(plain.Auth{
+				User: cfg.SASLUsername,
+				Pass: cfg.SASLPassword,
+			}.AsMechanism()))
+		case "scram-sha-256":
+			opts = append(opts, kgo.SASL(scram.Auth{
+				User: cfg.SASLUsername,
+				Pass: cfg.SASLPassword,
+			}.AsSha256Mechanism()))
+		case "scram-sha-512":
+			opts = append(opts, kgo.SASL(scram.Auth{
+				User: cfg.SASLUsername,
+				Pass: cfg.SASLPassword,
+			}.AsSha512Mechanism()))
+		default:
+			return nil, fmt.Errorf("analytics: unsupported SASL mechanism %q", cfg.SASLMechanism)
+		}
+	}
+	return opts, nil
+}
 
 // Producer implements messaging.Publisher for Kafka analytics topics,
 // partitioning by aggregateId (orderId) with AllISRAcks durability.
@@ -21,24 +87,28 @@ type Producer struct {
 	topic  string
 }
 
-// NewProducer creates a Kafka producer targeting brokers and topic.
+// NewProducer creates a Kafka producer targeting brokers and topic without TLS/SASL.
 func NewProducer(brokers []string, topic string) (*Producer, error) {
-	if len(brokers) == 0 {
-		return nil, errors.New("analytics: at least one Kafka broker is required")
+	return NewProducerWithConfig(ClientConfig{Brokers: brokers, Topic: topic})
+}
+
+// NewProducerWithConfig creates a Kafka producer using ClientConfig (including TLS/SASL).
+func NewProducerWithConfig(cfg ClientConfig) (*Producer, error) {
+	cfg = cfg.normalized()
+	opts, err := kafkaDialOpts(cfg)
+	if err != nil {
+		return nil, err
 	}
-	if topic == "" {
-		topic = DefaultTopic
-	}
-	client, err := kgo.NewClient(
-		kgo.SeedBrokers(brokers...),
-		kgo.DefaultProduceTopic(topic),
+	opts = append(opts,
+		kgo.DefaultProduceTopic(cfg.Topic),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
 		kgo.ProduceRequestTimeout(5*time.Second),
 	)
+	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("analytics: create kafka producer: %w", err)
 	}
-	return &Producer{client: client, topic: topic}, nil
+	return &Producer{client: client, topic: cfg.Topic}, nil
 }
 
 // Publish synchronously produces a versioned event envelope to Kafka, keyed by aggregateId.
@@ -77,40 +147,41 @@ func (p *Producer) Close() error {
 
 // EnsureTopic creates the analytics topic if absent and enforces retention.ms policy.
 func EnsureTopic(ctx context.Context, brokers []string, topic string, retentionMs int64) error {
-	if len(brokers) == 0 {
-		return errors.New("analytics: at least one Kafka broker is required")
+	return EnsureTopicWithConfig(ctx, ClientConfig{Brokers: brokers, Topic: topic, RetentionMs: retentionMs})
+}
+
+// EnsureTopicWithConfig creates/updates the analytics topic using ClientConfig (including TLS/SASL).
+func EnsureTopicWithConfig(ctx context.Context, cfg ClientConfig) error {
+	cfg = cfg.normalized()
+	opts, err := kafkaDialOpts(cfg)
+	if err != nil {
+		return err
 	}
-	if topic == "" {
-		topic = DefaultTopic
-	}
-	if retentionMs <= 0 {
-		retentionMs = DefaultRetentionMs
-	}
-	client, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
+	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
 	adm := kadm.NewClient(client)
-	retStr := strconv.FormatInt(retentionMs, 10)
+	retStr := strconv.FormatInt(cfg.RetentionMs, 10)
 	cleanup := "delete"
 	configs := map[string]*string{
 		"retention.ms":   &retStr,
 		"cleanup.policy": &cleanup,
 	}
 
-	details, err := adm.ListTopics(ctx, topic)
+	details, err := adm.ListTopics(ctx, cfg.Topic)
 	if err != nil {
 		return fmt.Errorf("analytics: list topics: %w", err)
 	}
-	if !details.Has(topic) {
-		resp, err := adm.CreateTopics(ctx, 1, 1, configs, topic)
+	if !details.Has(cfg.Topic) {
+		resp, err := adm.CreateTopics(ctx, 1, 1, configs, cfg.Topic)
 		if err != nil {
-			return fmt.Errorf("analytics: create topic %s: %w", topic, err)
+			return fmt.Errorf("analytics: create topic %s: %w", cfg.Topic, err)
 		}
 		if err := resp.Error(); err != nil {
-			return fmt.Errorf("analytics: create topic %s: %w", topic, err)
+			return fmt.Errorf("analytics: create topic %s: %w", cfg.Topic, err)
 		}
 		return nil
 	}
@@ -118,8 +189,8 @@ func EnsureTopic(ctx context.Context, brokers []string, topic string, retentionM
 	if _, err := adm.AlterTopicConfigs(ctx, []kadm.AlterConfig{
 		{Op: kadm.SetConfig, Name: "retention.ms", Value: &retStr},
 		{Op: kadm.SetConfig, Name: "cleanup.policy", Value: &cleanup},
-	}, topic); err != nil {
-		return fmt.Errorf("analytics: alter topic %s retention: %w", topic, err)
+	}, cfg.Topic); err != nil {
+		return fmt.Errorf("analytics: alter topic %s retention: %w", cfg.Topic, err)
 	}
 	return nil
 }
@@ -127,51 +198,51 @@ func EnsureTopic(ctx context.Context, brokers []string, topic string, retentionM
 // Consumer streams analytics events from Kafka into PostgreSQL read models
 // with durable deduplication and checkpointed offsets.
 type Consumer struct {
-	brokers []string
-	topic   string
-	group   string
-	store   *Store
-	logger  *slog.Logger
+	cfg    ClientConfig
+	store  *Store
+	logger *slog.Logger
 }
 
-// NewConsumer constructs a Kafka analytics Consumer.
+// NewConsumer constructs a Kafka analytics Consumer without TLS/SASL.
 func NewConsumer(brokers []string, topic, group string, store *Store, logger *slog.Logger) *Consumer {
-	if topic == "" {
-		topic = DefaultTopic
-	}
-	if group == "" {
-		group = DefaultConsumerGroup
-	}
+	return NewConsumerWithConfig(ClientConfig{
+		Brokers:       brokers,
+		Topic:         topic,
+		ConsumerGroup: group,
+	}, store, logger)
+}
+
+// NewConsumerWithConfig constructs a Kafka analytics Consumer using ClientConfig (including TLS/SASL).
+func NewConsumerWithConfig(cfg ClientConfig, store *Store, logger *slog.Logger) *Consumer {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Consumer{
-		brokers: brokers,
-		topic:   topic,
-		group:   group,
-		store:   store,
-		logger:  logger,
+		cfg:    cfg.normalized(),
+		store:  store,
+		logger: logger,
 	}
 }
 
 // Start runs the consumer loop until ctx is canceled.
 func (c *Consumer) Start(ctx context.Context) error {
-	if len(c.brokers) == 0 {
-		return errors.New("analytics: at least one Kafka broker is required")
+	opts, err := kafkaDialOpts(c.cfg)
+	if err != nil {
+		return err
 	}
-	client, err := kgo.NewClient(
-		kgo.SeedBrokers(c.brokers...),
-		kgo.ConsumerGroup(c.group),
-		kgo.ConsumeTopics(c.topic),
+	opts = append(opts,
+		kgo.ConsumerGroup(c.cfg.ConsumerGroup),
+		kgo.ConsumeTopics(c.cfg.Topic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 		kgo.DisableAutoCommit(),
 	)
+	client, err := kgo.NewClient(opts...)
 	if err != nil {
 		return fmt.Errorf("analytics: create kafka consumer: %w", err)
 	}
 	defer client.Close()
 
-	c.logger.InfoContext(ctx, "kafka_analytics_consumer_started", "topic", c.topic, "group", c.group)
+	c.logger.InfoContext(ctx, "kafka_analytics_consumer_started", "topic", c.cfg.Topic, "group", c.cfg.ConsumerGroup)
 
 	for {
 		fetches := client.PollFetches(ctx)
@@ -208,26 +279,28 @@ func (c *Consumer) Start(ctx context.Context) error {
 	}
 }
 
-// ReplayAll resets the analytics read models and checkpoints for this consumer group,
-// then replays every available message from offset 0 up to each partition's high watermark.
+// ReplayAll preflights Kafka topic offsets, fetches all retained records before mutating
+// PostgreSQL, and then atomically resets projections, seeds any pre-retention baseline from
+// authoritative tables, and applies the replayed Kafka stream in a single transaction.
 func (c *Consumer) ReplayAll(ctx context.Context) (int, error) {
-	if len(c.brokers) == 0 {
-		return 0, errors.New("analytics: at least one Kafka broker is required")
-	}
-	if err := c.store.ResetForReplay(ctx); err != nil {
-		return 0, err
+	if c.store == nil || c.store.Pool == nil {
+		return 0, errors.New("analytics: database pool not initialized")
 	}
 
-	admClient, err := kgo.NewClient(kgo.SeedBrokers(c.brokers...))
+	opts, err := kafkaDialOpts(c.cfg)
 	if err != nil {
 		return 0, err
 	}
-	adm := kadm.NewClient(admClient)
-	endOffsets, err := adm.ListEndOffsets(ctx, c.topic)
-	startOffsets, startErr := adm.ListStartOffsets(ctx, c.topic)
-	admClient.Close()
+	admClient, err := kgo.NewClient(opts...)
 	if err != nil {
-		return 0, fmt.Errorf("analytics: list end offsets: %w", err)
+		return 0, fmt.Errorf("analytics: create admin client: %w", err)
+	}
+	adm := kadm.NewClient(admClient)
+	endOffsets, endErr := adm.ListEndOffsets(ctx, c.cfg.Topic)
+	startOffsets, startErr := adm.ListStartOffsets(ctx, c.cfg.Topic)
+	admClient.Close()
+	if endErr != nil {
+		return 0, fmt.Errorf("analytics: list end offsets: %w", endErr)
 	}
 	if startErr != nil {
 		return 0, fmt.Errorf("analytics: list start offsets: %w", startErr)
@@ -235,64 +308,96 @@ func (c *Consumer) ReplayAll(ctx context.Context) (int, error) {
 
 	targets := make(map[int32]int64)
 	consumeParts := make(map[string]map[int32]kgo.Offset)
-	consumeParts[c.topic] = make(map[int32]kgo.Offset)
+	consumeParts[c.cfg.Topic] = make(map[int32]kgo.Offset)
+	var offsetLookupErr error
+	partCount := 0
 
 	endOffsets.Each(func(o kadm.ListedOffset) {
-		if o.Err != nil {
+		if offsetLookupErr != nil {
 			return
 		}
-		startOff := int64(0)
-		if so, ok := startOffsets.Lookup(c.topic, o.Partition); ok && so.Err == nil {
-			startOff = so.Offset
+		if o.Topic != c.cfg.Topic {
+			return
 		}
-		if o.Offset > startOff {
+		partCount++
+		if o.Err != nil {
+			offsetLookupErr = fmt.Errorf("analytics: end offset error on partition %d: %w", o.Partition, o.Err)
+			return
+		}
+		so, ok := startOffsets.Lookup(c.cfg.Topic, o.Partition)
+		if !ok {
+			offsetLookupErr = fmt.Errorf("analytics: missing start offset for partition %d", o.Partition)
+			return
+		}
+		if so.Err != nil {
+			offsetLookupErr = fmt.Errorf("analytics: start offset error on partition %d: %w", o.Partition, so.Err)
+			return
+		}
+		if o.Offset > so.Offset {
 			targets[o.Partition] = o.Offset - 1
-			consumeParts[c.topic][o.Partition] = kgo.NewOffset().At(startOff)
+			consumeParts[c.cfg.Topic][o.Partition] = kgo.NewOffset().At(so.Offset)
 		}
 	})
-
-	if len(targets) == 0 {
-		return 0, nil
+	if offsetLookupErr != nil {
+		return 0, offsetLookupErr
+	}
+	if partCount == 0 {
+		return 0, fmt.Errorf("analytics: topic %s has no partitions", c.cfg.Topic)
 	}
 
-	client, err := kgo.NewClient(
-		kgo.SeedBrokers(c.brokers...),
-		kgo.ConsumePartitions(consumeParts),
-	)
+	var records []*kgo.Record
+	if len(targets) > 0 {
+		replayOpts := append(opts, kgo.ConsumePartitions(consumeParts))
+		client, err := kgo.NewClient(replayOpts...)
+		if err != nil {
+			return 0, fmt.Errorf("analytics: create replay client: %w", err)
+		}
+		defer client.Close()
+
+		for len(targets) > 0 {
+			fetches := client.PollFetches(ctx)
+			if ctx.Err() != nil {
+				return 0, ctx.Err()
+			}
+			if errs := fetches.Errors(); len(errs) > 0 {
+				return 0, errs[0].Err
+			}
+			fetches.EachRecord(func(rec *kgo.Record) {
+				records = append(records, rec)
+				if target, ok := targets[rec.Partition]; ok && rec.Offset >= target {
+					delete(targets, rec.Partition)
+				}
+			})
+		}
+	}
+
+	tx, err := c.store.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return 0, fmt.Errorf("analytics: create replay client: %w", err)
+		return 0, fmt.Errorf("analytics: begin replay tx: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	group := c.store.group()
+	if err := resetForReplayTx(ctx, tx, group); err != nil {
+		return 0, err
+	}
+	if err := seedBaselineTx(ctx, tx); err != nil {
+		return 0, err
+	}
 
 	replayed := 0
-	for len(targets) > 0 {
-		fetches := client.PollFetches(ctx)
-		if ctx.Err() != nil {
-			return replayed, ctx.Err()
+	for _, rec := range records {
+		applied, err := applyEventTx(ctx, tx, group, rec.Topic, rec.Partition, rec.Offset, rec.Value)
+		if err != nil {
+			return 0, err
 		}
-		if errs := fetches.Errors(); len(errs) > 0 {
-			return replayed, errs[0].Err
+		if applied {
+			replayed++
 		}
-		var applyErr error
-		fetches.EachRecord(func(rec *kgo.Record) {
-			if applyErr != nil {
-				return
-			}
-			applied, err := c.store.ApplyEvent(ctx, rec.Topic, rec.Partition, rec.Offset, rec.Value)
-			if err != nil {
-				applyErr = err
-				return
-			}
-			if applied {
-				replayed++
-			}
-			if target, ok := targets[rec.Partition]; ok && rec.Offset >= target {
-				delete(targets, rec.Partition)
-			}
-		})
-		if applyErr != nil {
-			return replayed, applyErr
-		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("analytics: commit replay tx: %w", err)
 	}
 	return replayed, nil
 }
