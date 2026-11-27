@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,9 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reports"
 )
 
-type stubReportService struct{}
+type stubReportService struct {
+	exportErr error
+}
 
 func (s *stubReportService) SalesReport(ctx context.Context, actor *auth.User, f reports.Filter) (*reports.SalesSummary, error) {
 	return &reports.SalesSummary{From: f.From, To: f.To, Timezone: f.Timezone, SettledProductRevenueKes: 2500}, nil
@@ -35,13 +38,17 @@ func (s *stubReportService) FunnelSummary(ctx context.Context, actor *auth.User,
 }
 
 func (s *stubReportService) ExportCSV(ctx context.Context, actor *auth.User, f reports.Filter, w io.Writer) error {
-	_, err := io.WriteString(w, "order_id,paid_at_local,payment_status,product_revenue_kes,transport_fee_kes,fee_recipient,exchange_topup_kes\n")
+	if s.exportErr != nil {
+		return s.exportErr
+	}
+	_, err := io.WriteString(w, "record_type,order_id,paid_at_local,payment_status,product_revenue_kes,transport_fee_kes,fee_recipient,exchange_topup_kes\n")
 	return err
 }
 
 func TestReportRoutesAuthTimezoneAndCSV(t *testing.T) {
+	stub := &stubReportService{}
 	mux := http.NewServeMux()
-	registerReportRoutes(mux, &stubReportService{}, NewTrustedProxyChecker(""))
+	registerReportRoutes(mux, stub, NewTrustedProxyChecker(""))
 
 	withRole := func(h http.Handler, role string) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -80,5 +87,14 @@ func TestReportRoutesAuthTimezoneAndCSV(t *testing.T) {
 	mux.ServeHTTP(evtRec, evtReq)
 	if evtRec.Code != 202 {
 		t.Fatalf("expected 202 for funnel event, got %d", evtRec.Code)
+	}
+
+	// CSV export error must return 500 instead of empty 200.
+	stub.exportErr = errors.New("db failure")
+	errCsvReq := httptest.NewRequest(http.MethodGet, "/api/admin/reports/export.csv", nil)
+	errCsvRec := httptest.NewRecorder()
+	withRole(mux, auth.RoleOwner).ServeHTTP(errCsvRec, errCsvReq)
+	if errCsvRec.Code != 500 {
+		t.Fatalf("expected 500 on CSV export error, got %d", errCsvRec.Code)
 	}
 }
