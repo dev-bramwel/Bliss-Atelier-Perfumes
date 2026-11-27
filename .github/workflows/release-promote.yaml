@@ -37,6 +37,50 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate trusted source workflow run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          INPUT_SOURCE_COMMIT: ${{ inputs.source_commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$INPUT_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "Invalid run_id format"
+            exit 1
+          fi
+          if ! [[ "$INPUT_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid source_commit format (expected 40-char lowercase hex SHA)"
+            exit 1
+          fi
+          run_json=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$INPUT_RUN_ID")
+          wf_path=$(jq -r '.path' <<<"$run_json")
+          status=$(jq -r '.status' <<<"$run_json")
+          conclusion=$(jq -r '.conclusion' <<<"$run_json")
+          event=$(jq -r '.event' <<<"$run_json")
+          head_branch=$(jq -r '.head_branch' <<<"$run_json")
+          head_sha=$(jq -r '.head_sha' <<<"$run_json")
+          if [ "$wf_path" != ".github/workflows/docker-core.yaml" ]; then
+            echo "Untrusted source workflow path: $wf_path"
+            exit 1
+          fi
+          if [ "$status" != "completed" ] || [ "$conclusion" != "success" ]; then
+            echo "Source run is not a completed success (status=$status conclusion=$conclusion)"
+            exit 1
+          fi
+          if [ "$event" != "push" ] && [ "$event" != "workflow_dispatch" ]; then
+            echo "Untrusted source run event: $event (only push/workflow_dispatch permitted)"
+            exit 1
+          fi
+          if [ "$head_branch" != "develop" ] && [ "$head_branch" != "main" ]; then
+            echo "Untrusted source branch: $head_branch"
+            exit 1
+          fi
+          if [ "$head_sha" != "$INPUT_SOURCE_COMMIT" ]; then
+            echo "Source run head_sha ($head_sha) does not match source_commit ($INPUT_SOURCE_COMMIT)"
+            exit 1
+          fi
+
       - name: Download build candidate artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -48,6 +92,9 @@ jobs:
 
       - name: Verify build-manifest.json, archive SHA-256, and loaded image IDs
         id: verify
+        env:
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          INPUT_SOURCE_COMMIT: ${{ inputs.source_commit }}
         shell: bash
         run: |
           set -euo pipefail
@@ -55,7 +102,7 @@ jobs:
           test -f "$manifest"
           actual_commit=$(jq -r '.sourceCommit' "$manifest")
           actual_status=$(jq -r '.status' "$manifest")
-          if [ "$actual_commit" != "${{ inputs.source_commit }}" ] || [ "$actual_status" != "passed" ]; then
+          if [ "$actual_commit" != "$INPUT_SOURCE_COMMIT" ] || [ "$actual_status" != "passed" ]; then
             echo "Manifest commit/status mismatch: commit=$actual_commit status=$actual_status"
             exit 1
           fi
@@ -64,9 +111,8 @@ jobs:
             expected_sha=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .sha256' "$manifest")
             expected_id=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .imageId' "$manifest")
             echo "$expected_sha  .local/promote-in/$archive" | sha256sum --check
-            loaded=$(docker load --input ".local/promote-in/$archive")
-            echo "$loaded"
-            actual_id=$(docker image inspect "bliss-$svc:${{ inputs.run_id }}" --format '{{.Id}}' 2>/dev/null || echo "$expected_id")
+            docker load --input ".local/promote-in/$archive"
+            actual_id=$(docker image inspect "bliss-$svc:$INPUT_RUN_ID" --format '{{.Id}}' 2>/dev/null || echo "$expected_id")
             if [ "$actual_id" != "$expected_id" ]; then
               echo "Loaded image ID mismatch for $svc: got $actual_id expected $expected_id"
               exit 1
@@ -82,11 +128,14 @@ jobs:
 
       - name: Push digest-pinned images to GHCR
         id: push
+        env:
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          INPUT_SOURCE_COMMIT: ${{ inputs.source_commit }}
         shell: bash
         run: |
           set -euo pipefail
-          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          short_sha=$(echo "${{ inputs.source_commit }}" | cut -c1-12)
+          owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          short_sha=$(echo "$INPUT_SOURCE_COMMIT" | cut -c1-12)
           mkdir -p .local/promote-out
           for svc in backend frontend postgres; do
             src_id=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .imageId' .local/promote-in/build-manifest.json)
@@ -95,14 +144,15 @@ jobs:
             docker tag "$src_id" "$dest:staging"
             docker push "$dest:$short_sha"
             docker push "$dest:staging"
-            digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$dest:$short_sha")
-            echo "${svc}_digest=$digest" >> "$GITHUB_OUTPUT"
+            repo_digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$dest:$short_sha")
+            sha_digest="${repo_digest##*@}"
+            echo "${svc}_repo_digest=$repo_digest" >> "$GITHUB_OUTPUT"
+            echo "${svc}_digest=$sha_digest" >> "$GITHUB_OUTPUT"
             cp ".local/promote-in/$svc-sbom.cdx.json" ".local/promote-out/$svc-sbom.cdx.json"
           done
           jq -n \
-            --arg commit "${{ inputs.source_commit }}" \
-            --arg runId "${{ inputs.run_id }}" \
-            --arg backend "${{ steps.push.outputs.backend_digest || '' }}" \
+            --arg commit "$INPUT_SOURCE_COMMIT" \
+            --arg runId "$INPUT_RUN_ID" \
             '{sourceCommit:$commit,sourceRunId:$runId,promotedAt:(now|todate)}' > .local/promote-out/promotion-record.json
 
       - name: Attest backend image provenance
@@ -110,6 +160,20 @@ jobs:
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/bliss-backend
           subject-digest: ${{ steps.push.outputs.backend_digest }}
+          push-to-registry: true
+
+      - name: Attest frontend image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/bliss-frontend
+          subject-digest: ${{ steps.push.outputs.frontend_digest }}
+          push-to-registry: true
+
+      - name: Attest postgres image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/bliss-postgres
+          subject-digest: ${{ steps.push.outputs.postgres_digest }}
           push-to-registry: true
 
       - name: Retain promotion record and SBOMs
