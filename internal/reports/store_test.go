@@ -169,4 +169,50 @@ func TestReconciledReportsFunnelAndPrivacy(t *testing.T) {
 	if !strings.Contains(csvText, "ord-paid-1") || !strings.Contains(csvText, "ord-paid-2") || strings.Contains(csvText, "ord-pending") {
 		t.Fatalf("unexpected CSV rows:\n%s", csvText)
 	}
+
+	// Cross-period exchange: order paid in earlier window, exchange completed in later window.
+	earlyDay := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	lateDay := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO public."Order"(id, "createdAt", "updatedAt", "customerName", "customerPhone", "deliveryLocation", "deliveryOption", "paymentMethod", "paymentStatus", "totalKes", items)
+		VALUES ('ord-early', $1, $1, 'Early Buyer', '254744444444', 'Early Loc', 'pickup', 'mpesa_stk', 'PAID', 2500, '[]'::jsonb)`, earlyDay); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO public.exchange_request(order_id, status, reason, requested_by, requested_by_role, price_difference_kes, completed_at)
+		VALUES ('ord-early', 'completed', 'Late upgrade', 'usr-emp', 'employee', 1500, $1)`, lateDay); err != nil {
+		t.Fatal(err)
+	}
+	earlyFilter, _ := ParseFilter("2026-11-10", "2026-11-10", "Africa/Nairobi", 50, 0)
+	var earlyCSV bytes.Buffer
+	if err := store.ExportCSV(ctx, owner, earlyFilter, &earlyCSV); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(earlyCSV.String(), "1500") {
+		t.Fatalf("earlier period CSV must not include later-period exchange top-up:\n%s", earlyCSV.String())
+	}
+	lateFilter, _ := ParseFilter("2026-11-25", "2026-11-25", "Africa/Nairobi", 50, 0)
+	var lateCSV bytes.Buffer
+	if err := store.ExportCSV(ctx, owner, lateFilter, &lateCSV); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(lateCSV.String(), "exchange_topup,ord-early") || !strings.Contains(lateCSV.String(), ",1500") {
+		t.Fatalf("later period CSV missing cross-period exchange_topup row:\n%s", lateCSV.String())
+	}
+
+	// Funnel retention purge removes expired events while keeping recent ones.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO public.analytics_funnel_event (event_id, session_id, event_type, occurred_at) VALUES
+		('evt-expired', 'sess-old', 'catalog_view', now() - interval '91 days'),
+		('evt-fresh', 'sess-new', 'catalog_view', now() - interval '1 day')`); err != nil {
+		t.Fatal(err)
+	}
+	purged, err := store.PurgeExpiredFunnelEvents(ctx, DefaultFunnelRetention)
+	if err != nil || purged != 1 {
+		t.Fatalf("expected 1 purged event, got purged=%d err=%v", purged, err)
+	}
+	var remaining int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM public.analytics_funnel_event WHERE event_id = 'evt-fresh'`).Scan(&remaining); err != nil || remaining != 1 {
+		t.Fatalf("expected fresh funnel event to remain, got %d err=%v", remaining, err)
+	}
 }
