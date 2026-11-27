@@ -48,6 +48,7 @@ func TestWebHandler_ScriptOrder(t *testing.T) {
 		{"admin exchanges", "/admin/exchanges", "/static/dashboard.js", true},
 		{"admin inventory", "/admin/inventory", "/static/dashboard.js", true},
 		{"admin payments", "/admin/payments", "/static/dashboard.js", true},
+		{"admin reports", "/admin/reports", "/static/dashboard.js", true},
 		{"admin users", "/admin/users", "/static/dashboard.js", true},
 		{"admin audit", "/admin/audit-logs", "/static/dashboard.js", true},
 		{"cart page", "/cart", "/static/cart.js", true},
@@ -128,6 +129,24 @@ func TestWebHandler_CacheControl(t *testing.T) {
 					t.Fatalf("expected Cache-Control: no-store on SSR page %s, got %q", path, cc)
 				}
 			})
+		}
+	}
+}
+
+func TestWebHandler_PrivacyNoticeRendered(t *testing.T) {
+	h := Handler(&mockCatalog{})
+	for _, path := range []string{"/", "/cart", "/checkout"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d", path, rec.Code)
+		}
+		body := rec.Body.String()
+		for _, want := range []string{`id="privacyNoticeTrigger"`, `id="privacyModal"`, `Privacy &amp; Data Notice`, `session-only`} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("%s: expected %q in rendered HTML", path, want)
+			}
 		}
 	}
 }

@@ -469,10 +469,18 @@ updateBackToTopVisibility();
 getOrCreateModal();
 
 let catalogFiltersInitialized = PRODUCTS.length > 0;
+let catalogViewTracked = false;
+function trackCatalogViewOnce() {
+  if (catalogViewTracked || PRODUCTS.length === 0) return;
+  catalogViewTracked = true;
+  if (typeof trackFunnel === "function") trackFunnel("catalog_view");
+}
+trackCatalogViewOnce();
 document.addEventListener("catalogUpdated", () => {
   if (!catalogFiltersInitialized && PRODUCTS.length > 0) {
     renderFilterOptions();
     catalogFiltersInitialized = true;
   }
+  trackCatalogViewOnce();
   renderProducts();
 });

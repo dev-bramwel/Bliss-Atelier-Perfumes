@@ -20,6 +20,7 @@ templ DashboardPage(products []catalog.Product) {
     <a href="/admin/exchanges" data-section="exchanges">Exchanges</a>
     <a href="/admin/inventory" data-section="inventory" data-inventory hidden>Catalog &amp; inventory</a>
     <a href="/admin/payments" data-section="payments" data-owner hidden>Payment exceptions</a>
+    <a href="/admin/reports" data-section="reports" data-owner hidden>Reports</a>
     <a href="/admin/users" data-section="users">Users</a>
    </nav>
    <section class="admin-metrics" aria-label="Operational metrics">
@@ -60,6 +61,21 @@ templ DashboardPage(products []catalog.Product) {
     <div class="admin-section-heading"><div><h2>Unused-perfume exchanges</h2><p>Shop-only within 48 hours of payment. Returned bottles stay quarantined until inspected and approved.</p></div><div><button type="button" data-refresh="exchanges">Refresh exchanges</button><button id="openExchangeCreate" type="button" data-mutation>New exchange</button></div></div>
     <div class="admin-table-wrap"><table><caption class="sr-only">Unused-perfume exchange requests</caption><thead><tr><th>Exchange</th><th>Order</th><th>Returned → Replacement</th><th>Price diff</th><th>Status</th><th>Actions</th></tr></thead><tbody id="exchangesRows"></tbody></table></div>
     @AdminPager("exchanges")
+   </section>
+   <section id="panelReports" data-panel="reports" class="admin-panel" hidden>
+    <div class="admin-section-heading"><div><h2>Reconciled sales &amp; operations reports</h2><p>Africa/Nairobi timezone. Pending STK orders are excluded from settled revenue; customer PII is omitted from exports.</p></div><div><button type="button" data-refresh="reports">Refresh reports</button><a id="reportExportCsv" class="admin-button" href="/api/admin/reports/export.csv">Export CSV</a></div></div>
+    <form id="reportFilterForm" class="admin-filter-row"><label>From<input id="reportFrom" name="from" type="date"/></label><label>To<input id="reportTo" name="to" type="date"/></label><button type="submit">Apply range</button></form>
+    <section class="admin-metrics" aria-label="Reconciled report summary">
+     <article><span>Settled product revenue</span><strong id="reportSettled">—</strong></article>
+     <article><span>Transport fees (merchant / courier)</span><strong id="reportTransport">—</strong></article>
+     <article><span>Exchange top-ups</span><strong id="reportExchangeTopup">—</strong></article>
+     <article><span>Paid orders · AOV</span><strong id="reportAOV">—</strong><small id="reportFunnel">—</small></article>
+    </section>
+    <h3>Daily breakdown (Africa/Nairobi)</h3>
+    <div class="admin-table-wrap"><table><caption class="sr-only">Daily reconciled sales</caption><thead><tr><th>Date</th><th>Paid orders</th><th>Product revenue</th><th>Transport fees</th><th>Exchange top-ups</th></tr></thead><tbody id="reportsDailyRows"></tbody></table></div>
+    <h3>Stock movements</h3>
+    <div class="admin-table-wrap"><table><caption class="sr-only">Ledger stock movements</caption><thead><tr><th>Time</th><th>Kind</th><th>Product</th><th>Delta</th><th>Balance</th><th>Evidence</th></tr></thead><tbody id="reportsStockRows"></tbody></table></div>
+    @AdminPager("reportsStock")
    </section>
    <p id="adminUpdated" class="admin-updated" aria-live="polite"></p>
   </div>
