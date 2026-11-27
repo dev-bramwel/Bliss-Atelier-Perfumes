@@ -40,9 +40,8 @@
 - **Checkpointed Offsets (`public.analytics_consumer_checkpoint`):**
   - `(consumer_group, topic, partition)` stores `last_offset` in the **same PostgreSQL transaction** as the projection update.
 - **Full Replay / Rebuild (`Consumer.ReplayAll` & `Store.BackfillToOutbox`):**
-  - `Consumer.ReplayAll` preflights Kafka partition offsets (failing immediately on any broker or partition-offset error) and fetches all retained records **before** touching PostgreSQL.
-  - Inside a single atomic PostgreSQL transaction, it clears `analytics_consumer_dedup`, `analytics_consumer_checkpoint`, and `analytics_*_fact` tables, seeds any pre-retention/pre-rollout baseline from authoritative tables (`seedBaselineTx`), and applies every fetched Kafka event idempotently, reproducing R22 (`reports.Store.SalesReport`) totals identically.
-  - `Store.BackfillToOutbox` idempotently enqueues deterministic `destination = 'kafka'` outbox events for existing historical rows so they can also be streamed into the Kafka topic.
+  - On startup, `runKafkaAnalyticsWorker` runs `Store.BackfillToOutbox`, which idempotently enqueues deterministic `destination = 'kafka'` outbox events for any pre-release `Order`, `exchange_request`, and `payment_audit_ledger` rows so existing history is streamed into Kafka.
+  - `Consumer.ReplayAll` preflights Kafka partition offsets (failing immediately on any broker or partition-offset error) and then streams retained Kafka batches in bounded memory inside a single PostgreSQL transaction (resetting projections, seeding any pre-retention baseline from `seedBaselineTx`, and applying each batch atomically). If Kafka fails mid-replay, the transaction rolls back and existing projections remain intact.
 
 ---
 
