@@ -1,0 +1,25 @@
+# Same-origin reverse proxy for Bliss Atelier staging/production.
+# Strips /api prefix for the Go API (matching the frontend proxy contract) and
+# routes /health/* to api:5001; all other paths go to frontend:8080.
+{$BLISS_SITE_ADDRESS::80} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	handle /health/* {
+		reverse_proxy api:5001
+	}
+
+	handle_path /api/* {
+		reverse_proxy api:5001
+	}
+
+	handle {
+		reverse_proxy frontend:8080
+	}
+}
