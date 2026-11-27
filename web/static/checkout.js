@@ -381,6 +381,8 @@
           );
         pending = { key: shop.uuid(), body, actor, items: { ...cart } };
         shop.write("bliss_pending_order", pending);
+        if (typeof trackFunnel === "function")
+          trackFunnel("checkout_start", "", "chk-" + pending.key);
       }
       let data;
       try {
@@ -475,6 +477,8 @@
       retry = key;
       shop.write("bliss_retry_" + active.id, { key });
       try {
+        if (typeof trackFunnel === "function")
+          trackFunnel("payment_initiated", "", "pay-" + key);
         const data = await call("/retry-payment", {
           method: "POST",
           headers: { "Idempotency-Key": key },
