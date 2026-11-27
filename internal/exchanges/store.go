@@ -228,13 +228,26 @@ func (s *Store) CreateRequest(ctx context.Context, actor *auth.User, in CreateRe
 		sum := sha256.Sum256(raw)
 		reqHash = hex.EncodeToString(sum[:])
 
-		var existingHash, existingStatus, existingBody string
-		err := tx.QueryRow(ctx, `
-			SELECT request_hash, status, response_body
-			FROM public.idempotency_key
-			WHERE key=$1 AND caller_scope=$2 AND operation='create_exchange'
-			FOR UPDATE`, idempotencyKey, "staff:"+actor.ID).Scan(&existingHash, &existingStatus, &existingBody)
-		if err == nil {
+		// Reserve the idempotency row up front so concurrent retries with the same key
+		// block until the first transaction commits or rolls back.
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO public.idempotency_key (
+				key, caller_scope, operation, request_hash, status, expires_at
+			) VALUES ($1, $2, 'create_exchange', $3, 'in_progress', now() + interval '24 hours')
+			ON CONFLICT (key, caller_scope, operation) DO NOTHING`,
+			idempotencyKey, "staff:"+actor.ID, reqHash)
+		if err != nil {
+			return nil, err
+		}
+		if tag.RowsAffected() == 0 {
+			var existingHash, existingStatus, existingBody string
+			if err := tx.QueryRow(ctx, `
+				SELECT request_hash, status, response_body
+				FROM public.idempotency_key
+				WHERE key=$1 AND caller_scope=$2 AND operation='create_exchange'
+				FOR UPDATE`, idempotencyKey, "staff:"+actor.ID).Scan(&existingHash, &existingStatus, &existingBody); err != nil {
+				return nil, err
+			}
 			if existingHash != reqHash {
 				return nil, ErrIdempotencyConflict
 			}
@@ -244,8 +257,6 @@ func (s *Store) CreateRequest(ctx context.Context, actor *auth.User, in CreateRe
 					return &cached, nil
 				}
 			}
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, err
 		}
 	}
 
