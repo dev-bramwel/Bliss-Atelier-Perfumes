@@ -844,16 +844,23 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 			rollback(tx)
 			return fmt.Errorf("failed to enqueue order paid outbox event: %w", err)
 		}
-		var transportFeeKes int
-		var feeRecipient string
-		_ = tx.QueryRow(ctx, `SELECT coalesce(sum(amount_kes), 0), coalesce(max(fee_recipient), '') FROM public.delivery_quote WHERE order_id = $1 AND status = 'accepted'`, orderID).Scan(&transportFeeKes, &feeRecipient)
+		var transportMerchantKes, transportCourierKes int
+		if err := tx.QueryRow(ctx, `
+			SELECT
+				coalesce(sum(amount_kes) FILTER (WHERE fee_recipient = 'merchant'), 0),
+				coalesce(sum(amount_kes) FILTER (WHERE fee_recipient = 'courier'), 0)
+			FROM public.delivery_quote
+			WHERE order_id = $1 AND status = 'accepted'`, orderID).Scan(&transportMerchantKes, &transportCourierKes); err != nil {
+			rollback(tx)
+			return fmt.Errorf("failed to query accepted delivery quotes: %w", err)
+		}
 		analyticsPaidEvt, err := events.NewEvent(events.TypeAnalyticsOrderPaid, orderID, 2, telemetry.FromContext(ctx), events.AnalyticsOrderPaidPayload{
-			OrderID:           orderID,
-			Currency:          events.CurrencyKES,
-			ProductRevenueKes: totalKes,
-			TransportFeeKes:   transportFeeKes,
-			FeeRecipient:      feeRecipient,
-			PaidAt:            now,
+			OrderID:              orderID,
+			Currency:             events.CurrencyKES,
+			ProductRevenueKes:    totalKes,
+			TransportMerchantKes: transportMerchantKes,
+			TransportCourierKes:  transportCourierKes,
+			PaidAt:               now,
 		})
 		if err != nil {
 			rollback(tx)
