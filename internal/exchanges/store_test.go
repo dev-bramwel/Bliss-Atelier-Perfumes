@@ -60,8 +60,8 @@ func openTestPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 func seedPaidOrder(t *testing.T, ctx context.Context, pool *pgxpool.Pool, orderID, productID string, qty, unitPrice int, paidAt time.Time) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO public."Order"(id, "createdAt", "updatedAt", paid_at, "customerName", "customerPhone", "deliveryLocation", "deliveryOption", "paymentMethod", "paymentStatus", "totalKes", items)
-		VALUES ($1, $2, $2, $2, 'Amina Hassan', '254712345678', 'Nyali', 'pickup', 'mpesa_stk', 'PAID', $3, '[]'::jsonb)`,
+		INSERT INTO public."Order"(id, "createdAt", "updatedAt", "customerName", "customerPhone", "deliveryLocation", "deliveryOption", "paymentMethod", "paymentStatus", "totalKes", items)
+		VALUES ($1, $2, $2, 'Amina Hassan', '254712345678', 'Nyali', 'pickup', 'mpesa_stk', 'PAID', $3, '[]'::jsonb)`,
 		orderID, paidAt, qty*unitPrice); err != nil {
 		t.Fatal(err)
 	}
