@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: bliss-local
+  labels:
+    app: frontend
+spec:
+  selector:
+    app: frontend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: bliss-local
+  labels:
+    app: frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      serviceAccountName: bliss-frontend
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: frontend
+          image: bliss-frontend:local
+          imagePullPolicy: IfNotPresent
+          command: ["/app/web"]
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: GO_HTTP_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: bliss-config
+                  key: GO_FRONTEND_HTTP_ADDR
+            - name: GO_DATABASE_URL_FILE
+              value: "/run/secrets/catalog_url"
+            - name: GO_REQUIRE_SCHEMA
+              valueFrom:
+                configMapKeyRef:
+                  name: bliss-config
+                  key: GO_FRONTEND_REQUIRE_SCHEMA
+            - name: GO_IO_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: bliss-config
+                  key: GO_IO_TIMEOUT
+            - name: GO_DB_MAX_CONNECTIONS
+              valueFrom:
+                configMapKeyRef:
+                  name: bliss-config
+                  key: GO_FRONTEND_DB_MAX_CONNECTIONS
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 48Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 4
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 4
+          volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+      volumes:
+        - name: secrets
+          secret:
+            secretName: bliss-secrets
