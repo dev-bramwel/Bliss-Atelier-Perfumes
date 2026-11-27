@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -108,12 +109,15 @@ func registerReportRoutes(mux *http.ServeMux, store ReportService, checker *Trus
 		if !ok {
 			return
 		}
+		var buf bytes.Buffer
+		if err := store.ExportCSV(r.Context(), u, f, &buf); err != nil {
+			respondReportError(w, err)
+			return
+		}
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="bliss-reconciled-sales.csv"`)
 		w.Header().Set("Cache-Control", "no-store")
-		if err := store.ExportCSV(r.Context(), u, f, w); err != nil {
-			log.Printf("ERROR: csv export failure: %v", err)
-		}
+		_, _ = w.Write(buf.Bytes())
 	}
 
 	handleRecordFunnel := func(w http.ResponseWriter, r *http.Request) {
