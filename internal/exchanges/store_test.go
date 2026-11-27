@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -196,5 +197,48 @@ func TestExchangeLifecycleAndInvariants(t *testing.T) {
 	}
 	if auditCount < 6 {
 		t.Fatalf("expected >=6 exchange audit records, got %d", auditCount)
+	}
+
+	// 6. Concurrent CreateRequest calls with the same Idempotency-Key must serialize and create only one exchange.
+	seedPaidOrder(t, ctx, pool, "ord-conc", "p1", 3, 2500, time.Now().UTC().Add(-1*time.Hour))
+	var beforeConcQ int
+	if err := pool.QueryRow(ctx, `SELECT quarantined_stock FROM public.catalog_product WHERE id='p1'`).Scan(&beforeConcQ); err != nil {
+		t.Fatal(err)
+	}
+	const workers = 4
+	results := make([]*ExchangeRequest, workers)
+	errs := make([]error, workers)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start
+			results[idx], errs[idx] = store.CreateRequest(ctx, employee, CreateRequestInput{
+				OrderID: "ord-conc", ReturnedProductID: "p1", ReturnedQuantity: 1,
+				ReplacementProductID: "p1", ReplacementQuantity: 1, Reason: "Concurrent retry test",
+			}, "key-concurrent-1", "127.0.0.1")
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	for i := 0; i < workers; i++ {
+		if errs[i] != nil {
+			t.Fatalf("concurrent CreateRequest[%d] failed: %v", i, errs[i])
+		}
+		if results[i].ID != results[0].ID {
+			t.Fatalf("concurrent CreateRequest[%d] created duplicate ID %s vs %s", i, results[i].ID, results[0].ID)
+		}
+	}
+	var afterConcQ, concCount int
+	if err := pool.QueryRow(ctx, `SELECT quarantined_stock FROM public.catalog_product WHERE id='p1'`).Scan(&afterConcQ); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM public.exchange_request WHERE order_id='ord-conc'`).Scan(&concCount); err != nil {
+		t.Fatal(err)
+	}
+	if concCount != 1 || afterConcQ != beforeConcQ+1 {
+		t.Fatalf("expected 1 exchange and quarantined_stock=%d, got count=%d quarantined=%d", beforeConcQ+1, concCount, afterConcQ)
 	}
 }
