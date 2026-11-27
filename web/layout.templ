@@ -249,12 +249,51 @@ templ Footer() {
                 </div>
             </div>
             <div
-                class="border-t border-[#4a3e30] pt-6 text-xs text-[#c8bba7] flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between"
+                class="border-t border-[#4a3e30] pt-6 text-xs text-[#c8bba7] flex flex-col gap-3"
             >
-                <p>
-                    &copy; 2026 Bliss Atelier Perfumes · Crafted with intention in Mombasa.
+                <p class="footer-privacy-note">
+                    We use essential browser storage for your cart and anonymous, session-only analytics (no advertising cookies) to improve our collection and fulfill orders.
                 </p>
-                <p>Privacy · Terms · Returns within 7 days unopened.</p>
+                <div class="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+                    <p>
+                        &copy; 2026 Bliss Atelier Perfumes · Crafted with intention in Mombasa.
+                    </p>
+                    <p>
+                        <button
+                            id="privacyNoticeTrigger"
+                            type="button"
+                            class="footer-privacy-btn"
+                        >
+                            Privacy Notice
+                        </button>
+                        <span> · Terms · Returns within 7 days unopened.</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div
+            id="privacyModal"
+            class="deactivate-modal-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="privacyModalTitle"
+            hidden
+        >
+            <div class="deactivate-modal-panel">
+                <span class="deactivate-modal-eyebrow">Bliss Atelier · Transparency</span>
+                <h2 id="privacyModalTitle">Privacy &amp; Data Notice</h2>
+                <p>
+                    <strong>Browsing &amp; Session Activity:</strong> We record anonymous, session-only store interactions (catalog views, cart additions, checkout starts, and payment initiation) using a temporary browser tab ID. We do not use advertising cookies or cross-site tracking, and session events are automatically purged after 90 days.
+                </p>
+                <p>
+                    <strong>Orders &amp; Delivery:</strong> When you place an order, we collect your name, M-Pesa phone number, and delivery location solely to fulfill your order, quote transport, handle exchanges, and maintain payment and inventory records.
+                </p>
+                <p>
+                    <strong>Store Insights:</strong> Aggregated, non-personal sales, stock, and conversion metrics help us improve product availability and store performance.
+                </p>
+                <div class="deactivate-modal-actions">
+                    <button id="privacyModalClose" type="button" class="deactivate-btn-cancel">Close</button>
+                </div>
             </div>
         </div>
     </footer>
