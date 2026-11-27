@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bliss-config
+  namespace: bliss-local
+data:
+  GO_HTTP_ADDR: "0.0.0.0:5001"
+  GO_WORKER_METRICS_ADDR: "0.0.0.0:5002"
+  GO_REQUIRE_SCHEMA: "true"
+  GO_IO_TIMEOUT: "15s"
+  GO_DB_MAX_CONNECTIONS: "16"
+  GO_WORKER_DB_MAX_CONNECTIONS: "4"
+  GO_FRONTEND_HTTP_ADDR: "0.0.0.0:8080"
+  GO_FRONTEND_REQUIRE_SCHEMA: "false"
+  GO_FRONTEND_DB_MAX_CONNECTIONS: "8"
+  GO_TRUSTED_PROXIES: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.1/32"
+  GO_REDIS_URL: "redis://redis:6379/0"
+  GO_KAFKA_BROKERS: "redpanda:9092"
+  GO_KAFKA_TOPIC: "bliss.analytics.events.v1"
+  GO_KAFKA_CONSUMER_GROUP: "bliss-analytics-consumer"
+  GO_KAFKA_RETENTION_MS: "7776000000"
+  GO_GOOGLE_CLIENT_ID: "mock"
+  GO_GOOGLE_REDIRECT_URL: "https://bliss.local/api/auth/google/callback"
+  GO_BOOTSTRAP_OWNER_EMAIL: "owner@blissatelier.com"
+  BLISS_LOCAL_DEV: "1"
