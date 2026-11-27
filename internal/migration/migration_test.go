@@ -456,7 +456,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v15.json")), &expected); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v16.json")), &expected); err != nil {
 			t.Fatal(err)
 		}
 		if len(actual) != len(expected) {
@@ -835,4 +835,37 @@ func TestGenerateSchemaV15(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log("Successfully generated schema-v15.json")
+}
+
+func TestGenerateSchemaV16(t *testing.T) {
+	if os.Getenv("GENERATE_SCHEMA_V16") != "1" {
+		t.Skip("schema generation not requested")
+	}
+	pool := testPool(t)
+	reset(t, pool)
+	legacy(t, pool, false)
+	execSQL(t, pool, read("ledger.sql"))
+	for _, s := range steps()[1:] {
+		execSQL(t, pool, s.sql)
+	}
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "SET LOCAL search_path=pg_catalog,public"); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := inspect(context.Background(), tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.MarshalIndent(actual, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("schema-v16.json", b, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Successfully generated schema-v16.json")
 }
