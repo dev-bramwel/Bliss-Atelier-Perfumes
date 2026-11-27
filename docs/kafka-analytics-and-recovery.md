@@ -18,10 +18,12 @@
    - Partition key: `aggregateId` (`orderId`), preserving per-order ordering within a partition.
    - Event types (`schemaVersion = 1`, UTC timestamps, integer KES amounts, explicit `"currency": "KES"`):
      - `analytics.order.created.v1`
-     - `analytics.order.paid.v1`
+     - `analytics.order.updated.v1`
+     - `analytics.order.paid.v1` (carries separate `transportMerchantKes` and `transportCourierKes`)
      - `analytics.exchange.completed.v1`
      - `analytics.payment.correction.v1`
    - Customer PII (`customerName`, `customerPhone`, `deliveryLocation`, `receiptNumber`) is excluded from all `analytics.*` payloads.
+   - **Transport Security & Authentication:** Remote Kafka deployments support TLS (`GO_KAFKA_TLS=true`) and SASL (`GO_KAFKA_SASL_MECHANISM=plain|scram-sha-256|scram-sha-512`, `GO_KAFKA_SASL_USERNAME`, `GO_KAFKA_SASL_PASSWORD` / `GO_KAFKA_SASL_PASSWORD_FILE`) across producer, admin, consumer, and replay clients.
 
 3. **Read Models Cannot Initiate Payments:**
    - `internal/analytics` has zero dependency on `internal/provider` or payment initiation flows.
@@ -37,8 +39,10 @@
   - `aggregate_version` guards prevent stale events (e.g., `analytics.order.created.v1` at version `1` arriving after `analytics.order.paid.v1` at version `2`) from overwriting settled `PAID` totals back to `PENDING`.
 - **Checkpointed Offsets (`public.analytics_consumer_checkpoint`):**
   - `(consumer_group, topic, partition)` stores `last_offset` in the **same PostgreSQL transaction** as the projection update.
-- **Full Replay / Rebuild (`Consumer.ReplayAll`):**
-  - `Store.ResetForReplay` clears `analytics_consumer_dedup`, `analytics_consumer_checkpoint`, and the `analytics_*_fact` tables for the consumer group, then `Consumer.ReplayAll` consumes from each partition's start offset up to the current high watermark, reproducing R22 (`reports.Store.SalesReport`) totals identically.
+- **Full Replay / Rebuild (`Consumer.ReplayAll` & `Store.BackfillToOutbox`):**
+  - `Consumer.ReplayAll` preflights Kafka partition offsets (failing immediately on any broker or partition-offset error) and fetches all retained records **before** touching PostgreSQL.
+  - Inside a single atomic PostgreSQL transaction, it clears `analytics_consumer_dedup`, `analytics_consumer_checkpoint`, and `analytics_*_fact` tables, seeds any pre-retention/pre-rollout baseline from authoritative tables (`seedBaselineTx`), and applies every fetched Kafka event idempotently, reproducing R22 (`reports.Store.SalesReport`) totals identically.
+  - `Store.BackfillToOutbox` idempotently enqueues deterministic `destination = 'kafka'` outbox events for existing historical rows so they can also be streamed into the Kafka topic.
 
 ---
 
