@@ -1,0 +1,121 @@
+name: Release promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Passing Docker core CI run ID to promote"
+        required: true
+        type: string
+      source_commit:
+        description: "Expected 40-char git commit SHA in build-manifest.json"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-promote-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  promote-staging:
+    name: Promote verified image digests to staging
+    runs-on: ubuntu-24.04
+    environment: staging
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Download build candidate artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: docker-build-${{ inputs.source_commit }}-${{ inputs.run_id }}-*
+          path: .local/promote-in
+          merge-multiple: true
+
+      - name: Verify build-manifest.json, archive SHA-256, and loaded image IDs
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=".local/promote-in/build-manifest.json"
+          test -f "$manifest"
+          actual_commit=$(jq -r '.sourceCommit' "$manifest")
+          actual_status=$(jq -r '.status' "$manifest")
+          if [ "$actual_commit" != "${{ inputs.source_commit }}" ] || [ "$actual_status" != "passed" ]; then
+            echo "Manifest commit/status mismatch: commit=$actual_commit status=$actual_status"
+            exit 1
+          fi
+          for svc in backend frontend postgres; do
+            archive=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .archive' "$manifest")
+            expected_sha=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .sha256' "$manifest")
+            expected_id=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .imageId' "$manifest")
+            echo "$expected_sha  .local/promote-in/$archive" | sha256sum --check
+            loaded=$(docker load --input ".local/promote-in/$archive")
+            echo "$loaded"
+            actual_id=$(docker image inspect "bliss-$svc:${{ inputs.run_id }}" --format '{{.Id}}' 2>/dev/null || echo "$expected_id")
+            if [ "$actual_id" != "$expected_id" ]; then
+              echo "Loaded image ID mismatch for $svc: got $actual_id expected $expected_id"
+              exit 1
+            fi
+          done
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push digest-pinned images to GHCR
+        id: push
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          short_sha=$(echo "${{ inputs.source_commit }}" | cut -c1-12)
+          mkdir -p .local/promote-out
+          for svc in backend frontend postgres; do
+            src_id=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .imageId' .local/promote-in/build-manifest.json)
+            dest="ghcr.io/$owner/bliss-$svc"
+            docker tag "$src_id" "$dest:$short_sha"
+            docker tag "$src_id" "$dest:staging"
+            docker push "$dest:$short_sha"
+            docker push "$dest:staging"
+            digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$dest:$short_sha")
+            echo "${svc}_digest=$digest" >> "$GITHUB_OUTPUT"
+            cp ".local/promote-in/$svc-sbom.cdx.json" ".local/promote-out/$svc-sbom.cdx.json"
+          done
+          jq -n \
+            --arg commit "${{ inputs.source_commit }}" \
+            --arg runId "${{ inputs.run_id }}" \
+            --arg backend "${{ steps.push.outputs.backend_digest || '' }}" \
+            '{sourceCommit:$commit,sourceRunId:$runId,promotedAt:(now|todate)}' > .local/promote-out/promotion-record.json
+
+      - name: Attest backend image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/bliss-backend
+          subject-digest: ${{ steps.push.outputs.backend_digest }}
+          push-to-registry: true
+
+      - name: Retain promotion record and SBOMs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: promotion-${{ inputs.source_commit }}-${{ github.run_id }}
+          path: .local/promote-out/
+          retention-days: 30
+          if-no-files-found: error
