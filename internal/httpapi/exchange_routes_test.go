@@ -73,6 +73,22 @@ func TestExchangeRoutesAuthAndErrorMapping(t *testing.T) {
 		})
 	}
 
+	// Unauthenticated GET is rejected with 403 even without middleware.
+	unauthReq := httptest.NewRequest(http.MethodGet, "/api/operations/exchanges", nil)
+	unauthRec := httptest.NewRecorder()
+	mux.ServeHTTP(unauthRec, unauthReq)
+	if unauthRec.Code != 403 {
+		t.Fatalf("expected 403 for unauthenticated list, got %d", unauthRec.Code)
+	}
+
+	// Authenticated staff GET succeeds.
+	authListReq := httptest.NewRequest(http.MethodGet, "/api/operations/exchanges", nil)
+	authListRec := httptest.NewRecorder()
+	withStaff(mux, auth.RoleEmployee).ServeHTTP(authListRec, authListReq)
+	if authListRec.Code != 200 {
+		t.Fatalf("expected 200 for staff list, got %d", authListRec.Code)
+	}
+
 	// Create succeeds with Idempotency-Key header.
 	body, _ := json.Marshal(exchanges.CreateRequestInput{
 		OrderID: "ord-1", ReturnedProductID: "p1", ReturnedQuantity: 1,
