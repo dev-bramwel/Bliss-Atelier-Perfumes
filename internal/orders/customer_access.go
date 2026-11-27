@@ -3,7 +3,11 @@ package orders
 import (
 	"context"
 	"errors"
+	"time"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -45,10 +49,25 @@ func (s *Store) SwitchToPickup(ctx context.Context, id string) error {
 	if !held {
 		return ErrOrderReservationExpired
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public."Order" SET "deliveryOption"='pickup', "deliveryLocation"='Mombasa Atelier', "updatedAt"=now() WHERE id=$1`, id); err != nil {
+	var totalKes int
+	var updatedAt time.Time
+	if err = tx.QueryRow(ctx, `UPDATE public."Order" SET "deliveryOption"='pickup', "deliveryLocation"='Mombasa Atelier', "updatedAt"=now() WHERE id=$1 RETURNING "totalKes", "updatedAt"`, id).Scan(&totalKes, &updatedAt); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE public.delivery_quote SET status='rejected', rejected_at=now() WHERE order_id=$1 AND status IN ('pending','accepted')`, id); err != nil {
+		return err
+	}
+	analyticsUpdEvt, err := events.NewEvent(events.TypeAnalyticsOrderUpdated, id, 1, telemetry.FromContext(ctx), events.AnalyticsOrderUpdatedPayload{
+		OrderID:       id,
+		Currency:      events.CurrencyKES,
+		TotalKes:      totalKes,
+		PaymentStatus: status,
+		UpdatedAt:     updatedAt.UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, analyticsUpdEvt, outbox.DestinationKafka); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
