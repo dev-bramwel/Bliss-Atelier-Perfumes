@@ -693,6 +693,46 @@ func (s *Store) RecordManualSettlement(ctx context.Context, req ManualSettlement
 	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq"); err != nil {
 		return nil, nil, fmt.Errorf("failed to enqueue order paid outbox event: %w", err)
 	}
+	var orderTotalKes, transportMerchantKes, transportCourierKes int
+	if err := tx.QueryRow(ctx, `SELECT coalesce("totalKes", 0) FROM public."Order" WHERE id = $1`, req.OrderID).Scan(&orderTotalKes); err != nil {
+		return nil, nil, fmt.Errorf("failed to query order total for analytics: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			coalesce(sum(amount_kes) FILTER (WHERE fee_recipient = 'merchant'), 0),
+			coalesce(sum(amount_kes) FILTER (WHERE fee_recipient = 'courier'), 0)
+		FROM public.delivery_quote
+		WHERE order_id = $1 AND status = 'accepted'`, req.OrderID).Scan(&transportMerchantKes, &transportCourierKes); err != nil {
+		return nil, nil, fmt.Errorf("failed to query accepted delivery quotes for analytics: %w", err)
+	}
+	analyticsPaidEvt, err := events.NewEvent(events.TypeAnalyticsOrderPaid, req.OrderID, 2, telemetry.FromContext(ctx), events.AnalyticsOrderPaidPayload{
+		OrderID:              req.OrderID,
+		Currency:             events.CurrencyKES,
+		ProductRevenueKes:    orderTotalKes,
+		TransportMerchantKes: transportMerchantKes,
+		TransportCourierKes:  transportCourierKes,
+		PaidAt:               now,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to construct analytics order paid event: %w", err)
+	}
+	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, analyticsPaidEvt, outbox.DestinationKafka); err != nil {
+		return nil, nil, fmt.Errorf("failed to enqueue analytics order paid outbox event: %w", err)
+	}
+	analyticsCorrEvt, err := events.NewEvent(events.TypeAnalyticsPaymentCorrection, req.OrderID, 1, telemetry.FromContext(ctx), events.AnalyticsPaymentCorrectionPayload{
+		AuditID:    audit.ID,
+		OrderID:    audit.OrderID,
+		Action:     audit.Action,
+		Currency:   events.CurrencyKES,
+		AmountKes:  audit.AmountKes,
+		RecordedAt: audit.CreatedAt.UTC(),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to construct analytics payment correction event: %w", err)
+	}
+	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, analyticsCorrEvt, outbox.DestinationKafka); err != nil {
+		return nil, nil, fmt.Errorf("failed to enqueue analytics payment correction outbox event: %w", err)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, fmt.Errorf("failed to commit manual settlement: %w", err)
@@ -783,6 +823,21 @@ func (s *Store) RecordPaymentCorrection(ctx context.Context, req PaymentCorrecti
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve linked exception: %w", err)
 		}
+	}
+
+	analyticsCorrEvt, err := events.NewEvent(events.TypeAnalyticsPaymentCorrection, audit.OrderID, 1, telemetry.FromContext(ctx), events.AnalyticsPaymentCorrectionPayload{
+		AuditID:    audit.ID,
+		OrderID:    audit.OrderID,
+		Action:     audit.Action,
+		Currency:   events.CurrencyKES,
+		AmountKes:  audit.AmountKes,
+		RecordedAt: audit.CreatedAt.UTC(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct analytics payment correction event: %w", err)
+	}
+	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, analyticsCorrEvt, outbox.DestinationKafka); err != nil {
+		return nil, fmt.Errorf("failed to enqueue analytics payment correction outbox event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

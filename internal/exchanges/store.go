@@ -15,7 +15,10 @@ import (
 	"time"
 
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/auth"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/events"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/orders"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -736,6 +739,23 @@ func (s *Store) Complete(ctx context.Context, actor *auth.User, exchangeID, topu
 
 	res, err := loadByID(ctx, tx, exchangeID)
 	if err != nil {
+		return nil, err
+	}
+	completedAt := time.Now().UTC()
+	if res.CompletedAt != nil {
+		completedAt = res.CompletedAt.UTC()
+	}
+	analyticsExchEvt, err := events.NewEvent(events.TypeAnalyticsExchangeCompleted, orderID, 1, telemetry.FromContext(ctx), events.AnalyticsExchangeCompletedPayload{
+		ExchangeID:         exchangeID,
+		OrderID:            orderID,
+		Currency:           events.CurrencyKES,
+		PriceDifferenceKes: priceDiff,
+		CompletedAt:        completedAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, analyticsExchEvt, outbox.DestinationKafka); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {

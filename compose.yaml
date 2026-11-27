@@ -185,6 +185,10 @@ services:
       GO_DB_MAX_CONNECTIONS: "4"
       GO_REDIS_URL: "redis://redis:6379/0"
       GO_RABBITMQ_URL_FILE: /run/secrets/rabbitmq_url
+      GO_KAFKA_BROKERS: "redpanda:9092"
+      GO_KAFKA_TOPIC: "bliss.analytics.events.v1"
+      GO_KAFKA_CONSUMER_GROUP: "bliss-analytics-consumer"
+      GO_KAFKA_RETENTION_MS: "7776000000"
     secrets: [runtime_url, rabbitmq_url]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -283,6 +287,31 @@ services:
     depends_on:
       - prometheus
 
+  redpanda:
+    image: redpandadata/redpanda:v24.2.11
+    profiles: ["observability"]
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=256M
+      - --reserve-memory=0M
+      - --node-id=0
+      - --check=false
+      - --kafka-addr=internal://0.0.0.0:9092
+      - --advertise-kafka-addr=internal://redpanda:9092
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    networks: [private]
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 networks:
   edge: {}
   private:
@@ -293,6 +322,7 @@ volumes:
   alertmanager_data: {}
   grafana_data: {}
   rabbitmq_data: {}
+  redpanda_data: {}
 secrets:
   admin_password:
     file: ${BLISS_SECRET_DIR:-./.local/dev}/admin_password
