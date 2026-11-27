@@ -1,0 +1,194 @@
+# Standalone staging/production Compose topology for R28.
+# - Digest-pinned / pre-built immutable images only (no build: directives).
+# - Single Go writer (api + worker); no legacy Express runtime and no fake-provider shadow STK.
+# - Same-origin reverse proxy (caddy) terminates HTTP/HTTPS and forwards /api/* to api:5001.
+name: ${COMPOSE_PROJECT_NAME:-bliss-staging}
+
+x-app: &app
+  image: ${BLISS_BACKEND_IMAGE:?BLISS_BACKEND_IMAGE (name@sha256:... or immutable tag) is required}
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 64
+  mem_limit: 128m
+  cpus: 0.5
+  networks: [private]
+  init: true
+  stop_grace_period: 20s
+
+services:
+  db:
+    image: ${BLISS_POSTGRES_IMAGE:?BLISS_POSTGRES_IMAGE is required}
+    user: "70:70"
+    entrypoint: ["/bin/sh", "/usr/local/bin/bliss-postgres-entrypoint.sh"]
+    command: ["postgres"]
+    environment:
+      POSTGRES_USER: bliss_admin
+      POSTGRES_DB: ${POSTGRES_DB:-bliss_staging}
+      POSTGRES_PASSWORD_FILE: /run/secrets/admin_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets:
+      [admin_password, migrator_password, runtime_password, catalog_password]
+    volumes:
+      - staging_database:/var/lib/postgresql/data
+      - ./infra/docker/postgres-entrypoint.sh:/usr/local/bin/bliss-postgres-entrypoint.sh:ro
+      - ./infra/docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    networks: [private]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1
+    pids_limit: 128
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U bliss_admin -d ${POSTGRES_DB:-bliss_staging} && psql -U bliss_admin -d ${POSTGRES_DB:-bliss_staging} -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'bliss_catalog'" | grep -q 1
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    stop_grace_period: 20s
+
+  migrate:
+    <<: *app
+    entrypoint: [/app/devstack]
+    command: [migrate]
+    environment:
+      BLISS_LOCAL_DEV: ${BLISS_LOCAL_DEV:-0}
+      GO_DATABASE_URL_FILE: /run/secrets/migrator_url
+    secrets: [migrator_url]
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    user: "999:999"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    networks: [private]
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "64mb",
+        "--maxmemory-policy",
+        "volatile-lru",
+      ]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  api:
+    <<: *app
+    networks: [edge, private]
+    environment:
+      GO_HTTP_ADDR: 0.0.0.0:5001
+      GO_DATABASE_URL_FILE: /run/secrets/runtime_url
+      GO_REQUIRE_SCHEMA: "true"
+      GO_IO_TIMEOUT: 15s
+      GO_DB_MAX_CONNECTIONS: "16"
+      GO_TRUSTED_PROXIES: ${GO_TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+      GO_REDIS_URL: "redis://redis:6379/0"
+      GO_GOOGLE_CLIENT_ID: ${GO_GOOGLE_CLIENT_ID:-}
+      GO_GOOGLE_CLIENT_SECRET: ${GO_GOOGLE_CLIENT_SECRET:-}
+      GO_GOOGLE_REDIRECT_URL: ${GO_GOOGLE_REDIRECT_URL:-}
+      GO_BOOTSTRAP_OWNER_EMAIL: ${GO_BOOTSTRAP_OWNER_EMAIL:-}
+      GO_NCBA_BASE_URL: ${GO_NCBA_BASE_URL:-}
+      GO_NCBA_USERNAME: ${GO_NCBA_USERNAME:-}
+      GO_NCBA_PASSWORD: ${GO_NCBA_PASSWORD:-}
+      GO_NCBA_PAYBILL_NO: ${GO_NCBA_PAYBILL_NO:-}
+      GO_NCBA_CALLBACK_URL: ${GO_NCBA_CALLBACK_URL:-}
+      GO_NCBA_IPN_USERNAME: ${GO_NCBA_IPN_USERNAME:-}
+      GO_NCBA_IPN_PASSWORD: ${GO_NCBA_IPN_PASSWORD:-}
+      GO_NCBA_IPN_SECRET_KEY: ${GO_NCBA_IPN_SECRET_KEY:-}
+    secrets: [runtime_url]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, /app/probe, "http://127.0.0.1:5001/health/ready"]
+      interval: 3s
+      timeout: 4s
+      retries: 15
+
+  frontend:
+    <<: *app
+    image: ${BLISS_FRONTEND_IMAGE:?BLISS_FRONTEND_IMAGE is required}
+    entrypoint: ["/app/web"]
+    environment:
+      GO_HTTP_ADDR: 0.0.0.0:8080
+      GO_DATABASE_URL_FILE: /run/secrets/catalog_url
+      GO_REQUIRE_SCHEMA: "false"
+      GO_IO_TIMEOUT: 15s
+      GO_DB_MAX_CONNECTIONS: "8"
+    networks: [edge, private]
+    secrets: [catalog_url]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, /app/probe, "http://127.0.0.1:8080/api/health/ready"]
+      interval: 3s
+      timeout: 4s
+      retries: 15
+
+  proxy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    environment:
+      BLISS_SITE_ADDRESS: ${BLISS_SITE_ADDRESS:-:80}
+    ports:
+      - "${BLISS_PROXY_BIND:-127.0.0.1}:${BLISS_HTTP_PORT:-8080}:80"
+      - "${BLISS_PROXY_BIND:-127.0.0.1}:${BLISS_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./infra/docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+    depends_on:
+      api: { condition: service_healthy }
+      frontend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/api/health/live"]
+      interval: 3s
+      timeout: 4s
+      retries: 15
+
+networks:
+  edge: {}
+  private:
+    internal: true
+
+volumes:
+  staging_database: {}
+  caddy_data: {}
+  caddy_config: {}
+
+secrets:
+  admin_password:
+    file: ${BLISS_SECRET_DIR:?BLISS_SECRET_DIR is required}/admin_password
+  migrator_password:
+    file: ${BLISS_SECRET_DIR:?BLISS_SECRET_DIR is required}/migrator_password
+  runtime_password:
+    file: ${BLISS_SECRET_DIR:?BLISS_SECRET_DIR is required}/runtime_password
+  catalog_password:
+    file: ${BLISS_SECRET_DIR:?BLISS_SECRET_DIR is required}/catalog_password
+  migrator_url:
+    file: ${BLISS_SECRET_DIR:?BLISS_SECRET_DIR is required}/migrator_url
+  runtime_url:
+    file: ${BLISS_SECRET_DIR:?BLISS_SECRET_DIR is required}/runtime_url
+  catalog_url:
+    file: ${BLISS_SECRET_DIR:?BLISS_SECRET_DIR is required}/catalog_url

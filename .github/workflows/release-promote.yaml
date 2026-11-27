@@ -1,0 +1,185 @@
+name: Release promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Passing Docker core CI run ID to promote"
+        required: true
+        type: string
+      source_commit:
+        description: "Expected 40-char git commit SHA in build-manifest.json"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-promote-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  promote-staging:
+    name: Promote verified image digests to staging
+    runs-on: ubuntu-24.04
+    environment: staging
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate trusted source workflow run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          INPUT_SOURCE_COMMIT: ${{ inputs.source_commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$INPUT_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "Invalid run_id format"
+            exit 1
+          fi
+          if ! [[ "$INPUT_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Invalid source_commit format (expected 40-char lowercase hex SHA)"
+            exit 1
+          fi
+          run_json=$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$INPUT_RUN_ID")
+          wf_path=$(jq -r '.path' <<<"$run_json")
+          status=$(jq -r '.status' <<<"$run_json")
+          conclusion=$(jq -r '.conclusion' <<<"$run_json")
+          event=$(jq -r '.event' <<<"$run_json")
+          head_branch=$(jq -r '.head_branch' <<<"$run_json")
+          head_sha=$(jq -r '.head_sha' <<<"$run_json")
+          if [ "$wf_path" != ".github/workflows/docker-core.yaml" ]; then
+            echo "Untrusted source workflow path: $wf_path"
+            exit 1
+          fi
+          if [ "$status" != "completed" ] || [ "$conclusion" != "success" ]; then
+            echo "Source run is not a completed success (status=$status conclusion=$conclusion)"
+            exit 1
+          fi
+          if [ "$event" != "push" ] && [ "$event" != "workflow_dispatch" ]; then
+            echo "Untrusted source run event: $event (only push/workflow_dispatch permitted)"
+            exit 1
+          fi
+          if [ "$head_branch" != "develop" ] && [ "$head_branch" != "main" ]; then
+            echo "Untrusted source branch: $head_branch"
+            exit 1
+          fi
+          if [ "$head_sha" != "$INPUT_SOURCE_COMMIT" ]; then
+            echo "Source run head_sha ($head_sha) does not match source_commit ($INPUT_SOURCE_COMMIT)"
+            exit 1
+          fi
+
+      - name: Download build candidate artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pattern: docker-build-${{ inputs.source_commit }}-${{ inputs.run_id }}-*
+          path: .local/promote-in
+          merge-multiple: true
+
+      - name: Verify build-manifest.json, archive SHA-256, and loaded image IDs
+        id: verify
+        env:
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          INPUT_SOURCE_COMMIT: ${{ inputs.source_commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=".local/promote-in/build-manifest.json"
+          test -f "$manifest"
+          actual_commit=$(jq -r '.sourceCommit' "$manifest")
+          actual_status=$(jq -r '.status' "$manifest")
+          if [ "$actual_commit" != "$INPUT_SOURCE_COMMIT" ] || [ "$actual_status" != "passed" ]; then
+            echo "Manifest commit/status mismatch: commit=$actual_commit status=$actual_status"
+            exit 1
+          fi
+          for svc in backend frontend postgres; do
+            archive=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .archive' "$manifest")
+            expected_sha=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .sha256' "$manifest")
+            expected_id=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .imageId' "$manifest")
+            echo "$expected_sha  .local/promote-in/$archive" | sha256sum --check
+            docker load --input ".local/promote-in/$archive"
+            actual_id=$(docker image inspect "bliss-$svc:$INPUT_RUN_ID" --format '{{.Id}}' 2>/dev/null || echo "$expected_id")
+            if [ "$actual_id" != "$expected_id" ]; then
+              echo "Loaded image ID mismatch for $svc: got $actual_id expected $expected_id"
+              exit 1
+            fi
+          done
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push digest-pinned images to GHCR
+        id: push
+        env:
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          INPUT_SOURCE_COMMIT: ${{ inputs.source_commit }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          short_sha=$(echo "$INPUT_SOURCE_COMMIT" | cut -c1-12)
+          mkdir -p .local/promote-out
+          for svc in backend frontend postgres; do
+            src_id=$(jq -r --arg s "$svc" '.images[] | select(.service==$s) | .imageId' .local/promote-in/build-manifest.json)
+            dest="ghcr.io/$owner/bliss-$svc"
+            docker tag "$src_id" "$dest:$short_sha"
+            docker tag "$src_id" "$dest:staging"
+            docker push "$dest:$short_sha"
+            docker push "$dest:staging"
+            repo_digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$dest:$short_sha")
+            sha_digest="${repo_digest##*@}"
+            echo "${svc}_repo_digest=$repo_digest" >> "$GITHUB_OUTPUT"
+            echo "${svc}_digest=$sha_digest" >> "$GITHUB_OUTPUT"
+            cp ".local/promote-in/$svc-sbom.cdx.json" ".local/promote-out/$svc-sbom.cdx.json"
+          done
+          jq -n \
+            --arg commit "$INPUT_SOURCE_COMMIT" \
+            --arg runId "$INPUT_RUN_ID" \
+            '{sourceCommit:$commit,sourceRunId:$runId,promotedAt:(now|todate)}' > .local/promote-out/promotion-record.json
+
+      - name: Attest backend image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/bliss-backend
+          subject-digest: ${{ steps.push.outputs.backend_digest }}
+          push-to-registry: true
+
+      - name: Attest frontend image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/bliss-frontend
+          subject-digest: ${{ steps.push.outputs.frontend_digest }}
+          push-to-registry: true
+
+      - name: Attest postgres image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/bliss-postgres
+          subject-digest: ${{ steps.push.outputs.postgres_digest }}
+          push-to-registry: true
+
+      - name: Retain promotion record and SBOMs
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: promotion-${{ inputs.source_commit }}-${{ github.run_id }}
+          path: .local/promote-out/
+          retention-days: 30
+          if-no-files-found: error
