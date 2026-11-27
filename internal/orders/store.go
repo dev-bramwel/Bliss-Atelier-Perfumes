@@ -364,6 +364,22 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 		rollback(tx)
 		return nil, fmt.Errorf("failed to enqueue order created outbox event: %w", err)
 	}
+	analyticsCreatedEvt, err := events.NewEvent(events.TypeAnalyticsOrderCreated, orderID, 1, telemetry.FromContext(ctx), events.AnalyticsOrderCreatedPayload{
+		OrderID:   orderID,
+		Currency:  events.CurrencyKES,
+		TotalKes:  totalKes,
+		ItemCount: len(orderItemsPayload),
+		Items:     orderItemsPayload,
+		CreatedAt: now,
+	})
+	if err != nil {
+		rollback(tx)
+		return nil, fmt.Errorf("failed to construct analytics order created event: %w", err)
+	}
+	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, analyticsCreatedEvt, outbox.DestinationKafka); err != nil {
+		rollback(tx)
+		return nil, fmt.Errorf("failed to enqueue analytics order created outbox event: %w", err)
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("failed to commit create order transaction: %w", err)
@@ -827,6 +843,25 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq"); err != nil {
 			rollback(tx)
 			return fmt.Errorf("failed to enqueue order paid outbox event: %w", err)
+		}
+		var transportFeeKes int
+		var feeRecipient string
+		_ = tx.QueryRow(ctx, `SELECT coalesce(sum(amount_kes), 0), coalesce(max(fee_recipient), '') FROM public.delivery_quote WHERE order_id = $1 AND status = 'accepted'`, orderID).Scan(&transportFeeKes, &feeRecipient)
+		analyticsPaidEvt, err := events.NewEvent(events.TypeAnalyticsOrderPaid, orderID, 2, telemetry.FromContext(ctx), events.AnalyticsOrderPaidPayload{
+			OrderID:           orderID,
+			Currency:          events.CurrencyKES,
+			ProductRevenueKes: totalKes,
+			TransportFeeKes:   transportFeeKes,
+			FeeRecipient:      feeRecipient,
+			PaidAt:            now,
+		})
+		if err != nil {
+			rollback(tx)
+			return fmt.Errorf("failed to construct analytics order paid event: %w", err)
+		}
+		if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, analyticsPaidEvt, outbox.DestinationKafka); err != nil {
+			rollback(tx)
+			return fmt.Errorf("failed to enqueue analytics order paid outbox event: %w", err)
 		}
 
 		if err := tx.Commit(ctx); err != nil {
