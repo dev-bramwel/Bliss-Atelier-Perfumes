@@ -2,6 +2,7 @@ package events
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -145,5 +146,72 @@ func TestEnvelope_Validate(t *testing.T) {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestAnalyticsEvents_NoPII(t *testing.T) {
+	now := time.Now().UTC()
+	envs := []Envelope{}
+
+	e1, err := NewEvent(TypeAnalyticsOrderCreated, "ord-1", 1, "corr-1", AnalyticsOrderCreatedPayload{
+		OrderID:   "ord-1",
+		Currency:  CurrencyKES,
+		TotalKes:  2500,
+		ItemCount: 1,
+		Items:     []OrderItemPayload{{ProductID: "p-1", Quantity: 1}},
+		CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("created event: %v", err)
+	}
+	e2, err := NewEvent(TypeAnalyticsOrderPaid, "ord-1", 2, "corr-1", AnalyticsOrderPaidPayload{
+		OrderID:           "ord-1",
+		Currency:          CurrencyKES,
+		ProductRevenueKes: 2500,
+		TransportFeeKes:   300,
+		FeeRecipient:      "merchant",
+		PaidAt:            now,
+	})
+	if err != nil {
+		t.Fatalf("paid event: %v", err)
+	}
+	e3, err := NewEvent(TypeAnalyticsExchangeCompleted, "ord-1", 1, "corr-1", AnalyticsExchangeCompletedPayload{
+		ExchangeID:         "ex-1",
+		OrderID:            "ord-1",
+		Currency:           CurrencyKES,
+		PriceDifferenceKes: 500,
+		CompletedAt:        now,
+	})
+	if err != nil {
+		t.Fatalf("exchange event: %v", err)
+	}
+	e4, err := NewEvent(TypeAnalyticsPaymentCorrection, "ord-1", 1, "corr-1", AnalyticsPaymentCorrectionPayload{
+		AuditID:    "aud-1",
+		OrderID:    "ord-1",
+		Action:     "manual_settlement",
+		Currency:   CurrencyKES,
+		AmountKes:  2500,
+		RecordedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("correction event: %v", err)
+	}
+	envs = append(envs, e1, e2, e3, e4)
+
+	forbidden := []string{"customerName", "customerPhone", "deliveryLocation", "phone", "receiptNumber", "authorizedBy"}
+	for _, env := range envs {
+		if err := env.Validate(); err != nil {
+			t.Fatalf("%s invalid: %v", env.EventType, err)
+		}
+		raw, err := json.Marshal(env)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", env.EventType, err)
+		}
+		body := string(raw)
+		for _, field := range forbidden {
+			if strings.Contains(body, field) {
+				t.Fatalf("%s must not contain PII/sensitive field %q: %s", env.EventType, field, body)
+			}
+		}
 	}
 }
