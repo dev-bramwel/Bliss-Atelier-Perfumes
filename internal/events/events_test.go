@@ -165,15 +165,25 @@ func TestAnalyticsEvents_NoPII(t *testing.T) {
 		t.Fatalf("created event: %v", err)
 	}
 	e2, err := NewEvent(TypeAnalyticsOrderPaid, "ord-1", 2, "corr-1", AnalyticsOrderPaidPayload{
-		OrderID:           "ord-1",
-		Currency:          CurrencyKES,
-		ProductRevenueKes: 2500,
-		TransportFeeKes:   300,
-		FeeRecipient:      "merchant",
-		PaidAt:            now,
+		OrderID:              "ord-1",
+		Currency:             CurrencyKES,
+		ProductRevenueKes:    2500,
+		TransportMerchantKes: 300,
+		TransportCourierKes:  150,
+		PaidAt:               now,
 	})
 	if err != nil {
 		t.Fatalf("paid event: %v", err)
+	}
+	e2b, err := NewEvent(TypeAnalyticsOrderUpdated, "ord-1", 1, "corr-1", AnalyticsOrderUpdatedPayload{
+		OrderID:       "ord-1",
+		Currency:      CurrencyKES,
+		TotalKes:      2500,
+		PaymentStatus: "PENDING",
+		UpdatedAt:     now,
+	})
+	if err != nil {
+		t.Fatalf("updated event: %v", err)
 	}
 	e3, err := NewEvent(TypeAnalyticsExchangeCompleted, "ord-1", 1, "corr-1", AnalyticsExchangeCompletedPayload{
 		ExchangeID:         "ex-1",
@@ -196,7 +206,7 @@ func TestAnalyticsEvents_NoPII(t *testing.T) {
 	if err != nil {
 		t.Fatalf("correction event: %v", err)
 	}
-	envs = append(envs, e1, e2, e3, e4)
+	envs = append(envs, e1, e2, e2b, e3, e4)
 
 	forbidden := []string{"customerName", "customerPhone", "deliveryLocation", "phone", "receiptNumber", "authorizedBy"}
 	for _, env := range envs {
