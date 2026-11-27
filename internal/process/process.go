@@ -415,6 +415,16 @@ func runMessagingWorker(ctx context.Context, pool *pgxpool.Pool, rabbitURL strin
 func runKafkaAnalyticsWorker(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, logger *slog.Logger) {
 	outboxStore := outbox.NewStore(pool)
 	analyticsStore := analytics.NewStore(pool, cfg.KafkaConsumerGroup)
+	kCfg := analytics.ClientConfig{
+		Brokers:       cfg.KafkaBrokers,
+		Topic:         cfg.KafkaTopic,
+		ConsumerGroup: cfg.KafkaConsumerGroup,
+		RetentionMs:   cfg.KafkaRetentionMs,
+		TLS:           cfg.KafkaTLS,
+		SASLMechanism: cfg.KafkaSASLMechanism,
+		SASLUsername:  cfg.KafkaSASLUsername,
+		SASLPassword:  cfg.KafkaSASLPassword,
+	}
 	backoff := 2 * time.Second
 
 	for {
@@ -423,7 +433,7 @@ func runKafkaAnalyticsWorker(ctx context.Context, pool *pgxpool.Pool, cfg config
 		}
 
 		ensureCtx, cancelEnsure := context.WithTimeout(ctx, cfg.IOTimeout)
-		err := analytics.EnsureTopic(ensureCtx, cfg.KafkaBrokers, cfg.KafkaTopic, cfg.KafkaRetentionMs)
+		err := analytics.EnsureTopicWithConfig(ensureCtx, kCfg)
 		cancelEnsure()
 		if err != nil {
 			logger.Warn("kafka_ensure_topic_failed", "topic", cfg.KafkaTopic, "error", err.Error(), "retry_in", backoff)
@@ -438,7 +448,7 @@ func runKafkaAnalyticsWorker(ctx context.Context, pool *pgxpool.Pool, cfg config
 			}
 		}
 
-		prod, err := analytics.NewProducer(cfg.KafkaBrokers, cfg.KafkaTopic)
+		prod, err := analytics.NewProducerWithConfig(kCfg)
 		if err != nil {
 			logger.Warn("kafka_producer_init_failed", "error", err.Error(), "retry_in", backoff)
 			select {
@@ -452,7 +462,7 @@ func runKafkaAnalyticsWorker(ctx context.Context, pool *pgxpool.Pool, cfg config
 			}
 		}
 
-		logger.Info("kafka_analytics_connected", "topic", cfg.KafkaTopic, "group", cfg.KafkaConsumerGroup)
+		logger.Info("kafka_analytics_connected", "topic", cfg.KafkaTopic, "group", cfg.KafkaConsumerGroup, "tls", cfg.KafkaTLS, "sasl", cfg.KafkaSASLMechanism != "")
 		backoff = 2 * time.Second
 
 		kCtx, cancelK := context.WithCancel(ctx)
@@ -461,7 +471,7 @@ func runKafkaAnalyticsWorker(ctx context.Context, pool *pgxpool.Pool, cfg config
 		pubCfg := outbox.DefaultPublisherConfig()
 		pubCfg.Destination = outbox.DestinationKafka
 		pub := outbox.NewBackgroundPublisher(outboxStore, prod, pubCfg, logger)
-		cons := analytics.NewConsumer(cfg.KafkaBrokers, cfg.KafkaTopic, cfg.KafkaConsumerGroup, analyticsStore, logger)
+		cons := analytics.NewConsumerWithConfig(kCfg, analyticsStore, logger)
 
 		wg.Add(1)
 		go func() {
