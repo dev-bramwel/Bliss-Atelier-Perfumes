@@ -432,6 +432,25 @@ func runKafkaAnalyticsWorker(ctx context.Context, pool *pgxpool.Pool, cfg config
 			return
 		}
 
+		backfillCtx, cancelBackfill := context.WithTimeout(ctx, cfg.IOTimeout)
+		backfilled, bfErr := analyticsStore.BackfillToOutbox(backfillCtx)
+		cancelBackfill()
+		if bfErr != nil {
+			logger.Warn("kafka_backfill_failed", "error", bfErr.Error(), "retry_in", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+		}
+		if backfilled > 0 {
+			logger.Info("kafka_backfill_enqueued", "count", backfilled)
+		}
+
 		ensureCtx, cancelEnsure := context.WithTimeout(ctx, cfg.IOTimeout)
 		err := analytics.EnsureTopicWithConfig(ensureCtx, kCfg)
 		cancelEnsure()
