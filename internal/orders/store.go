@@ -688,7 +688,7 @@ func (s *Store) ConfirmPayment(ctx context.Context, orderID string, receiptNumbe
 		}
 
 		// Mark order as PAID
-		_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2, paid_at = COALESCE(paid_at, $2) WHERE id = $3`, PaymentPaid, now, orderID)
+		_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2 WHERE id = $3`, PaymentPaid, now, orderID)
 		if err != nil {
 			return fmt.Errorf("failed to mark order %s as PAID: %w", orderID, err)
 		}
