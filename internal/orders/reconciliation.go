@@ -693,17 +693,25 @@ func (s *Store) RecordManualSettlement(ctx context.Context, req ManualSettlement
 	if err := outbox.NewStore(s.Pool).Enqueue(ctx, tx, evt, "rabbitmq"); err != nil {
 		return nil, nil, fmt.Errorf("failed to enqueue order paid outbox event: %w", err)
 	}
-	var orderTotalKes, transportFeeKes int
-	var feeRecipient string
-	_ = tx.QueryRow(ctx, `SELECT coalesce("totalKes", 0) FROM public."Order" WHERE id = $1`, req.OrderID).Scan(&orderTotalKes)
-	_ = tx.QueryRow(ctx, `SELECT coalesce(sum(amount_kes), 0), coalesce(max(fee_recipient), '') FROM public.delivery_quote WHERE order_id = $1 AND status = 'accepted'`, req.OrderID).Scan(&transportFeeKes, &feeRecipient)
+	var orderTotalKes, transportMerchantKes, transportCourierKes int
+	if err := tx.QueryRow(ctx, `SELECT coalesce("totalKes", 0) FROM public."Order" WHERE id = $1`, req.OrderID).Scan(&orderTotalKes); err != nil {
+		return nil, nil, fmt.Errorf("failed to query order total for analytics: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT
+			coalesce(sum(amount_kes) FILTER (WHERE fee_recipient = 'merchant'), 0),
+			coalesce(sum(amount_kes) FILTER (WHERE fee_recipient = 'courier'), 0)
+		FROM public.delivery_quote
+		WHERE order_id = $1 AND status = 'accepted'`, req.OrderID).Scan(&transportMerchantKes, &transportCourierKes); err != nil {
+		return nil, nil, fmt.Errorf("failed to query accepted delivery quotes for analytics: %w", err)
+	}
 	analyticsPaidEvt, err := events.NewEvent(events.TypeAnalyticsOrderPaid, req.OrderID, 2, telemetry.FromContext(ctx), events.AnalyticsOrderPaidPayload{
-		OrderID:           req.OrderID,
-		Currency:          events.CurrencyKES,
-		ProductRevenueKes: orderTotalKes,
-		TransportFeeKes:   transportFeeKes,
-		FeeRecipient:      feeRecipient,
-		PaidAt:            now,
+		OrderID:              req.OrderID,
+		Currency:             events.CurrencyKES,
+		ProductRevenueKes:    orderTotalKes,
+		TransportMerchantKes: transportMerchantKes,
+		TransportCourierKes:  transportCourierKes,
+		PaidAt:               now,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to construct analytics order paid event: %w", err)
