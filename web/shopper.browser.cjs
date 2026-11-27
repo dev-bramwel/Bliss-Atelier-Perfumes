@@ -24,6 +24,7 @@ let lastPage;
 async function fixture(browser, authenticated = false) {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
+    serviceWorkers: "block",
   });
   const state = {
     created: false,
@@ -477,7 +478,7 @@ async function offered(f) {
         console.error(
           "Browser state:",
           await lastPage.url(),
-          await lastPage.locator("#checkoutMessage").textContent(),
+            await lastPage.locator("#checkoutMessage").textContent({ timeout: 1000 }).catch(() => "Checkout message unavailable"),
         );
         await lastPage.screenshot({
           path: path.join(artifacts, engine + "-failure.png"),
