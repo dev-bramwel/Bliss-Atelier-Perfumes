@@ -345,30 +345,14 @@ func (c *Consumer) ReplayAll(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("analytics: topic %s has no partitions", c.cfg.Topic)
 	}
 
-	var records []*kgo.Record
+	var client *kgo.Client
 	if len(targets) > 0 {
 		replayOpts := append(opts, kgo.ConsumePartitions(consumeParts))
-		client, err := kgo.NewClient(replayOpts...)
+		client, err = kgo.NewClient(replayOpts...)
 		if err != nil {
 			return 0, fmt.Errorf("analytics: create replay client: %w", err)
 		}
 		defer client.Close()
-
-		for len(targets) > 0 {
-			fetches := client.PollFetches(ctx)
-			if ctx.Err() != nil {
-				return 0, ctx.Err()
-			}
-			if errs := fetches.Errors(); len(errs) > 0 {
-				return 0, errs[0].Err
-			}
-			fetches.EachRecord(func(rec *kgo.Record) {
-				records = append(records, rec)
-				if target, ok := targets[rec.Partition]; ok && rec.Offset >= target {
-					delete(targets, rec.Partition)
-				}
-			})
-		}
 	}
 
 	tx, err := c.store.Pool.BeginTx(ctx, pgx.TxOptions{})
@@ -386,13 +370,35 @@ func (c *Consumer) ReplayAll(ctx context.Context) (int, error) {
 	}
 
 	replayed := 0
-	for _, rec := range records {
-		applied, err := applyEventTx(ctx, tx, group, rec.Topic, rec.Partition, rec.Offset, rec.Value)
-		if err != nil {
-			return 0, err
-		}
-		if applied {
-			replayed++
+	if client != nil {
+		for len(targets) > 0 {
+			fetches := client.PollFetches(ctx)
+			if ctx.Err() != nil {
+				return 0, ctx.Err()
+			}
+			if errs := fetches.Errors(); len(errs) > 0 {
+				return 0, errs[0].Err
+			}
+			var applyErr error
+			fetches.EachRecord(func(rec *kgo.Record) {
+				if applyErr != nil {
+					return
+				}
+				applied, err := applyEventTx(ctx, tx, group, rec.Topic, rec.Partition, rec.Offset, rec.Value)
+				if err != nil {
+					applyErr = err
+					return
+				}
+				if applied {
+					replayed++
+				}
+				if target, ok := targets[rec.Partition]; ok && rec.Offset >= target {
+					delete(targets, rec.Partition)
+				}
+			})
+			if applyErr != nil {
+				return 0, applyErr
+			}
 		}
 	}
 
