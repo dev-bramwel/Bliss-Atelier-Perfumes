@@ -20,6 +20,7 @@ const (
 
 	// No-PII analytics event types streamed to Kafka.
 	TypeAnalyticsOrderCreated      = "analytics.order.created.v1"
+	TypeAnalyticsOrderUpdated      = "analytics.order.updated.v1"
 	TypeAnalyticsOrderPaid         = "analytics.order.paid.v1"
 	TypeAnalyticsExchangeCompleted = "analytics.exchange.completed.v1"
 	TypeAnalyticsPaymentCorrection = "analytics.payment.correction.v1"
@@ -96,14 +97,23 @@ type AnalyticsOrderCreatedPayload struct {
 	CreatedAt time.Time          `json:"createdAt"`
 }
 
+// AnalyticsOrderUpdatedPayload is a versioned, no-PII analytics event emitted when a pending order's updatedAt/delivery option changes.
+type AnalyticsOrderUpdatedPayload struct {
+	OrderID       string    `json:"orderId"`
+	Currency      string    `json:"currency"`
+	TotalKes      int       `json:"totalKes"`
+	PaymentStatus string    `json:"paymentStatus"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
 // AnalyticsOrderPaidPayload is a versioned, no-PII analytics event emitted when an order settles as PAID.
 type AnalyticsOrderPaidPayload struct {
-	OrderID           string    `json:"orderId"`
-	Currency          string    `json:"currency"`
-	ProductRevenueKes int       `json:"productRevenueKes"`
-	TransportFeeKes   int       `json:"transportFeeKes"`
-	FeeRecipient      string    `json:"feeRecipient,omitempty"`
-	PaidAt            time.Time `json:"paidAt"`
+	OrderID              string    `json:"orderId"`
+	Currency             string    `json:"currency"`
+	ProductRevenueKes    int       `json:"productRevenueKes"`
+	TransportMerchantKes int       `json:"transportMerchantKes"`
+	TransportCourierKes  int       `json:"transportCourierKes"`
+	PaidAt               time.Time `json:"paidAt"`
 }
 
 // AnalyticsExchangeCompletedPayload is a versioned, no-PII analytics event emitted when an exchange completes.
