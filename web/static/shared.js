@@ -338,12 +338,42 @@ function showCartToast(productName) {
   toast._t = setTimeout(() => toast.classList.remove("visible"), 2400);
 }
 
+function trackFunnel(eventType, productId, eventId) {
+  try {
+    let sid = sessionStorage.getItem("bliss.funnel.session");
+    if (!sid) {
+      sid =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : "s-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+      sessionStorage.setItem("bliss.funnel.session", sid);
+    }
+    const eid =
+      eventId ||
+      (typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : "e-" + Date.now() + "-" + Math.random().toString(36).slice(2));
+    fetch("/api/events/funnel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_id: eid,
+        session_id: sid,
+        event_type: eventType,
+        product_id: productId || "",
+      }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {}
+}
+
 function addToCart(id) {
   if (!catalogFresh() || getProduct(id)?.available !== true) return;
   if ((cart[id] || 0) >= Math.min(getProduct(id).stock ?? 100, 100)) return;
   cart[id] = (cart[id] || 0) + 1;
   saveCart(cart);
   document.dispatchEvent(new Event("cartUpdated"));
+  trackFunnel("cart_add", id);
   const p = getProduct(id);
   if (p) showCartToast(p.name);
 }
