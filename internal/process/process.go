@@ -276,6 +276,12 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 				logger.Error("dlq_gauge_sync_failed", "error", err.Error())
 			}
 		}
+		reportStore := &reports.Store{Pool: pool}
+		if purged, err := reportStore.PurgeExpiredFunnelEvents(ctx, reports.DefaultFunnelRetention); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("funnel_purge_failed", "error", err.Error())
+		} else if purged > 0 {
+			logger.Info("funnel_events_purged", "count", purged)
+		}
 
 		for {
 			select {
@@ -310,6 +316,11 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 						"pending", summary.Pending,
 						"exceptions_raised", summary.ExceptionsRaised,
 					)
+				}
+				if purged, err := reportStore.PurgeExpiredFunnelEvents(sweepCtx, reports.DefaultFunnelRetention); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error("funnel_purge_failed", "error", err.Error())
+				} else if purged > 0 {
+					logger.Info("funnel_events_purged", "count", purged)
 				}
 				if pool != nil {
 					if _, err := worker.SyncDLQGauge(sweepCtx, pool); err != nil && !errors.Is(err, context.Canceled) {
