@@ -1,0 +1,127 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-scripts
+  namespace: bliss-local
+data:
+  entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    if [ -f /run/secrets/rabbitmq_password ]; then
+        export RABBITMQ_DEFAULT_PASS="$(cat /run/secrets/rabbitmq_password)"
+    fi
+    exec /usr/local/bin/docker-entrypoint.sh "$@"
+  enabled_plugins: |
+    [rabbitmq_prometheus,rabbitmq_shovel].
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: bliss-local
+  labels:
+    app: rabbitmq
+spec:
+  clusterIP: None
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: prometheus
+      port: 15692
+      targetPort: 15692
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: bliss-local
+  labels:
+    app: rabbitmq
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 101
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/usr/local/bin/bliss-rabbitmq-entrypoint.sh"]
+          args: ["rabbitmq-server"]
+          securityContext:
+            runAsUser: 100
+            runAsGroup: 101
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: "bliss"
+          ports:
+            - containerPort: 5672
+              name: amqp
+            - containerPort: 15692
+              name: prometheus
+          resources:
+            requests:
+              cpu: 100m
+              memory: 160Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: rabbitmq-data
+              mountPath: /var/lib/rabbitmq
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+            - name: rabbitmq-scripts
+              mountPath: /usr/local/bin/bliss-rabbitmq-entrypoint.sh
+              subPath: entrypoint.sh
+              readOnly: true
+            - name: rabbitmq-scripts
+              mountPath: /etc/rabbitmq/enabled_plugins
+              subPath: enabled_plugins
+              readOnly: true
+      volumes:
+        - name: secrets
+          secret:
+            secretName: bliss-secrets
+        - name: rabbitmq-scripts
+          configMap:
+            name: rabbitmq-scripts
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: rabbitmq-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 512Mi
