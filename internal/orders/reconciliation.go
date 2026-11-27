@@ -619,7 +619,7 @@ func (s *Store) RecordManualSettlement(ctx context.Context, req ManualSettlement
 	}
 
 	// 7. Mark Order as PAID
-	_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2 WHERE id = $3`, PaymentPaid, now, req.OrderID)
+	_, err = tx.Exec(ctx, `UPDATE public."Order" SET "paymentStatus" = $1, "updatedAt" = $2, paid_at = COALESCE(paid_at, $2) WHERE id = $3`, PaymentPaid, now, req.OrderID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to mark order as PAID: %w", err)
 	}
