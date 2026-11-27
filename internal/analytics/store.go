@@ -52,6 +52,23 @@ func (s *Store) ApplyEvent(ctx context.Context, topic string, partition int32, o
 		return false, errors.New("analytics: database pool not initialized")
 	}
 
+	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, fmt.Errorf("analytics: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	applied, err := applyEventTx(ctx, tx, s.group(), topic, partition, offset, rawBody)
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("analytics: commit tx: %w", err)
+	}
+	return applied, nil
+}
+
+func applyEventTx(ctx context.Context, tx pgx.Tx, group, topic string, partition int32, offset int64, rawBody []byte) (bool, error) {
 	var env events.Envelope
 	if err := json.Unmarshal(rawBody, &env); err != nil {
 		return false, fmt.Errorf("analytics: invalid event envelope: %w", err)
@@ -60,13 +77,6 @@ func (s *Store) ApplyEvent(ctx context.Context, topic string, partition int32, o
 		return false, fmt.Errorf("analytics: envelope validation failed: %w", err)
 	}
 
-	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return false, fmt.Errorf("analytics: begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	group := s.group()
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO public.analytics_consumer_dedup (
 			event_id, consumer_group, event_type, aggregate_id, aggregate_version, topic, partition, kafka_offset
@@ -93,10 +103,6 @@ func (s *Store) ApplyEvent(ctx context.Context, topic string, partition int32, o
 	`, group, topic, partition, offset); err != nil {
 		return false, fmt.Errorf("analytics: upsert checkpoint: %w", err)
 	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("analytics: commit tx: %w", err)
-	}
 	return applied, nil
 }
 
@@ -116,23 +122,37 @@ func applyProjection(ctx context.Context, tx pgx.Tx, env events.Envelope) error 
 			SET aggregate_version = EXCLUDED.aggregate_version,
 			    payment_status = EXCLUDED.payment_status,
 			    product_revenue_kes = EXCLUDED.product_revenue_kes,
-			    occurred_at = EXCLUDED.occurred_at,
+			    occurred_at = GREATEST(public.analytics_order_fact.occurred_at, EXCLUDED.occurred_at),
 			    updated_at = now()
 			WHERE public.analytics_order_fact.aggregate_version < EXCLUDED.aggregate_version
 		`, p.OrderID, env.AggregateVersion, p.TotalKes, p.CreatedAt.UTC())
+		return err
+
+	case events.TypeAnalyticsOrderUpdated:
+		var p events.AnalyticsOrderUpdatedPayload
+		if err := json.Unmarshal(env.Payload, &p); err != nil {
+			return fmt.Errorf("analytics: decode %s: %w", env.EventType, err)
+		}
+		if p.PaymentStatus == "" {
+			p.PaymentStatus = "PENDING"
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO public.analytics_order_fact (
+				order_id, aggregate_version, payment_status, product_revenue_kes,
+				transport_merchant_kes, transport_courier_kes, occurred_at, updated_at
+			) VALUES ($1, $2, $3, $4, 0, 0, $5, now())
+			ON CONFLICT (order_id) DO UPDATE
+			SET occurred_at = GREATEST(public.analytics_order_fact.occurred_at, EXCLUDED.occurred_at),
+			    product_revenue_kes = EXCLUDED.product_revenue_kes,
+			    updated_at = now()
+			WHERE public.analytics_order_fact.payment_status <> 'PAID'
+		`, p.OrderID, env.AggregateVersion, p.PaymentStatus, p.TotalKes, p.UpdatedAt.UTC())
 		return err
 
 	case events.TypeAnalyticsOrderPaid:
 		var p events.AnalyticsOrderPaidPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			return fmt.Errorf("analytics: decode %s: %w", env.EventType, err)
-		}
-		merchantFee, courierFee := 0, 0
-		switch p.FeeRecipient {
-		case "merchant":
-			merchantFee = p.TransportFeeKes
-		case "courier":
-			courierFee = p.TransportFeeKes
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO public.analytics_order_fact (
@@ -149,7 +169,7 @@ func applyProjection(ctx context.Context, tx pgx.Tx, env events.Envelope) error 
 			    updated_at = now()
 			WHERE public.analytics_order_fact.aggregate_version < EXCLUDED.aggregate_version
 			   OR public.analytics_order_fact.payment_status <> 'PAID'
-		`, p.OrderID, env.AggregateVersion, p.ProductRevenueKes, merchantFee, courierFee, p.PaidAt.UTC())
+		`, p.OrderID, env.AggregateVersion, p.ProductRevenueKes, p.TransportMerchantKes, p.TransportCourierKes, p.PaidAt.UTC())
 		return err
 
 	case events.TypeAnalyticsExchangeCompleted:
@@ -196,7 +216,13 @@ func (s *Store) ResetForReplay(ctx context.Context) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	group := s.group()
+	if err := resetForReplayTx(ctx, tx, s.group()); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func resetForReplayTx(ctx context.Context, tx pgx.Tx, group string) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM public.analytics_consumer_dedup WHERE consumer_group = $1`, group); err != nil {
 		return err
 	}
@@ -212,7 +238,212 @@ func (s *Store) ResetForReplay(ctx context.Context) error {
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	return nil
+}
+
+// seedBaselineTx populates the analytics read models from authoritative operational tables
+// for historical rows created before Kafka streaming or outside Kafka retention, so replays
+// reproduce full R22 totals while remaining idempotent with subsequent Kafka events.
+func seedBaselineTx(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO public.analytics_order_fact (
+			order_id, aggregate_version, payment_status, product_revenue_kes,
+			transport_merchant_kes, transport_courier_kes, occurred_at, updated_at
+		)
+		SELECT
+			o.id,
+			CASE WHEN o."paymentStatus" = 'PAID' THEN 2 ELSE 1 END,
+			o."paymentStatus",
+			o."totalKes",
+			CASE WHEN o."paymentStatus" = 'PAID' THEN coalesce((SELECT sum(dq.amount_kes) FROM public.delivery_quote dq WHERE dq.order_id = o.id AND dq.status = 'accepted' AND dq.fee_recipient = 'merchant'), 0) ELSE 0 END,
+			CASE WHEN o."paymentStatus" = 'PAID' THEN coalesce((SELECT sum(dq.amount_kes) FROM public.delivery_quote dq WHERE dq.order_id = o.id AND dq.status = 'accepted' AND dq.fee_recipient = 'courier'), 0) ELSE 0 END,
+			o."updatedAt",
+			now()
+		FROM public."Order" o
+		WHERE o."paymentStatus" IN ('PENDING', 'PAID')
+		ON CONFLICT (order_id) DO NOTHING
+	`); err != nil {
+		return fmt.Errorf("analytics: seed order baseline: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO public.analytics_exchange_fact (
+			exchange_id, order_id, price_difference_kes, completed_at, updated_at
+		)
+		SELECT id::text, order_id, price_difference_kes, completed_at, now()
+		FROM public.exchange_request
+		WHERE status = 'completed' AND completed_at IS NOT NULL
+		ON CONFLICT (exchange_id) DO NOTHING
+	`); err != nil {
+		return fmt.Errorf("analytics: seed exchange baseline: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO public.analytics_payment_correction_fact (
+			audit_id, order_id, action, amount_kes, recorded_at, updated_at
+		)
+		SELECT id::text, order_id, action, amount_kes, created_at, now()
+		FROM public.payment_audit_ledger
+		ON CONFLICT (audit_id) DO NOTHING
+	`); err != nil {
+		return fmt.Errorf("analytics: seed correction baseline: %w", err)
+	}
+	return nil
+}
+
+// BackfillToOutbox idempotently enqueues deterministic Kafka outbox events for existing
+// authoritative records in Order, exchange_request, and payment_audit_ledger that predate
+// Kafka streaming. Safe to run repeatedly.
+func (s *Store) BackfillToOutbox(ctx context.Context) (int64, error) {
+	if s.Pool == nil {
+		return 0, errors.New("analytics: database pool not initialized")
+	}
+	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var total int64
+
+	t1, err := tx.Exec(ctx, `
+		INSERT INTO public.outbox_event (
+			id, event_type, aggregate_id, aggregate_version, correlation_id, schema_version,
+			payload, destination, status, retry_count, created_at, updated_at
+		)
+		SELECT
+			'bf-ord-' || o.id,
+			$1,
+			o.id,
+			1,
+			'backfill',
+			1,
+			jsonb_build_object(
+				'orderId', o.id,
+				'currency', 'KES',
+				'totalKes', o."totalKes",
+				'itemCount', coalesce(jsonb_array_length(o.items), 0),
+				'items', '[]'::jsonb,
+				'createdAt', o."updatedAt" AT TIME ZONE 'UTC'
+			),
+			'kafka',
+			'pending',
+			0,
+			o."createdAt",
+			now()
+		FROM public."Order" o
+		WHERE o."paymentStatus" = 'PENDING'
+		ON CONFLICT (id) DO NOTHING
+	`, events.TypeAnalyticsOrderCreated)
+	if err != nil {
+		return 0, fmt.Errorf("analytics: backfill pending orders: %w", err)
+	}
+	total += t1.RowsAffected()
+
+	t2, err := tx.Exec(ctx, `
+		INSERT INTO public.outbox_event (
+			id, event_type, aggregate_id, aggregate_version, correlation_id, schema_version,
+			payload, destination, status, retry_count, created_at, updated_at
+		)
+		SELECT
+			'bf-paid-' || o.id,
+			$1,
+			o.id,
+			2,
+			'backfill',
+			1,
+			jsonb_build_object(
+				'orderId', o.id,
+				'currency', 'KES',
+				'productRevenueKes', o."totalKes",
+				'transportMerchantKes', coalesce((SELECT sum(dq.amount_kes) FROM public.delivery_quote dq WHERE dq.order_id = o.id AND dq.status = 'accepted' AND dq.fee_recipient = 'merchant'), 0),
+				'transportCourierKes', coalesce((SELECT sum(dq.amount_kes) FROM public.delivery_quote dq WHERE dq.order_id = o.id AND dq.status = 'accepted' AND dq.fee_recipient = 'courier'), 0),
+				'paidAt', o."updatedAt" AT TIME ZONE 'UTC'
+			),
+			'kafka',
+			'pending',
+			0,
+			o."updatedAt",
+			now()
+		FROM public."Order" o
+		WHERE o."paymentStatus" = 'PAID'
+		ON CONFLICT (id) DO NOTHING
+	`, events.TypeAnalyticsOrderPaid)
+	if err != nil {
+		return 0, fmt.Errorf("analytics: backfill paid orders: %w", err)
+	}
+	total += t2.RowsAffected()
+
+	t3, err := tx.Exec(ctx, `
+		INSERT INTO public.outbox_event (
+			id, event_type, aggregate_id, aggregate_version, correlation_id, schema_version,
+			payload, destination, status, retry_count, created_at, updated_at
+		)
+		SELECT
+			'bf-exch-' || er.id::text,
+			$1,
+			er.order_id,
+			1,
+			'backfill',
+			1,
+			jsonb_build_object(
+				'exchangeId', er.id::text,
+				'orderId', er.order_id,
+				'currency', 'KES',
+				'priceDifferenceKes', er.price_difference_kes,
+				'completedAt', er.completed_at AT TIME ZONE 'UTC'
+			),
+			'kafka',
+			'pending',
+			0,
+			er.completed_at,
+			now()
+		FROM public.exchange_request er
+		WHERE er.status = 'completed' AND er.completed_at IS NOT NULL
+		ON CONFLICT (id) DO NOTHING
+	`, events.TypeAnalyticsExchangeCompleted)
+	if err != nil {
+		return 0, fmt.Errorf("analytics: backfill exchanges: %w", err)
+	}
+	total += t3.RowsAffected()
+
+	t4, err := tx.Exec(ctx, `
+		INSERT INTO public.outbox_event (
+			id, event_type, aggregate_id, aggregate_version, correlation_id, schema_version,
+			payload, destination, status, retry_count, created_at, updated_at
+		)
+		SELECT
+			'bf-aud-' || pal.id::text,
+			$1,
+			pal.order_id,
+			1,
+			'backfill',
+			1,
+			jsonb_build_object(
+				'auditId', pal.id::text,
+				'orderId', pal.order_id,
+				'action', pal.action,
+				'currency', 'KES',
+				'amountKes', pal.amount_kes,
+				'recordedAt', pal.created_at AT TIME ZONE 'UTC'
+			),
+			'kafka',
+			'pending',
+			0,
+			pal.created_at,
+			now()
+		FROM public.payment_audit_ledger pal
+		ON CONFLICT (id) DO NOTHING
+	`, events.TypeAnalyticsPaymentCorrection)
+	if err != nil {
+		return 0, fmt.Errorf("analytics: backfill corrections: %w", err)
+	}
+	total += t4.RowsAffected()
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 // Checkpoints returns the last durably processed offset per partition for topic.
