@@ -17,7 +17,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const DefaultTimezone = "Africa/Nairobi"
+const (
+	DefaultTimezone        = "Africa/Nairobi"
+	DefaultFunnelRetention = 90 * 24 * time.Hour
+)
 
 var (
 	ErrInvalidTimezone = errors.New("invalid IANA timezone")
@@ -382,7 +385,20 @@ func (s *Store) FunnelSummary(ctx context.Context, actor *auth.User, f Filter) (
 	return out, nil
 }
 
-// ExportCSV streams PII-free reconciled order rows for the given filter.
+// PurgeExpiredFunnelEvents deletes funnel records older than the configured retention window.
+func (s *Store) PurgeExpiredFunnelEvents(ctx context.Context, retention time.Duration) (int64, error) {
+	if retention <= 0 {
+		retention = DefaultFunnelRetention
+	}
+	cutoff := time.Now().UTC().Add(-retention)
+	tag, err := s.Pool.Exec(ctx, `DELETE FROM public.analytics_funnel_event WHERE occurred_at < $1`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// ExportCSV streams PII-free reconciled order and cross-period exchange rows for the given filter.
 func (s *Store) ExportCSV(ctx context.Context, actor *auth.User, f Filter, w io.Writer) error {
 	if actor == nil || actor.Role != auth.RoleOwner {
 		return auth.ErrPermissionDenied
@@ -395,17 +411,35 @@ func (s *Store) ExportCSV(ctx context.Context, actor *auth.User, f Filter, w io.
 
 	rows, err := tx.Query(ctx, `
 		SELECT
+			'order' AS record_type,
 			o.id,
-			to_char(o."updatedAt" AT TIME ZONE 'UTC' AT TIME ZONE $3, 'YYYY-MM-DD HH24:MI:SS'),
+			to_char(o."updatedAt" AT TIME ZONE 'UTC' AT TIME ZONE $3, 'YYYY-MM-DD HH24:MI:SS') AS event_at_local,
 			o."paymentStatus",
 			o."totalKes",
 			coalesce((SELECT sum(dq.amount_kes) FROM public.delivery_quote dq WHERE dq.order_id = o.id AND dq.status = 'accepted'), 0),
 			coalesce((SELECT dq.fee_recipient FROM public.delivery_quote dq WHERE dq.order_id = o.id AND dq.status = 'accepted' ORDER BY dq.version DESC LIMIT 1), 'none'),
-			coalesce((SELECT sum(er.price_difference_kes) FROM public.exchange_request er WHERE er.order_id = o.id AND er.status = 'completed'), 0)
+			coalesce((SELECT sum(er.price_difference_kes) FROM public.exchange_request er WHERE er.order_id = o.id AND er.status = 'completed' AND er.completed_at >= $1 AND er.completed_at < $2), 0),
+			o."updatedAt" AS sort_ts
 		FROM public."Order" o
 		WHERE o."paymentStatus" = 'PAID'
 		  AND o."updatedAt" >= $1 AND o."updatedAt" < $2
-		ORDER BY o."updatedAt" DESC, o.id DESC`,
+		UNION ALL
+		SELECT
+			'exchange_topup' AS record_type,
+			er.order_id,
+			to_char(er.completed_at AT TIME ZONE $3, 'YYYY-MM-DD HH24:MI:SS') AS event_at_local,
+			'EXCHANGE_COMPLETED',
+			0,
+			0,
+			'none',
+			er.price_difference_kes,
+			er.completed_at AT TIME ZONE 'UTC' AS sort_ts
+		FROM public.exchange_request er
+		JOIN public."Order" o ON o.id = er.order_id
+		WHERE er.status = 'completed'
+		  AND er.completed_at >= $1 AND er.completed_at < $2
+		  AND (o."updatedAt" < $1 OR o."updatedAt" >= $2)
+		ORDER BY sort_ts DESC, 2 DESC`,
 		f.StartUTC, f.EndUTC, f.Timezone)
 	if err != nil {
 		return err
@@ -414,6 +448,7 @@ func (s *Store) ExportCSV(ctx context.Context, actor *auth.User, f Filter, w io.
 
 	cw := csv.NewWriter(w)
 	if err := cw.Write([]string{
+		"record_type",
 		"order_id",
 		"paid_at_local",
 		"payment_status",
@@ -425,12 +460,14 @@ func (s *Store) ExportCSV(ctx context.Context, actor *auth.User, f Filter, w io.
 		return err
 	}
 	for rows.Next() {
-		var orderID, paidLocal, status, recipient string
+		var recType, orderID, paidLocal, status, recipient string
 		var prodRev, transportFee, exchTopup int
-		if err := rows.Scan(&orderID, &paidLocal, &status, &prodRev, &transportFee, &recipient, &exchTopup); err != nil {
+		var sortTS time.Time
+		if err := rows.Scan(&recType, &orderID, &paidLocal, &status, &prodRev, &transportFee, &recipient, &exchTopup, &sortTS); err != nil {
 			return err
 		}
 		if err := cw.Write([]string{
+			csvCell(recType),
 			csvCell(orderID),
 			csvCell(paidLocal),
 			csvCell(status),
