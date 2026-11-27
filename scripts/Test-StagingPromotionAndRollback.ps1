@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$PriorRevision = 'ba02b70'
+)
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
@@ -8,6 +10,7 @@ $runId = [guid]::NewGuid().ToString('N').Substring(0, 10)
 $project = 'bliss-r28-staging-' + $runId
 $secretDir = Join-Path $repoRoot ('.local/r28-' + $runId)
 $evidenceDir = Join-Path $repoRoot ('.local/r28-evidence-' + $runId)
+$v1Worktree = Join-Path $repoRoot ('.local/r28-v1-src-' + $runId)
 $v1Tag = 'r28-v1-' + $runId
 $v2Tag = 'r28-v2-' + $runId
 
@@ -30,10 +33,17 @@ Push-Location $repoRoot
 try {
     New-Item -ItemType Directory -Force -Path $secretDir, $evidenceDir | Out-Null
 
-    # 1. Build v1 candidate images once and export manifest with SHA-256 + image IDs.
-    $env:BLISS_IMAGE_TAG = $v1Tag
-    & docker compose -f compose.yaml build db api frontend
-    if ($LASTEXITCODE -ne 0) { throw 'Initial image build failed' }
+    # 1. Build v1 candidate images from prior supported revision ($PriorRevision) and export manifest with SHA-256 + image IDs.
+    & git worktree add --detach $v1Worktree $PriorRevision | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Failed to create worktree at $PriorRevision" }
+    Push-Location $v1Worktree
+    try {
+        $env:BLISS_IMAGE_TAG = $v1Tag
+        & docker compose -f compose.yaml build db api frontend
+        if ($LASTEXITCODE -ne 0) { throw 'v1 image build failed' }
+    } finally {
+        Pop-Location
+    }
 
     $manifestRecords = foreach ($svc in @('backend','frontend','postgres')) {
         $img = "bliss-${svc}:$v1Tag"
@@ -104,14 +114,16 @@ UPDATE public.catalog_product SET stock=5, opened=true WHERE id='p1';
     $orderId = $created.order.id
     if (-not $orderId) { throw 'Failed to create in-flight order on v1' }
 
-    # 3. Build distinct v2 candidate images (distinct image IDs) and verify in-flight order survives promotion.
-    docker build --label "bliss.release=$v2Tag" -t "bliss-backend:$v2Tag" -f Dockerfile .
+    # 3. Build distinct v2 candidate images from current HEAD source tree and verify in-flight order survives promotion.
+    docker build -t "bliss-backend:$v2Tag" -f Dockerfile .
     if ($LASTEXITCODE -ne 0) { throw 'v2 backend image build failed' }
-    docker build --label "bliss.release=$v2Tag" -t "bliss-frontend:$v2Tag" -f Dockerfile .
+    docker build -t "bliss-frontend:$v2Tag" -f Dockerfile .
     if ($LASTEXITCODE -ne 0) { throw 'v2 frontend image build failed' }
     $v1BackendId = (docker image inspect --format '{{.Id}}' "bliss-backend:$v1Tag").Trim()
     $v2BackendId = (docker image inspect --format '{{.Id}}' "bliss-backend:$v2Tag").Trim()
-    if ($v1BackendId -eq $v2BackendId) { throw 'Expected distinct v1 and v2 backend image IDs' }
+    $v1FrontendId = (docker image inspect --format '{{.Id}}' "bliss-frontend:$v1Tag").Trim()
+    $v2FrontendId = (docker image inspect --format '{{.Id}}' "bliss-frontend:$v2Tag").Trim()
+    if ($v1BackendId -eq $v2BackendId -or $v1FrontendId -eq $v2FrontendId) { throw 'Expected distinct v1 and v2 image IDs' }
     $env:BLISS_BACKEND_IMAGE = "bliss-backend:$v2Tag"
     $env:BLISS_FRONTEND_IMAGE = "bliss-frontend:$v2Tag"
 
@@ -145,6 +157,7 @@ UPDATE public.catalog_product SET stock=5, opened=true WHERE id='p1';
     foreach ($img in @("bliss-backend:$v1Tag", "bliss-frontend:$v1Tag", "bliss-postgres:$v1Tag", "bliss-backend:$v2Tag", "bliss-frontend:$v2Tag")) {
         docker image rm -f $img 2>$null | Out-Null
     }
+    if (Test-Path -LiteralPath $v1Worktree) { git worktree remove --force $v1Worktree *> $null }
     if (Test-Path -LiteralPath $secretDir) { Remove-Item -Recurse -Force -LiteralPath $secretDir *> $null }
     if (Test-Path -LiteralPath $evidenceDir) { Remove-Item -Recurse -Force -LiteralPath $evidenceDir *> $null }
     foreach ($k in $previous.Keys) { [Environment]::SetEnvironmentVariable($k, $previous[$k], 'Process') }
