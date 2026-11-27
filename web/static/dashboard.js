@@ -495,41 +495,58 @@
       "usersRows",
       users,
       (row, u) => {
-        [
-          u.id,
-          `${u.name} · ${u.email}`,
-          u.role,
-          u.is_active ? "Yes" : "No",
-          date(u.created_at),
-        ].forEach((v) => cell(row, v));
+        const name = u.name?.trim() || "Anonymous Shopper";
+        cell(row, name).className = "admin-user-name";
+        cell(row, u.email).className = "admin-user-email";
+        const role = el("span", u.role.charAt(0).toUpperCase() + u.role.slice(1));
+        role.className = "admin-role-badge";
+        cell(row, role);
+        const status = el("span", u.is_active ? "Active" : "Inactive");
+        status.className = `admin-status-pill ${u.is_active ? "is-active" : "is-inactive"}`;
+        cell(row, status);
+        cell(row, u.created_at ? new Date(u.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Nairobi" }) : "—");
         const controls = el("div");
         if (owner()) {
-          const select = el("select");
-          select.setAttribute(
-            "aria-label",
-            `New role for ${u.name || u.email}`,
-          );
-          for (const role of ["employee", "customer"]) {
-            const option = el("option", role);
-            option.value = role;
-            select.append(option);
+          if (u.role === "customer") {
+            controls.append(
+              action(
+                "Promote to Employee",
+                () =>
+                  mutate(
+                    `/admin/users/${encodeURIComponent(u.id)}/role`,
+                    { role: "employee" },
+                    "Customer promoted to employee.",
+                    loadUsers,
+                  ),
+                true,
+              ),
+            );
           }
-          if ([...select.options].some((option) => option.value === u.role))
-            select.value = u.role;
-          controls.append(
-            select,
-            action(
-              "Update role",
-              () =>
-                mutate(
-                  `/admin/users/${encodeURIComponent(u.id)}/role`,
-                  { role: select.value },
-                  "Role updated; the affected account must sign in again.",
-                  loadUsers,
-                ),
-              true,
-            ),
-          );
+
+          if (u.role === "employee") {
+            controls.append(
+              action(
+                "Revoke Staff",
+                () => {
+                  if (
+                    !window.confirm(
+                      "Revoke staff access and terminate all active sessions?",
+                    )
+                  ) {
+                    return;
+                  }
+
+                  return mutate(
+                    `/admin/users/${encodeURIComponent(u.id)}/role`,
+                    { role: "customer" },
+                    "Staff access revoked.",
+                    loadUsers,
+                  );
+                },
+                true,
+              ),
+            );
+          }
           if (u.role === "employee") {
             const permLabel = el("label");
             const permCheckbox = el("input");
@@ -537,7 +554,7 @@
             permCheckbox.checked = Boolean(u.can_manage_inventory);
             permCheckbox.setAttribute(
               "aria-label",
-              `Can manage inventory for ${u.name || u.email}`,
+              `Can manage inventory for ${name}`,
             );
             permLabel.append(permCheckbox, " Can manage inventory");
             controls.append(
@@ -575,28 +592,6 @@
     );
     pager("users", data.users?.length || 0);
   }
-  async function loadAudit() {
-    const data = await api(`/admin/audit-logs?${query("audit")}`);
-    const logs = (data.audit_logs || []).filter(
-      (entry) => owner() || ["employee", "customer"].includes(entry.actor_role),
-    );
-    table(
-      "auditRows",
-      logs,
-      (row, entry) => {
-        [
-          date(entry.created_at),
-          `${entry.user_id || "System"} · ${entry.actor_role}`,
-          entry.action,
-          `${entry.resource} · ${entry.resource_id}`,
-          entry.ip_address,
-        ].forEach((v) => cell(row, v));
-        cell(row, el("pre", JSON.stringify(entry.metadata || {}, null, 2)));
-      },
-      6,
-    );
-    pager("audit", data.audit_logs?.length || 0);
-  }
   const loaders = {
     orders: loadOrders,
     counter: loadCounterCatalog,
@@ -605,8 +600,6 @@
     unresolved: loadUnresolved,
     paymentAudit: loadPaymentAudit,
     users: loadUsers,
-    audit: loadAudit,
-    "audit-logs": loadAudit,
     payments: async () => {
       await Promise.all([
         loadExceptions(),
@@ -735,15 +728,13 @@
   }
   function sectionFromPath() {
     const last = window.location.pathname.split("/").filter(Boolean).pop();
-    return ["counter", "inventory", "payments", "users", "audit-logs"].includes(
-      last,
-    )
+    return ["counter", "inventory", "payments", "users"].includes(last)
       ? last
       : "orders";
   }
   function showSection(next) {
     if (
-      (!owner() && ["payments", "audit-logs"].includes(next)) ||
+      (!owner() && next === "payments") ||
       (!canManageInventory() && next === "inventory")
     ) {
       message("Your role does not permit this section.");

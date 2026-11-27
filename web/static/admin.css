@@ -172,6 +172,36 @@
   white-space: pre-wrap;
   font-size: 0.75rem;
 }
+#usersRows .admin-user-name {
+  font-weight: 600;
+  color: #f7f3eb;
+}
+#usersRows .admin-user-email {
+  color: #c9bfb1;
+  font-size: 0.8rem;
+}
+.admin-role-badge,
+.admin-status-pill {
+  display: inline-flex;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.admin-role-badge {
+  background: #342b1e;
+  color: #e6cfa9;
+}
+.admin-status-pill.is-active {
+  background: #203b2b;
+  color: #a3e5b5;
+}
+.admin-status-pill.is-inactive {
+  background: #393633;
+  color: #c9bfb1;
+}
+
 .admin-pager {
   display: flex;
   align-items: center;
