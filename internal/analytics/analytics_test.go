@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,7 +21,6 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/outbox"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reports"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"net/url"
 )
 
 func testDBPool(t *testing.T) *pgxpool.Pool {
@@ -85,7 +85,31 @@ func TestAnalyticsStore_OwnerAuthorizationRequired(t *testing.T) {
 	}
 }
 
-func TestAnalyticsStore_DeduplicationReorderingAndCrashSafety(t *testing.T) {
+func TestKafkaDialOpts_TLSAndSASL(t *testing.T) {
+	for _, mech := range []string{"plain", "scram-sha-256", "scram-sha-512"} {
+		opts, err := kafkaDialOpts(ClientConfig{
+			Brokers:       []string{"kafka.example.com:9093"},
+			TLS:           true,
+			SASLMechanism: mech,
+			SASLUsername:  "analytics",
+			SASLPassword:  "secret",
+		})
+		if err != nil {
+			t.Fatalf("mechanism %s failed: %v", mech, err)
+		}
+		if len(opts) < 3 {
+			t.Fatalf("expected seed, tls, and sasl opts for %s, got %d", mech, len(opts))
+		}
+	}
+	if _, err := kafkaDialOpts(ClientConfig{Brokers: []string{"b:9092"}, SASLMechanism: "invalid", SASLUsername: "u", SASLPassword: "p"}); err == nil {
+		t.Fatal("expected error for unsupported SASL mechanism")
+	}
+	if _, err := kafkaDialOpts(ClientConfig{Brokers: []string{"b:9092"}, SASLMechanism: "plain"}); err == nil {
+		t.Fatal("expected error for missing SASL credentials")
+	}
+}
+
+func TestAnalyticsStore_DeduplicationReorderingAndPendingUpdate(t *testing.T) {
 	pool := testDBPool(t)
 	ctx := context.Background()
 	store := NewStore(pool, "test-group-dedup")
@@ -93,16 +117,17 @@ func TestAnalyticsStore_DeduplicationReorderingAndCrashSafety(t *testing.T) {
 		t.Fatalf("reset: %v", err)
 	}
 
-	now := time.Now().UTC().Truncate(time.Second)
+	day1 := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
 
 	// Reordered: order.paid (v2) arrives BEFORE order.created (v1)
 	paidEnv, err := events.NewEvent(events.TypeAnalyticsOrderPaid, "ord-reorder-1", 2, "corr-1", events.AnalyticsOrderPaidPayload{
-		OrderID:           "ord-reorder-1",
-		Currency:          events.CurrencyKES,
-		ProductRevenueKes: 3500,
-		TransportFeeKes:   300,
-		FeeRecipient:      "merchant",
-		PaidAt:            now,
+		OrderID:              "ord-reorder-1",
+		Currency:             events.CurrencyKES,
+		ProductRevenueKes:    3500,
+		TransportMerchantKes: 300,
+		TransportCourierKes:  200,
+		PaidAt:               day1,
 	})
 	if err != nil {
 		t.Fatalf("new paid event: %v", err)
@@ -115,7 +140,7 @@ func TestAnalyticsStore_DeduplicationReorderingAndCrashSafety(t *testing.T) {
 		TotalKes:  3500,
 		ItemCount: 1,
 		Items:     []events.OrderItemPayload{{ProductID: "p1", Quantity: 1}},
-		CreatedAt: now.Add(-2 * time.Minute),
+		CreatedAt: day1.Add(-2 * time.Minute),
 	})
 	if err != nil {
 		t.Fatalf("new created event: %v", err)
@@ -138,30 +163,71 @@ func TestAnalyticsStore_DeduplicationReorderingAndCrashSafety(t *testing.T) {
 		t.Fatalf("apply stale created failed: applied=%v err=%v", appliedStale, err)
 	}
 
-	// Verify checkpoint recorded offset 11 and order remains PAID with 3500 KES + 300 merchant fee
+	// Pending order created on day1, then SwitchToPickup updated on day2
+	pendCreated, _ := events.NewEvent(events.TypeAnalyticsOrderCreated, "ord-pend-1", 1, "corr-2", events.AnalyticsOrderCreatedPayload{
+		OrderID:   "ord-pend-1",
+		Currency:  events.CurrencyKES,
+		TotalKes:  1800,
+		ItemCount: 1,
+		Items:     []events.OrderItemPayload{{ProductID: "p1", Quantity: 1}},
+		CreatedAt: day1,
+	})
+	pendUpdated, _ := events.NewEvent(events.TypeAnalyticsOrderUpdated, "ord-pend-1", 1, "corr-2", events.AnalyticsOrderUpdatedPayload{
+		OrderID:       "ord-pend-1",
+		Currency:      events.CurrencyKES,
+		TotalKes:      1800,
+		PaymentStatus: "PENDING",
+		UpdatedAt:     day2,
+	})
+	b1, _ := json.Marshal(pendCreated)
+	b2, _ := json.Marshal(pendUpdated)
+	if _, err := store.ApplyEvent(ctx, DefaultTopic, 0, 12, b1); err != nil {
+		t.Fatalf("apply pend created: %v", err)
+	}
+	if _, err := store.ApplyEvent(ctx, DefaultTopic, 0, 13, b2); err != nil {
+		t.Fatalf("apply pend updated: %v", err)
+	}
+
 	cps, err := store.Checkpoints(ctx, DefaultTopic)
 	if err != nil {
 		t.Fatalf("checkpoints: %v", err)
 	}
-	if cps[0] != 11 {
-		t.Fatalf("expected checkpoint offset 11, got %d", cps[0])
+	if cps[0] != 13 {
+		t.Fatalf("expected checkpoint offset 13, got %d", cps[0])
 	}
 
-	loc, _ := time.LoadLocation(reports.DefaultTimezone)
-	day := now.In(loc).Format("2006-01-02")
-	f, err := reports.ParseFilter(day, day, reports.DefaultTimezone, 50, 0)
+	owner := &auth.User{ID: "owner-1", Role: auth.RoleOwner}
+	fDay1, _ := reports.ParseFilter("2026-11-20", "2026-11-20", reports.DefaultTimezone, 50, 0)
+	s1, err := store.SalesSummary(ctx, owner, fDay1)
 	if err != nil {
-		t.Fatalf("parse filter: %v", err)
+		t.Fatalf("summary day1: %v", err)
 	}
-	summary, err := store.SalesSummary(ctx, &auth.User{ID: "owner-1", Role: auth.RoleOwner}, f)
+	if s1.PaidOrderCount != 1 || s1.PendingOrderCount != 0 {
+		t.Fatalf("day1 expected 1 paid / 0 pending, got %+v", s1)
+	}
+	if s1.SettledProductRevenueKes != 3500 || s1.TransportFeesMerchantKes != 300 || s1.TransportFeesCourierKes != 200 {
+		t.Fatalf("unexpected day1 revenue/transport totals: %+v", s1)
+	}
+
+	fDay2, _ := reports.ParseFilter("2026-11-21", "2026-11-21", reports.DefaultTimezone, 50, 0)
+	s2, err := store.SalesSummary(ctx, owner, fDay2)
 	if err != nil {
-		t.Fatalf("sales summary: %v", err)
+		t.Fatalf("summary day2: %v", err)
 	}
-	if summary.PaidOrderCount != 1 || summary.PendingOrderCount != 0 {
-		t.Fatalf("expected 1 paid / 0 pending, got %+v", summary)
+	if s2.PendingOrderCount != 1 {
+		t.Fatalf("day2 expected pending order count 1 after SwitchToPickup date update, got %+v", s2)
 	}
-	if summary.SettledProductRevenueKes != 3500 || summary.TransportFeesMerchantKes != 300 {
-		t.Fatalf("unexpected revenue totals: %+v", summary)
+
+	// Preflight failure on unavailable Kafka broker must NOT erase existing projections!
+	badCons := NewConsumer([]string{"127.0.0.1:1"}, DefaultTopic, "test-group-dedup", store, nil)
+	preflightCtx, cancelPreflight := context.WithTimeout(ctx, 2*time.Second)
+	defer cancelPreflight()
+	if _, err := badCons.ReplayAll(preflightCtx); err == nil {
+		t.Fatal("expected ReplayAll to fail when broker is unavailable")
+	}
+	afterErr, err := store.SalesSummary(ctx, owner, fDay1)
+	if err != nil || afterErr.SettledProductRevenueKes != 3500 {
+		t.Fatalf("expected existing projections to remain intact on replay failure, got %+v (err=%v)", afterErr, err)
 	}
 }
 
@@ -169,7 +235,6 @@ func TestAnalyticsReplay_ReproducesR22TotalsAndKafkaOutageIsolation(t *testing.T
 	pool := testDBPool(t)
 	ctx := context.Background()
 
-	// Clean relevant tables for deterministic R22 vs Kafka replay comparison
 	for _, stmt := range []string{
 		`DELETE FROM public.outbox_event WHERE destination = 'kafka'`,
 		`DELETE FROM public.payment_audit_ledger`,
@@ -190,7 +255,7 @@ func TestAnalyticsReplay_ReproducesR22TotalsAndKafkaOutageIsolation(t *testing.T
 	now := time.Now().UTC().Truncate(time.Second)
 	orderID := fmt.Sprintf("ord-r25-%d", now.UnixNano())
 
-	// Seed an order + accepted merchant delivery quote + exchange + audit correction
+	// Seed paid order + BOTH merchant AND courier accepted quotes + exchange + audit correction
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO public."Order" (id, "customerName", "customerPhone", "deliveryLocation", items, "totalKes", "paymentStatus", "createdAt", "updatedAt")
 		VALUES ($1, 'Alice', '254700000001', 'Mombasa', '[]'::jsonb, 4200, 'PAID', $2, $2)
@@ -199,9 +264,11 @@ func TestAnalyticsReplay_ReproducesR22TotalsAndKafkaOutageIsolation(t *testing.T
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO public.delivery_quote (order_id, version, amount_kes, fee_recipient, arrangement, status, expires_at, created_by)
-		VALUES ($1, 1, 350, 'merchant', 'rider', 'accepted', $2, 'owner-1')
+		VALUES
+		($1, 1, 350, 'merchant', 'rider', 'accepted', $2, 'owner-1'),
+		($1, 2, 450, 'courier', 'rider', 'accepted', $2, 'owner-1')
 	`, orderID, now); err != nil {
-		t.Fatalf("insert quote: %v", err)
+		t.Fatalf("insert quotes: %v", err)
 	}
 	var exchID string
 	if err := pool.QueryRow(ctx, `
@@ -220,37 +287,22 @@ func TestAnalyticsReplay_ReproducesR22TotalsAndKafkaOutageIsolation(t *testing.T
 		t.Fatalf("insert audit: %v", err)
 	}
 
-	// Simulate Kafka outage during business commits: outbox events remain pending in DB while R22/payment state is intact
-	tx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
+	// Verify BackfillToOutbox idempotently seeds historical rows into Kafka outbox
+	bf1, err := store.BackfillToOutbox(ctx)
+	if err != nil || bf1 != 3 {
+		t.Fatalf("expected 3 backfilled kafka outbox events, got %d (err=%v)", bf1, err)
 	}
-	outboxStore := outbox.NewStore(pool)
-	ePaid, _ := events.NewEvent(events.TypeAnalyticsOrderPaid, orderID, 2, "corr-r25", events.AnalyticsOrderPaidPayload{
-		OrderID: orderID, Currency: events.CurrencyKES, ProductRevenueKes: 4200, TransportFeeKes: 350, FeeRecipient: "merchant", PaidAt: now,
-	})
-	eExch, _ := events.NewEvent(events.TypeAnalyticsExchangeCompleted, orderID, 1, "corr-r25", events.AnalyticsExchangeCompletedPayload{
-		ExchangeID: exchID, OrderID: orderID, Currency: events.CurrencyKES, PriceDifferenceKes: 600, CompletedAt: now,
-	})
-	eCorr, _ := events.NewEvent(events.TypeAnalyticsPaymentCorrection, orderID, 1, "corr-r25", events.AnalyticsPaymentCorrectionPayload{
-		AuditID: auditID, OrderID: orderID, Action: orders.AuditActionManualSettlement, Currency: events.CurrencyKES, AmountKes: 4200, RecordedAt: now,
-	})
-	for _, ev := range []events.Envelope{ePaid, eExch, eCorr} {
-		if err := outboxStore.Enqueue(ctx, tx, ev, outbox.DestinationKafka); err != nil {
-			t.Fatalf("enqueue kafka outbox: %v", err)
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		t.Fatalf("commit outbox: %v", err)
+	bf2, err := store.BackfillToOutbox(ctx)
+	if err != nil || bf2 != 0 {
+		t.Fatalf("expected 0 on idempotent second backfill, got %d (err=%v)", bf2, err)
 	}
 
-	// Verify Kafka outage does not block outbox persistence or MarkFailed retries
+	outboxStore := outbox.NewStore(pool)
 	pendingCount, err := outboxStore.CountPending(ctx, outbox.DestinationKafka)
 	if err != nil || pendingCount != 3 {
 		t.Fatalf("expected 3 pending kafka outbox events, got %d (err=%v)", pendingCount, err)
 	}
 
-	// Drain/replay those events into analytics projections (or via live Kafka if GO_TEST_KAFKA_BROKERS is set)
 	if brokersEnv := os.Getenv("GO_TEST_KAFKA_BROKERS"); brokersEnv != "" {
 		brokers := strings.Split(brokersEnv, ",")
 		topic := fmt.Sprintf("bliss.analytics.test.%d", now.UnixNano())
@@ -283,6 +335,16 @@ func TestAnalyticsReplay_ReproducesR22TotalsAndKafkaOutageIsolation(t *testing.T
 			t.Fatalf("replay expected 3 events, got %d (err=%v)", replayed, err)
 		}
 	} else {
+		ePaid, _ := events.NewEvent(events.TypeAnalyticsOrderPaid, orderID, 2, "corr-r25", events.AnalyticsOrderPaidPayload{
+			OrderID: orderID, Currency: events.CurrencyKES, ProductRevenueKes: 4200,
+			TransportMerchantKes: 350, TransportCourierKes: 450, PaidAt: now,
+		})
+		eExch, _ := events.NewEvent(events.TypeAnalyticsExchangeCompleted, orderID, 1, "corr-r25", events.AnalyticsExchangeCompletedPayload{
+			ExchangeID: exchID, OrderID: orderID, Currency: events.CurrencyKES, PriceDifferenceKes: 600, CompletedAt: now,
+		})
+		eCorr, _ := events.NewEvent(events.TypeAnalyticsPaymentCorrection, orderID, 1, "corr-r25", events.AnalyticsPaymentCorrectionPayload{
+			AuditID: auditID, OrderID: orderID, Action: orders.AuditActionManualSettlement, Currency: events.CurrencyKES, AmountKes: 4200, RecordedAt: now,
+		})
 		for idx, ev := range []events.Envelope{ePaid, eExch, eCorr} {
 			body, _ := json.Marshal(ev)
 			if _, err := store.ApplyEvent(ctx, DefaultTopic, 0, int64(idx), body); err != nil {
