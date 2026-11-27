@@ -1,11 +1,4 @@
--- 0014_unused_perfume_exchanges.sql: unused-perfume exchange workflow, quarantined stock, and paid timestamp anchor.
-
-ALTER TABLE public."Order"
-    ADD COLUMN IF NOT EXISTS paid_at timestamptz;
-
-UPDATE public."Order"
-SET paid_at = "updatedAt"
-WHERE "paymentStatus" = 'PAID' AND paid_at IS NULL;
+-- 0014_unused_perfume_exchanges.sql: unused-perfume exchange workflow and quarantined stock.
 
 ALTER TABLE public.catalog_product
     ADD COLUMN IF NOT EXISTS quarantined_stock integer NOT NULL DEFAULT 0 CHECK (quarantined_stock >= 0);
