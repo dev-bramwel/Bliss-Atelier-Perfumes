@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/analytics"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/auth"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
@@ -243,6 +244,15 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		} else {
 			logger.Info("worker_messaging_disabled", "reason", "no_rabbitmq_url")
 		}
+		if len(cfg.KafkaBrokers) > 0 {
+			msgWg.Add(1)
+			go func() {
+				defer msgWg.Done()
+				runKafkaAnalyticsWorker(workerCtx, pool, cfg, logger)
+			}()
+		} else {
+			logger.Info("worker_kafka_analytics_disabled", "reason", "no_kafka_brokers")
+		}
 
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -394,6 +404,91 @@ func runMessagingWorker(ctx context.Context, pool *pgxpool.Pool, rabbitURL strin
 			return
 		}
 
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
+}
+
+func runKafkaAnalyticsWorker(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, logger *slog.Logger) {
+	outboxStore := outbox.NewStore(pool)
+	analyticsStore := analytics.NewStore(pool, cfg.KafkaConsumerGroup)
+	backoff := 2 * time.Second
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		ensureCtx, cancelEnsure := context.WithTimeout(ctx, cfg.IOTimeout)
+		err := analytics.EnsureTopic(ensureCtx, cfg.KafkaBrokers, cfg.KafkaTopic, cfg.KafkaRetentionMs)
+		cancelEnsure()
+		if err != nil {
+			logger.Warn("kafka_ensure_topic_failed", "topic", cfg.KafkaTopic, "error", err.Error(), "retry_in", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+		}
+
+		prod, err := analytics.NewProducer(cfg.KafkaBrokers, cfg.KafkaTopic)
+		if err != nil {
+			logger.Warn("kafka_producer_init_failed", "error", err.Error(), "retry_in", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+		}
+
+		logger.Info("kafka_analytics_connected", "topic", cfg.KafkaTopic, "group", cfg.KafkaConsumerGroup)
+		backoff = 2 * time.Second
+
+		kCtx, cancelK := context.WithCancel(ctx)
+		var wg sync.WaitGroup
+
+		pubCfg := outbox.DefaultPublisherConfig()
+		pubCfg.Destination = outbox.DestinationKafka
+		pub := outbox.NewBackgroundPublisher(outboxStore, prod, pubCfg, logger)
+		cons := analytics.NewConsumer(cfg.KafkaBrokers, cfg.KafkaTopic, cfg.KafkaConsumerGroup, analyticsStore, logger)
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := pub.Start(kCtx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("kafka_outbox_publisher_error", "error", err.Error())
+				cancelK()
+			}
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := cons.Start(kCtx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("kafka_analytics_consumer_error", "error", err.Error())
+				cancelK()
+			}
+		}()
+
+		<-kCtx.Done()
+		cancelK()
+		_ = prod.Close()
+		wg.Wait()
+
+		if ctx.Err() != nil {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
