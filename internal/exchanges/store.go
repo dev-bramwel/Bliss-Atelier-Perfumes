@@ -254,9 +254,9 @@ func (s *Store) CreateRequest(ctx context.Context, actor *auth.User, in CreateRe
 	err = tx.QueryRow(ctx, `
 		SELECT o."paymentStatus",
 			COALESCE(
-				o.paid_at,
 				(SELECT max(pa.updated_at) FROM public.payment_attempt pa WHERE pa.order_id = o.id AND pa.status = 'succeeded'),
 				(SELECT max(pal.created_at) FROM public.payment_audit_ledger pal WHERE pal.order_id = o.id),
+				(SELECT m."updatedAt" FROM public."MpesaTransaction" m WHERE m."orderId" = o.id AND m.status IN ('PAID', 'COMPLETED', 'SUCCESS')),
 				o."updatedAt"
 			)
 		FROM public."Order" o
