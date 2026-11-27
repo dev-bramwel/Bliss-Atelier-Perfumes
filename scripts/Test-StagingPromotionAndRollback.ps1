@@ -104,9 +104,14 @@ UPDATE public.catalog_product SET stock=5, opened=true WHERE id='p1';
     $orderId = $created.order.id
     if (-not $orderId) { throw 'Failed to create in-flight order on v1' }
 
-    # 3. Promote to v2 candidate images (tag-promoted without rebuild) and verify in-flight order survives.
-    docker tag "bliss-backend:$v1Tag" "bliss-backend:$v2Tag"
-    docker tag "bliss-frontend:$v1Tag" "bliss-frontend:$v2Tag"
+    # 3. Build distinct v2 candidate images (distinct image IDs) and verify in-flight order survives promotion.
+    docker build --label "bliss.release=$v2Tag" -t "bliss-backend:$v2Tag" -f Dockerfile .
+    if ($LASTEXITCODE -ne 0) { throw 'v2 backend image build failed' }
+    docker build --label "bliss.release=$v2Tag" -t "bliss-frontend:$v2Tag" -f Dockerfile .
+    if ($LASTEXITCODE -ne 0) { throw 'v2 frontend image build failed' }
+    $v1BackendId = (docker image inspect --format '{{.Id}}' "bliss-backend:$v1Tag").Trim()
+    $v2BackendId = (docker image inspect --format '{{.Id}}' "bliss-backend:$v2Tag").Trim()
+    if ($v1BackendId -eq $v2BackendId) { throw 'Expected distinct v1 and v2 backend image IDs' }
     $env:BLISS_BACKEND_IMAGE = "bliss-backend:$v2Tag"
     $env:BLISS_FRONTEND_IMAGE = "bliss-frontend:$v2Tag"
 
