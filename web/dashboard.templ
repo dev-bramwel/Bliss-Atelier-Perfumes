@@ -17,6 +17,7 @@ templ DashboardPage(products []catalog.Product) {
   <div id="adminWorkspace" hidden>
    <nav class="admin-nav" aria-label="Atelier administration">
     <a href="/admin/orders" data-section="orders">Orders &amp; fulfillment</a>
+    <a href="/admin/exchanges" data-section="exchanges">Exchanges</a>
     <a href="/admin/inventory" data-section="inventory" data-inventory hidden>Catalog &amp; inventory</a>
     <a href="/admin/payments" data-section="payments" data-owner hidden>Payment exceptions</a>
     <a href="/admin/users" data-section="users">Users</a>
@@ -55,6 +56,11 @@ templ DashboardPage(products []catalog.Product) {
     <div class="admin-table-wrap"><table><caption class="sr-only">Users visible to your role</caption><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody id="usersRows"></tbody></table></div>
     @AdminPager("users")
    </section>
+   <section id="panelExchanges" data-panel="exchanges" class="admin-panel" hidden>
+    <div class="admin-section-heading"><div><h2>Unused-perfume exchanges</h2><p>Shop-only within 48 hours of payment. Returned bottles stay quarantined until inspected and approved.</p></div><div><button type="button" data-refresh="exchanges">Refresh exchanges</button><button id="openExchangeCreate" type="button" data-mutation>New exchange</button></div></div>
+    <div class="admin-table-wrap"><table><caption class="sr-only">Unused-perfume exchange requests</caption><thead><tr><th>Exchange</th><th>Order</th><th>Returned → Replacement</th><th>Price diff</th><th>Status</th><th>Actions</th></tr></thead><tbody id="exchangesRows"></tbody></table></div>
+    @AdminPager("exchanges")
+   </section>
    <p id="adminUpdated" class="admin-updated" aria-live="polite"></p>
   </div>
   <dialog id="orderDialog" class="admin-dialog" aria-labelledby="orderDialogTitle"><div class="admin-dialog-heading"><h2 id="orderDialogTitle">Order details</h2><button type="button" data-close-dialog aria-label="Close order details">Close</button></div><div id="orderDetails"></div>
@@ -67,6 +73,13 @@ templ DashboardPage(products []catalog.Product) {
   </dialog>
   <dialog id="settlementDialog" class="admin-dialog" aria-labelledby="settlementDialogTitle"><div class="admin-dialog-heading"><h2 id="settlementDialogTitle">Verified manual settlement</h2><button type="button" data-close-dialog aria-label="Close manual settlement">Close</button></div><form id="settlementForm"><label>Order ID<input name="order_id" maxlength="128" required/></label><label>Amount (KES)<input name="amount_kes" type="number" min="1" max="1000000" step="1" required/></label><label>M-Pesa receipt number<input name="receipt_number" maxlength="128" required/></label><label>Evidence reference<input name="evidence" maxlength="512" required/></label><label>Notes<textarea name="notes" maxlength="2000" required></textarea></label><button type="submit" data-mutation>Record manual settlement</button></form></dialog>
   <dialog id="addInventoryDialog" class="admin-dialog" aria-labelledby="addInventoryTitle"><div class="admin-dialog-heading"><h2 id="addInventoryTitle">Add inventory</h2><button type="button" data-close-dialog aria-label="Close add inventory">Close</button></div><form id="addInventoryForm"><label>Product<select id="restockProduct" name="product_id" required></select></label><label>Quantity added<input name="quantity" type="number" min="1" max="1000000" step="1" required/></label><label>Reference / Batch note<input name="reference" maxlength="512" placeholder="e.g. Shipment arrival batch INV-2026-11-24" required/></label><button type="submit" data-mutation>Confirm restock</button><p id="addInventoryStatus" class="admin-dialog-status" aria-live="polite"></p></form></dialog>
+  <dialog id="exchangeCreateDialog" class="admin-dialog" aria-labelledby="exchangeCreateTitle"><div class="admin-dialog-heading"><h2 id="exchangeCreateTitle">Request unused-perfume exchange</h2><button type="button" data-close-dialog aria-label="Close new exchange">Close</button></div><form id="exchangeCreateForm"><label>Paid Order ID<input name="order_id" maxlength="128" required/></label><label>Returned Product ID<input name="returned_product_id" maxlength="64" required/></label><label>Returned Quantity<input name="returned_quantity" type="number" min="1" max="100" step="1" value="1" required/></label><label>Replacement Product ID<input name="replacement_product_id" maxlength="64" required/></label><label>Replacement Quantity<input name="replacement_quantity" type="number" min="1" max="100" step="1" value="1" required/></label><label>Reason<textarea name="reason" maxlength="512" required></textarea></label><button type="submit" data-mutation>Submit exchange request</button></form></dialog>
+  <dialog id="exchangeActionDialog" class="admin-dialog" aria-labelledby="exchangeActionTitle"><div class="admin-dialog-heading"><h2 id="exchangeActionTitle">Exchange workflow</h2><button type="button" data-close-dialog aria-label="Close exchange workflow">Close</button></div><div id="exchangeDetails"></div>
+   <form id="exchangeInspectForm" hidden><h3>Inspect returned bottle</h3><label><input type="checkbox" name="passed" value="true"/> Bottle is unopened and unsprayed</label><label>Inspection notes<textarea name="notes" maxlength="1000" required></textarea></label><button type="submit" data-mutation>Record inspection</button></form>
+   <form id="exchangeApproveForm" hidden><h3>Approve exchange</h3><label>Approval reason<input name="reason" maxlength="512" required/></label><button type="submit" data-mutation>Approve exchange</button></form>
+   <form id="exchangeRejectForm" hidden><h3>Reject exchange</h3><label>Rejection reason<input name="reason" maxlength="512" required/></label><button type="submit" data-mutation>Reject exchange</button></form>
+   <form id="exchangeCompleteForm" hidden><h3>Complete exchange</h3><label>Top-up M-Pesa receipt (required if price diff &gt; 0)<input name="topup_receipt" maxlength="128"/></label><label>Top-up evidence (required if price diff &gt; 0)<input name="topup_evidence" maxlength="512"/></label><button type="submit" data-mutation>Complete exchange</button></form>
+  </dialog>
   <noscript><p>Enable JavaScript to sign in and use the operations dashboard.</p></noscript>
  </main>
 }

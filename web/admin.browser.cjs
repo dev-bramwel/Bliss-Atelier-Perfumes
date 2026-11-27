@@ -60,6 +60,7 @@ const exception = {
       let revoked = false,
         offered = null,
         failWrite = false,
+        exchangeState = null,
         customerActive = role !== "owner";
       const userRoles = {
         "usr-owner": "owner",
@@ -127,6 +128,46 @@ const exception = {
                 quantity: request.postDataJSON()?.quantity,
               },
             });
+          }
+          if (endpoint === "/api/operations/exchanges") {
+            const body = request.postDataJSON();
+            exchangeState = {
+              id: "11111111-1111-1111-1111-111111111111",
+              order_id: body.order_id,
+              status: "requested",
+              reason: body.reason,
+              price_difference_kes: 1000,
+              items: [
+                {
+                  returned_product_id: body.returned_product_id,
+                  returned_product_name: "Arabian Wood",
+                  returned_quantity: body.returned_quantity,
+                  replacement_product_id: body.replacement_product_id,
+                  replacement_product_name: "Aventus Man",
+                  replacement_quantity: body.replacement_quantity,
+                  quarantine_status: "quarantined",
+                },
+              ],
+            };
+            return route.fulfill({ status: 201, json: exchangeState });
+          }
+          if (endpoint.startsWith("/api/operations/exchanges/") && endpoint.endsWith("/inspect")) {
+            const body = request.postDataJSON();
+            exchangeState.status = "inspected";
+            exchangeState.inspection_passed = Boolean(body.passed);
+            exchangeState.inspection_notes = body.notes;
+            return route.fulfill({ json: exchangeState });
+          }
+          if (endpoint.startsWith("/api/operations/exchanges/") && endpoint.endsWith("/approve")) {
+            exchangeState.status = "approved";
+            exchangeState.decision_reason = request.postDataJSON().reason;
+            return route.fulfill({ json: exchangeState });
+          }
+          if (endpoint.startsWith("/api/operations/exchanges/") && endpoint.endsWith("/complete")) {
+            exchangeState.status = "completed";
+            exchangeState.topup_receipt = request.postDataJSON().topup_receipt;
+            exchangeState.items[0].quarantine_status = "released_to_stock";
+            return route.fulfill({ json: exchangeState });
           }
           if (
             endpoint.startsWith("/api/admin/users/") &&
@@ -209,6 +250,13 @@ const exception = {
                   created_at: "2026-11-20T10:00:00Z",
                 },
               ],
+            },
+          });
+        if (endpoint.endsWith("/operations/exchanges"))
+          return route.fulfill({
+            json: {
+              exchanges: exchangeState ? [exchangeState] : [],
+              total: exchangeState ? 1 : 0,
             },
           });
         return route.fulfill({
@@ -513,6 +561,29 @@ const exception = {
                 w.body.is_active === true,
             ),
           );
+          await page.goto(base + "/admin/exchanges");
+          await page.waitForSelector("#openExchangeCreate");
+          await page.locator("#openExchangeCreate").click();
+          await page.fill('#exchangeCreateForm [name="order_id"]', "ord-paid-1");
+          await page.fill('#exchangeCreateForm [name="returned_product_id"]', "p1");
+          await page.fill('#exchangeCreateForm [name="replacement_product_id"]', "p2");
+          await page.fill('#exchangeCreateForm [name="reason"]', "Scent upgrade at shop");
+          await page.locator('#exchangeCreateForm button[type="submit"]').click();
+          await page.waitForSelector('#exchangesRows button');
+          await page.getByRole("button", { name: "Manage exchange" }).click();
+          await page.check('#exchangeInspectForm [name="passed"]');
+          await page.fill('#exchangeInspectForm [name="notes"]', "Unopened and unsprayed");
+          await page.locator('#exchangeInspectForm button[type="submit"]').click();
+          await page.waitForFunction(() => document.getElementById("exchangesRows").textContent.includes("inspected"));
+          await page.getByRole("button", { name: "Manage exchange" }).click();
+          await page.fill('#exchangeApproveForm [name="reason"]', "Within 48h window");
+          await page.locator('#exchangeApproveForm button[type="submit"]').click();
+          await page.waitForFunction(() => document.getElementById("exchangesRows").textContent.includes("approved"));
+          await page.getByRole("button", { name: "Manage exchange" }).click();
+          await page.fill('#exchangeCompleteForm [name="topup_receipt"]', "MPESA-TOP-1");
+          await page.fill('#exchangeCompleteForm [name="topup_evidence"]', "Counter STK");
+          await page.locator('#exchangeCompleteForm button[type="submit"]').click();
+          await page.waitForFunction(() => document.getElementById("exchangesRows").textContent.includes("completed"));
         }
         await page.setViewportSize({ width: 390, height: 844 });
         await page.screenshot({

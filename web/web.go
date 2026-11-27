@@ -65,7 +65,7 @@ func Handler(catalogStore httpapi.Catalog) http.Handler {
 			render(w, r, "Your order", "/static/checkout.js", CheckoutPage())
 		})
 	}
-	for _, path := range []string{"/admin", "/admin/orders", "/admin/inventory", "/admin/payments", "/admin/users", "/admin/audit-logs"} {
+	for _, path := range []string{"/admin", "/admin/orders", "/admin/exchanges", "/admin/inventory", "/admin/payments", "/admin/users", "/admin/audit-logs"} {
 		mux.HandleFunc("GET "+path, func(w http.ResponseWriter, r *http.Request) {
 			render(w, r, "Dashboard", "/static/dashboard.js", DashboardPage(nil))
 		})

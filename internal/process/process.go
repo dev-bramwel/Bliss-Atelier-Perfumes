@@ -22,6 +22,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/exchanges"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/httpapi"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
@@ -181,10 +182,12 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			paymentProv, _ = provider.NewNCBA(ncbaConfig, ncbaClient)
 		}
 		var ops httpapi.OperationsService
+		var exch httpapi.ExchangeService
 		if pool != nil {
 			ops = &operations.Store{Pool: pool, Invalidator: catalogCache}
+			exch = &exchanges.Store{Pool: pool, Invalidator: catalogCache}
 		}
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService, ops).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService, ops, exch).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		if pool == nil || orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")
