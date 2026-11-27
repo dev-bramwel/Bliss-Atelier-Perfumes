@@ -45,8 +45,10 @@ func TestWebHandler_ScriptOrder(t *testing.T) {
 		{"dashboard page", "/dashboard", "/static/dashboard.js", true},
 		{"admin entry", "/admin", "/static/dashboard.js", true},
 		{"admin orders", "/admin/orders", "/static/dashboard.js", true},
+		{"admin exchanges", "/admin/exchanges", "/static/dashboard.js", true},
 		{"admin inventory", "/admin/inventory", "/static/dashboard.js", true},
 		{"admin payments", "/admin/payments", "/static/dashboard.js", true},
+		{"admin reports", "/admin/reports", "/static/dashboard.js", true},
 		{"admin users", "/admin/users", "/static/dashboard.js", true},
 		{"admin audit", "/admin/audit-logs", "/static/dashboard.js", true},
 		{"cart page", "/cart", "/static/cart.js", true},
@@ -194,6 +196,24 @@ func TestWebHandler_PWAMetadata(t *testing.T) {
 	for _, value := range expected {
 		if !strings.Contains(body, value) {
 			t.Errorf("missing PWA element: %s", value)
+		}
+	}
+}
+
+func TestWebHandler_PrivacyNoticeRendered(t *testing.T) {
+	h := Handler(&mockCatalog{})
+	for _, path := range []string{"/", "/cart", "/checkout"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d", path, rec.Code)
+		}
+		body := rec.Body.String()
+		for _, want := range []string{`id="privacyNoticeTrigger"`, `id="privacyModal"`, `Privacy &amp; Data Notice`, `session-only`} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("%s: expected %q in rendered HTML", path, want)
+			}
 		}
 	}
 }

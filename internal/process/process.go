@@ -22,6 +22,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/exchanges"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/httpapi"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
@@ -31,6 +32,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reconciliation"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reports"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/worker"
 )
@@ -181,10 +183,14 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			paymentProv, _ = provider.NewNCBA(ncbaConfig, ncbaClient)
 		}
 		var ops httpapi.OperationsService
+		var exch httpapi.ExchangeService
+		var rep httpapi.ReportService
 		if pool != nil {
 			ops = &operations.Store{Pool: pool, Invalidator: catalogCache}
+			exch = &exchanges.Store{Pool: pool, Invalidator: catalogCache}
+			rep = &reports.Store{Pool: pool}
 		}
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService, ops).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService, ops, exch, rep).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		if pool == nil || orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")
@@ -270,6 +276,12 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 				logger.Error("dlq_gauge_sync_failed", "error", err.Error())
 			}
 		}
+		reportStore := &reports.Store{Pool: pool}
+		if purged, err := reportStore.PurgeExpiredFunnelEvents(ctx, reports.DefaultFunnelRetention); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("funnel_purge_failed", "error", err.Error())
+		} else if purged > 0 {
+			logger.Info("funnel_events_purged", "count", purged)
+		}
 
 		for {
 			select {
@@ -304,6 +316,11 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 						"pending", summary.Pending,
 						"exceptions_raised", summary.ExceptionsRaised,
 					)
+				}
+				if purged, err := reportStore.PurgeExpiredFunnelEvents(sweepCtx, reports.DefaultFunnelRetention); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error("funnel_purge_failed", "error", err.Error())
+				} else if purged > 0 {
+					logger.Info("funnel_events_purged", "count", purged)
 				}
 				if pool != nil {
 					if _, err := worker.SyncDLQGauge(sweepCtx, pool); err != nil && !errors.Is(err, context.Canceled) {

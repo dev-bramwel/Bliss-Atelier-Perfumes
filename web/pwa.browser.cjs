@@ -12,6 +12,9 @@ async function main() {
         const context = await browser.newContext({
             serviceWorkers: "allow"
         });
+        await context.route("**/api/health/live", (route) =>
+            route.fulfill({ status: 200, json: { status: "alive" } })
+        );
 
         const page = await context.newPage();
 

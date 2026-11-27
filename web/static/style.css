@@ -188,6 +188,27 @@ body {
   color: #d8c4a1;
 }
 
+.footer-privacy-note {
+  color: #b8ab96;
+  line-height: 1.6;
+}
+
+.footer-privacy-btn {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.footer-privacy-btn:hover {
+  color: #dec9a8;
+}
+
 .social-btn {
   width: 42px;
   height: 42px;

@@ -128,6 +128,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	var catalogCache CatalogCacheProvider
 	var authService *auth.Service
 	var operationsStore OperationsService
+	var exchangeStore ExchangeService
+	var reportStore ReportService
 
 	for _, d := range deps {
 		switch v := d.(type) {
@@ -151,6 +153,10 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 			authService = v
 		case OperationsService:
 			operationsStore = v
+		case ExchangeService:
+			exchangeStore = v
+		case ReportService:
+			reportStore = v
 		}
 	}
 
@@ -250,6 +256,8 @@ func New(address string, timeout time.Duration, ping Ping, deps ...any) *API {
 	registerAuthRoutes(mux, authService, proxyChecker)
 	registerAdminRoutes(mux, authService, proxyChecker)
 	registerOperationsRoutes(mux, operationsStore, proxyChecker)
+	registerExchangeRoutes(mux, exchangeStore, proxyChecker)
+	registerReportRoutes(mux, reportStore, proxyChecker)
 
 	catalogHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

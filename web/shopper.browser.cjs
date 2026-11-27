@@ -39,6 +39,7 @@ async function fixture(browser, authenticated = false) {
     creates: [],
     retries: [],
     mutations: [],
+    funnelEvents: [],
     polls: 0,
     orderReads: 0,
     throttleNext: false,
@@ -69,6 +70,10 @@ async function fixture(browser, authenticated = false) {
         body: JSON.stringify(data),
       });
     if (endpoint === "/api/health/live") return response({ status: "alive" });
+    if (endpoint === "/api/events/funnel" && req.method() === "POST") {
+      state.funnelEvents.push(req.postDataJSON());
+      return response({ status: "accepted" }, 202);
+    }
     if (endpoint === "/api/catalog") return response({ products: [product] });
     if (endpoint === "/api/auth/me")
       return response(
@@ -470,6 +475,7 @@ async function offered(f) {
       await h.page.waitForURL("**/order/ord-fixture");
       assert.notEqual(h.state.creates[0].key, h.state.creates[1].key);
       assert.match(h.state.creates[1].body, /Edited after stock conflict/);
+      assert.ok(h.state.funnelEvents.some((e) => e.event_type === "checkout_start"));
       assert.deepEqual(h.errors, []);
       await h.context.close();
       console.log("PASS shopper browser:", engine);
