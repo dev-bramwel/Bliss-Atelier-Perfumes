@@ -132,3 +132,21 @@ func TestWebHandler_CacheControl(t *testing.T) {
 		}
 	}
 }
+
+func TestWebHandler_PrivacyNoticeRendered(t *testing.T) {
+	h := Handler(&mockCatalog{})
+	for _, path := range []string{"/", "/cart", "/checkout"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d", path, rec.Code)
+		}
+		body := rec.Body.String()
+		for _, want := range []string{`id="privacyNoticeTrigger"`, `id="privacyModal"`, `Privacy &amp; Data Notice`, `session-only`} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("%s: expected %q in rendered HTML", path, want)
+			}
+		}
+	}
+}
