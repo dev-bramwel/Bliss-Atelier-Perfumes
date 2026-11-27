@@ -414,7 +414,7 @@ func (s *Store) CreateOrder(ctx context.Context, req CreateOrderRequest) (*Order
 	// Save a replayable response in the order transaction. A lost response or
 	// interrupted provider call must never make the same key create another sale.
 	if req.Channel == "counter" && req.CounterIdempotencyKey != "" {
-		body, err := json.Marshal(map[string]any{"order": order, "quote_required": false, "stkPush": nil})
+		body, err := json.Marshal(map[string]any{"order": order, "quote_required": false, "stkPush": nil, "warning": "Order saved. Payment initiation is not confirmed. Check payment status before retrying."})
 		if err != nil {
 			return nil, err
 		}

@@ -214,6 +214,12 @@ func TestCounterOrderAssignmentAndAutomaticCollection(t *testing.T) {
 	req.AssignedEmployeeID = "counter-employee"
 	req.Customer.Delivery = "showroom_pickup"
 
+	req.CounterIdempotencyKey = "counter-recovery-key"
+	_, replay, err := store.BeginIdempotent(ctx, req.CounterIdempotencyKey, "counter:counter-employee", "create_order", "counter-test-hash", time.Hour)
+	if err != nil || replay {
+		t.Fatalf("expected fresh idempotency record, replay=%v, err=%v", replay, err)
+	}
+
 	order, err := store.CreateOrder(ctx, req)
 	if err != nil {
 		t.Fatalf("CreateOrder failed: %v", err)
@@ -221,9 +227,32 @@ func TestCounterOrderAssignmentAndAutomaticCollection(t *testing.T) {
 	if order.Channel != "counter" {
 		t.Fatalf("expected counter channel, got %q", order.Channel)
 	}
+	record, replay, err := store.BeginIdempotent(ctx, req.CounterIdempotencyKey, "counter:counter-employee", "create_order", "counter-test-hash", time.Hour)
+	if err != nil || !replay || record == nil {
+		t.Fatalf("expected saved checkout replay, got %v, %v", replay, err)
+	}
+	if record.ResourceID != order.ID || record.StatusCode != 201 {
+		t.Fatalf("unexpected replay record: %+v", record)
+	}
+	if !strings.Contains(record.ResponseBody, "Payment initiation is not confirmed") {
+		t.Fatal("missing payment recovery warning")
+	}
+
 	var assigned string
 	if err = pool.QueryRow(ctx, `SELECT user_id FROM public.order_assignment WHERE order_id=$1`, order.ID).Scan(&assigned); err != nil || assigned != "counter-employee" {
 		t.Fatalf("counter order assignment = %q, %v", assigned, err)
+	}
+
+	_, err = store.CreatePaymentAttempt(ctx, order.ID, "254712345678", order.TotalKes, "mpesa_stk")
+	if !errors.Is(err, ErrUnresolvedPaymentAttempt) {
+		t.Fatalf("expected unresolved payment rejection, got %v", err)
+	}
+	if err = store.UpdatePaymentAttempt(ctx, order.LatestAttempt.ID, AttemptFailed, "", "", "Initiation timed out before provider transaction ID was established"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.CreatePaymentAttempt(ctx, order.ID, "254712345678", order.TotalKes, "mpesa_stk")
+	if !errors.Is(err, ErrUnresolvedPaymentAttempt) {
+		t.Fatalf("expected ambiguous payment rejection, got %v", err)
 	}
 
 	if err = store.ConfirmPayment(ctx, order.ID, "COUNTER-RECEIPT", order.TotalKes); err != nil {

@@ -6,7 +6,7 @@
     "totalKes": 2
   },
   "created": {
-    "order": {"id": "cm1234567890123456789012345", "createdAt": "2026-10-21T00:00:00.000Z", "updatedAt": "2026-10-21T00:00:00.000Z", "customerName": "Fixture Buyer", "customerPhone": "0700000000", "deliveryLocation": "Fixture location", "deliveryOption": "pickup", "notes": "Synthetic test only", "paymentMethod": "pay_now", "paymentStatus": "PENDING", "totalKes": 4000, "items": [{"id": "p1", "name": "Arabian Wood", "size": "100ml", "priceKes": 2000, "qty": 2}]},
+    "order": {"channel": "online", "id": "cm1234567890123456789012345", "createdAt": "2026-10-21T00:00:00.000Z", "updatedAt": "2026-10-21T00:00:00.000Z", "customerName": "Fixture Buyer", "customerPhone": "0700000000", "deliveryLocation": "Fixture location", "deliveryOption": "pickup", "notes": "Synthetic test only", "paymentMethod": "pay_now", "paymentStatus": "PENDING", "totalKes": 4000, "items": [{"id": "p1", "name": "Arabian Wood", "size": "100ml", "priceKes": 2000, "qty": 2}]},
     "stkPush": {"merchantRequestId": "fixture-merchant", "checkoutRequestId": "fixture-checkout", "responseDescription": "Accepted"}
   },
   "initiationFailure": {"stkPush": null, "warning": "Order saved but M-Pesa STK initiation failed. Check your Daraja credentials."},

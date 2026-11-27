@@ -266,6 +266,17 @@
   function renderCounterCart() {
     const root = $("counterCartItems");
     root.replaceChildren();
+    if (counterOrder) {
+      for (const item of counterOrder.items || []) {
+        const line = el("div");
+        line.className = "counter-cart-line";
+        line.append(el("span", `${item.productName || item.name} · ${item.productSize} × ${item.qty}`), el("span", money(item.subtotalKes)));
+        root.append(line);
+      }
+      $("counterTotal").textContent = money(counterOrder.totalKes || 0);
+      guard();
+      return;
+    }
     let total = 0;
     for (const [id, quantity] of counterCart) {
       const product = counterProduct(id);
@@ -311,16 +322,21 @@
     node.dataset.kind = kind;
     node.hidden = !text;
   }
+  let counterPollGeneration = 0;
   function stopCounterPolling() {
+    counterPollGeneration++;
     if (counterPollTimer) clearTimeout(counterPollTimer);
     counterPollTimer = null;
   }
   async function pollCounterPayment() {
     if (!counterOrder || connection.offline) return;
+    stopCounterPolling();
+    const generation = counterPollGeneration;
     try {
       const status = await api(
         `/orders/${encodeURIComponent(counterOrder.id)}/payment-status`,
       );
+      if (generation !== counterPollGeneration) return;
       const attempt = status.latestAttempt || {};
       if (status.paymentStatus === "PAID" && status.fulfillmentStatus === "fulfilled") {
         stopCounterPolling();
@@ -349,13 +365,19 @@
             "The M-Pesa request did not complete. Confirm with the customer before retrying.",
           "error",
         );
-        $("counterRetry").hidden = status.paymentStatus !== "PENDING";
+        $("counterRetry").hidden = status.paymentStatus !== "PENDING" || !["failed", "cancelled", "expired"].includes(attempt.status) || attempt.errorMessage === "Initiation timed out before provider transaction ID was established";
         $("counterNewSale").hidden = !["FAILED", "EXPIRED"].includes(status.paymentStatus);
+        if (["PENDING", "RESOLUTION_REQUIRED"].includes(status.paymentStatus)) {
+          counterPollTimer = setTimeout(pollCounterPayment, 2000);
+        }
         return;
       }
-      counterState("Waiting for the customer to complete the M-Pesa prompt…");
+      $("counterRetry").hidden = true;
+      counterState(attempt.status === "accepted" ? "Waiting for the customer to complete the M-Pesa prompt…" : "Payment initiation is unconfirmed. Verify payment before attempting another sale.");
       counterPollTimer = setTimeout(pollCounterPayment, 2000);
     } catch (error) {
+      if (generation !== counterPollGeneration) return;
+      $("counterRetry").hidden = true;
       counterState(error.message, "error");
       counterPollTimer = setTimeout(pollCounterPayment, 5000);
     }
@@ -363,10 +385,12 @@
   async function loadCounterCatalog(render = true) {
     const data = await api("/catalog");
     counterProducts = data.products || [];
+    if (!counterOrder) {
     for (const [id, quantity] of counterCart) {
       const product = counterProduct(id);
       if (!product || product.stock <= 0) counterCart.delete(id);
       else if (quantity > product.stock) counterCart.set(id, product.stock);
+    }
     }
     if (render) {
       renderCounterProducts();
@@ -774,10 +798,17 @@
       if (savedCounterOrder) {
         try {
           counterOrder = JSON.parse(savedCounterOrder);
+          if (!Array.isArray(counterOrder.items)) {
+            const result = await api(`/orders/${encodeURIComponent(counterOrder.id)}`);
+            counterOrder = result.order;
+          }
+          renderCounterProducts();
+          renderCounterCart();
           counterState("Restoring the current M-Pesa payment status…");
           pollCounterPayment();
-        } catch {
-          sessionStorage.removeItem("bliss.counter.order");
+        } catch (error) {
+          counterState("Unable to restore the sale. Refresh to retry: " + error.message, "error");
+          guard();
         }
       }
     } catch (error) {
@@ -857,13 +888,13 @@
       counterOrder = result.order;
       sessionStorage.setItem(
         "bliss.counter.order",
-        JSON.stringify({ id: result.order.id }),
+        JSON.stringify({ id: result.order.id, items: result.order.items, totalKes: result.order.totalKes }),
       );
       renderCounterProducts();
       renderCounterCart();
       if (result.warning) counterState(result.warning, "error");
       else counterState("M-Pesa prompt sent. Waiting for payment…");
-      $("counterRetry").hidden = !result.warning;
+      $("counterRetry").hidden = true;
       pollCounterPayment();
     } catch (error) {
       counterState(error.message, "error");
@@ -875,6 +906,8 @@
   $("counterRetry").addEventListener("click", async () => {
     if (!counterOrder || busy) return;
     const storageKey = `bliss.counter.retry.${counterOrder.id}`;
+    stopCounterPolling();
+    $("counterRetry").hidden = true;
     busy = true;
     guard();
     counterState("Sending a new M-Pesa prompt…");
@@ -893,12 +926,12 @@
         result.warning || "M-Pesa prompt sent. Waiting for payment…",
         result.warning ? "error" : "waiting",
       );
-      pollCounterPayment();
     } catch (error) {
       counterState(error.message, "error");
     } finally {
       busy = false;
       guard();
+      pollCounterPayment();
     }
   });
   $("counterNewSale").addEventListener("click", () => {

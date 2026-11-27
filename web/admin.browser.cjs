@@ -61,6 +61,8 @@ const exception = {
         offered = null,
         failWrite = false,
         customerActive = true;
+      let counterSubmitted = false;
+      let counterPaymentStatus = { paymentStatus: "PAID", fulfillmentStatus: "fulfilled" };
       page.on("pageerror", (error) => errors.push(error.message));
       await page.route("**/api/**", async (route) => {
         const request = route.request(),
@@ -91,19 +93,14 @@ const exception = {
               products: [{
                 id: "prod-arabian-wood",
                 name: "Arabian Wood",
-                priceKes: 2500,
-                stock: 3,
+                priceKes: counterSubmitted ? 3000 : 2500,
+                stock: counterSubmitted ? 1 : 3,
                 size: "50ml",
               }],
             },
           });
-        if (endpoint === "/api/orders/counter-test/payment-status")
-          return route.fulfill({
-            json: {
-              paymentStatus: "PAID",
-              fulfillmentStatus: "fulfilled",
-            },
-          });
+          if (endpoint === "/api/orders/counter-test/payment-status")
+            return route.fulfill({ json: counterPaymentStatus });
         if (request.method() === "POST") {
           writes.push({
             endpoint,
@@ -126,10 +123,22 @@ const exception = {
           );
           if (endpoint === "/api/operations/counter-order") {
             assert.ok(request.headers()["idempotency-key"], "Missing idempotency key");
+            counterSubmitted = true;
             return route.fulfill({
               status: 201,
               json: {
-                order: { id: "counter-test", channel: "counter" },
+                order: {
+                  id: "counter-test",
+                  channel: "counter",
+                  totalKes: 5000,
+                  items: [{
+                    productName: "Arabian Wood",
+                    productSize: "50ml",
+                    qty: 2,
+                    unitPriceKes: 2500,
+                    subtotalKes: 5000,
+                  }],
+                },
                 quote_required: false,
                 stkPush: {},
               },
@@ -167,8 +176,8 @@ const exception = {
               orders: [{ ...order, delivery_quote: offered }],
               total: 26,
               pending_dispatch: 1,
-              counter_sales: writes.filter(w => w.endpoint === "/api/operations/counter-order").length,
-              counter_revenue_kes: writes.filter(w => w.endpoint === "/api/operations/counter-order").length * 5000,
+              counter_sales: counterSubmitted ? 1 : 0,
+              counter_revenue_kes: counterSubmitted ? 5000 : 0,
             },
           });
         if (endpoint === "/api/operations/inventory")
@@ -290,6 +299,22 @@ const exception = {
           await page.waitForSelector("#counterPaymentState[data-kind=success]");
           assert.match(await page.locator("#counterPaymentState").textContent(), /Sale collected successfully/);
           assert.equal(writes.filter(w => w.endpoint === "/api/operations/counter-order").length, 1);
+          await page.locator("#counterNewSale").click();
+          counterSubmitted = false;
+          counterPaymentStatus = { paymentStatus: "PENDING", latestAttempt: { status: "failed" } };
+          await page.reload();
+          await page.getByRole("button", { name: "Add to sale" }).click();
+          await page.getByRole("button", { name: "Increase Arabian Wood quantity" }).click();
+          await page.locator("#counterCheckoutForm input[name=phone]").fill("0712345678");
+          await page.locator("#counterPay").click();
+          await page.waitForSelector("#counterRetry:visible");
+          await page.reload();
+          await page.waitForSelector("#counterRetry:visible");
+          assert.match(await page.locator("#counterTotal").textContent(), /5,000/);
+          assert.match(await page.locator("#counterCartItems").textContent(), /× 2/);
+          counterPaymentStatus = { paymentStatus: "EXPIRED" };
+          await page.waitForSelector("#counterNewSale:visible");
+          assert.equal(await page.locator("#counterRetry").isVisible(), false);
           await page.locator("#counterNewSale").click();
           await page.goto(base + "/admin");
           await page.waitForSelector("#ordersRows button");

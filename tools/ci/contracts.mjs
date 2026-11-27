@@ -2,10 +2,11 @@ import SwaggerParser from "@apidevtools/swagger-parser";
 import Ajv from "ajv";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const root = new URL("../../", import.meta.url);
 const definition =
-  process.argv[2] || new URL("api/openapi.json", root).pathname;
+  process.argv[2] || fileURLToPath(new URL("api/openapi.json", root));
 const document = await SwaggerParser.validate(definition);
 const resolved = await SwaggerParser.dereference(definition);
 const fixtures = JSON.parse(

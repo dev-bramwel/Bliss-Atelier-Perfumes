@@ -106,12 +106,12 @@ type ItemInput struct {
 }
 
 type CreateOrderRequest struct {
-	UserID             string        `json:"-"` // Bound only from the authoritative server session.
-	Channel            string        `json:"-"`
-	AssignedEmployeeID string        `json:"-"`
-	CounterIdempotencyKey string      `json:"-"`
-	Customer           CustomerInput `json:"customer"`
-	Items              []ItemInput   `json:"items"`
+	UserID                string        `json:"-"` // Bound only from the authoritative server session.
+	Channel               string        `json:"-"`
+	AssignedEmployeeID    string        `json:"-"`
+	CounterIdempotencyKey string        `json:"-"`
+	Customer              CustomerInput `json:"customer"`
+	Items                 []ItemInput   `json:"items"`
 }
 
 type OrderItem struct {
