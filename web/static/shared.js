@@ -418,3 +418,30 @@ document.querySelectorAll("[data-open-cart]").forEach((btn) => {
     window.location.href = "/cart";
   });
 });
+
+// --------------------
+// PRIVACY NOTICE MODAL
+// --------------------
+(() => {
+  const trigger = document.getElementById("privacyNoticeTrigger");
+  const modal = document.getElementById("privacyModal");
+  const closeBtn = document.getElementById("privacyModalClose");
+  if (!trigger || !modal || !closeBtn) return;
+
+  const closeModal = () => {
+    modal.hidden = true;
+    trigger.focus();
+  };
+
+  trigger.addEventListener("click", () => {
+    modal.hidden = false;
+    closeBtn.focus();
+  });
+  closeBtn.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modal.hidden) closeModal();
+  });
+})();
