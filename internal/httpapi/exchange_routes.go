@@ -26,6 +26,11 @@ func registerExchangeRoutes(mux *http.ServeMux, store ExchangeService, checker *
 			respond(w, 503, map[string]string{"error": "Exchanges unavailable"})
 			return
 		}
+		u := UserFromContext(r.Context())
+		if u == nil || !auth.IsStaff(u.Role) {
+			respond(w, 403, map[string]string{"error": "Your role does not permit this action."})
+			return
+		}
 		limit, offset := pageBounds(r)
 		page, err := store.List(r.Context(), r.URL.Query().Get("status"), limit, offset)
 		if err != nil {
