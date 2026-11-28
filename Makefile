@@ -17,7 +17,7 @@ format:
 	gofmt -w cmd internal web
 	npx prettier --write .
 fmt: format
-k8s-up:
+k8s-up: build
 	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/k8s-local-secrets.ps1
 	kubectl apply -k infra/k8s/base
 k8s-down:
