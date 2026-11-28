@@ -1,6 +1,14 @@
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
 
 kubectl apply -f (Join-Path $PSScriptRoot '..\infra\k8s\base\namespace.yaml') | Out-Null
+
+$existingSecrets = kubectl get secret bliss-secrets -n bliss-local --ignore-not-found -o name
+$existingTls = kubectl get secret bliss-tls -n bliss-local --ignore-not-found -o name
+if ($existingSecrets -and $existingTls) {
+    Write-Host 'bliss-secrets and bliss-tls already exist in namespace bliss-local; preserving existing credentials.'
+    exit 0
+}
 
 $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('bliss-k8s-secrets-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
@@ -33,7 +41,7 @@ try {
     $tlsCrt = Join-Path $tmpDir 'tls.crt'
     $openssl = Get-Command openssl -ErrorAction SilentlyContinue
     if ($openssl) {
-        & $openssl.Source req -x509 -nodes -days 30 -newkey rsa:2048 -keyout $tlsKey -out $tlsCrt -subj "/CN=bliss.local/O=Bliss Atelier Local" 2>$null
+        cmd /c "`"$($openssl.Source)`" req -x509 -nodes -days 30 -newkey rsa:2048 -keyout `"$tlsKey`" -out `"$tlsCrt`" -subj `"/CN=bliss.local/O=Bliss Atelier Local`" 2>nul"
     } else {
         docker run --rm -v "${tmpDir}:/certs" alpine:3.19 sh -c "apk add --no-cache openssl >/dev/null && openssl req -x509 -nodes -days 30 -newkey rsa:2048 -keyout /certs/tls.key -out /certs/tls.crt -subj '/CN=bliss.local/O=Bliss Atelier Local' 2>/dev/null" | Out-Null
     }
