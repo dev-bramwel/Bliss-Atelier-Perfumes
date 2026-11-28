@@ -76,7 +76,7 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('tools/ci/package-lock.json') }}
 
-      - name: Verify administrative and shopper browser journeys
+      - name: Verify administrative, shopper and PWA browser journeys
         shell: bash
         run: |
           set -euo pipefail
@@ -98,6 +98,7 @@ jobs:
           curl --fail --silent http://127.0.0.1:8086/health/live > /dev/null
           BLISS_BROWSER_ARTIFACTS=.local/ci-build/admin-browser node web/admin.browser.cjs
           BLISS_BROWSER_ARTIFACTS=.local/ci-build/shopper-browser node web/shopper.browser.cjs
+          node web/pwa.browser.cjs
 
       - name: Retain browser test evidence
         if: always()

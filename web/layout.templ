@@ -9,6 +9,10 @@ templ Layout(title string, pageScript string, products []catalog.Product, childr
             <meta charset="UTF-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             <meta name="api-base-url" content="" />
+        <link rel="manifest" href="/manifest.json"/>
+        <meta name="theme-color" content="#14110d"/>
+        <link rel="apple-touch-icon" href="/static/icons/icon-192.png"/>
+        <meta name="apple-mobile-web-app-capable" content="yes"/>
             <title>{title} — Bliss Atelier Perfumes</title>
             <link rel="preconnect" href="https://fonts.googleapis.com" />
             <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -66,6 +70,7 @@ templ Layout(title string, pageScript string, products []catalog.Product, childr
             }
             <script src="/static/shared.js"></script>
             <script src="/static/shopper.js"></script>
+            <script src="/static/pwa.js"></script>
             if pageScript != "" {
                 <script src={ pageScript }></script>
             }
@@ -114,6 +119,7 @@ templ Header() {
 						<a id="resumeOrder" href="/checkout" hidden>Resume order</a>
 						<span id="shopperAuthMessage" role="status"></span>
 					</div>
+                                        <button id="pwaInstallButton" type="button" hidden>Install App</button>
 					<a class="account-dashboard" href="/dashboard">Atelier dashboard</a>
 				</div>
 			</details>
@@ -122,6 +128,13 @@ templ Header() {
 				<span data-cart-count class="site-cart-count">0</span>
 			</button>
 		</div>
+                <aside id="pwaIOSBanner" class="pwa-ios-banner" aria-label="Installation instructions" hidden>
+                    <div>
+                        <strong>Install Bliss Atelier</strong>
+                        <p>Tap Share, then Add to Home Screen.</p>
+                    </div>
+                    <button id="pwaIOSDismiss" type="button" aria-label="Dismiss installation instructions">×</button>
+                </aside>
 	</header>
 }
 

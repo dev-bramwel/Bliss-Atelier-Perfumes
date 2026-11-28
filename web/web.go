@@ -56,6 +56,20 @@ func Handler(catalogStore httpapi.Catalog) http.Handler {
 			mux.Handle("GET /"+name, fileServer)
 			mux.Handle("HEAD /"+name, fileServer)
 		}
+
+		// Progressive Web App assets
+		pwaAssets := map[string]string{
+			"manifest.json": "application/manifest+json",
+			"offline.html":  "text/html; charset=utf-8",
+			"sw.js":         "application/javascript; charset=utf-8",
+		}
+		for name, contentType := range pwaAssets {
+			mux.HandleFunc("GET /"+name, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", contentType)
+				w.Header().Set("Cache-Control", "no-cache")
+				fileServer.ServeHTTP(w, r)
+			})
+		}
 	}
 
 	// Pages (both canonical paths and legacy .html aliases)

@@ -1533,3 +1533,47 @@ label {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* PWA installation controls */
+#pwaInstallButton {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  margin-top: 0.75rem;
+  border: 1px solid #8c7b64;
+  border-radius: 8px;
+  background: #211c16;
+  color: #dec9a8;
+  cursor: pointer;
+}
+
+#pwaInstallButton:hover {
+  background: #514636;
+}
+
+.pwa-ios-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  background: #211c16;
+  border-top: 1px solid #514636;
+  color: #dec9a8;
+  font-size: 0.85rem;
+}
+
+.pwa-ios-banner p {
+  margin: 0.25rem 0 0;
+  color: #faf7f2;
+}
+
+#pwaIOSDismiss {
+  font-size: 1.5rem;
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
+#pwaInstallButton[hidden],
+.pwa-ios-banner[hidden] {
+  display: none !important;
+}
