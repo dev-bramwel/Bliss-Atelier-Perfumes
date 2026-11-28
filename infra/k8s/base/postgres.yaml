@@ -1,0 +1,190 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-scripts
+  namespace: bliss-local
+data:
+  postgres-entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    if [ -f "${PGDATA:-/var/lib/postgresql/data}/PG_VERSION" ]; then
+        (
+            while ! pg_isready -U "${POSTGRES_USER:-bliss_admin}" -d "${POSTGRES_DB:-bliss_dev}" -q 2>/dev/null; do
+                sleep 0.2
+            done
+            if [ -f /docker-entrypoint-initdb.d/10-roles.sh ]; then
+                sh /docker-entrypoint-initdb.d/10-roles.sh >/dev/null 2>&1 || true
+            fi
+        ) &
+    fi
+    exec docker-entrypoint.sh "$@"
+  10-roles.sh: |
+    #!/bin/sh
+    set -eu
+    BLISS_MIGRATOR_PASSWORD=$(cat /run/secrets/migrator_password)
+    BLISS_RUNTIME_PASSWORD=$(cat /run/secrets/runtime_password)
+    BLISS_CATALOG_PASSWORD=$(cat /run/secrets/catalog_password)
+    export BLISS_MIGRATOR_PASSWORD BLISS_RUNTIME_PASSWORD BLISS_CATALOG_PASSWORD
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'SQL'
+    \getenv migrator_password BLISS_MIGRATOR_PASSWORD
+    \getenv runtime_password BLISS_RUNTIME_PASSWORD
+    \getenv catalog_password BLISS_CATALOG_PASSWORD
+    SET custom.migrator_password = :'migrator_password';
+    SET custom.runtime_password = :'runtime_password';
+    SET custom.catalog_password = :'catalog_password';
+    DO $$
+    BEGIN
+      BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_migrator') THEN
+          EXECUTE format('CREATE ROLE bliss_migrator LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', current_setting('custom.migrator_password'));
+        ELSE
+          EXECUTE format('ALTER ROLE bliss_migrator WITH PASSWORD %L', current_setting('custom.migrator_password'));
+        END IF;
+      EXCEPTION WHEN duplicate_object THEN
+        EXECUTE format('ALTER ROLE bliss_migrator WITH PASSWORD %L', current_setting('custom.migrator_password'));
+      END;
+
+      BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_runtime') THEN
+          EXECUTE format('CREATE ROLE bliss_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', current_setting('custom.runtime_password'));
+        ELSE
+          EXECUTE format('ALTER ROLE bliss_runtime WITH PASSWORD %L', current_setting('custom.runtime_password'));
+        END IF;
+      EXCEPTION WHEN duplicate_object THEN
+        EXECUTE format('ALTER ROLE bliss_runtime WITH PASSWORD %L', current_setting('custom.runtime_password'));
+      END;
+
+      BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bliss_catalog') THEN
+          EXECUTE format('CREATE ROLE bliss_catalog LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L', current_setting('custom.catalog_password'));
+        ELSE
+          EXECUTE format('ALTER ROLE bliss_catalog WITH PASSWORD %L', current_setting('custom.catalog_password'));
+        END IF;
+      EXCEPTION WHEN duplicate_object THEN
+        EXECUTE format('ALTER ROLE bliss_catalog WITH PASSWORD %L', current_setting('custom.catalog_password'));
+      END;
+    END $$;
+    ALTER DATABASE bliss_dev OWNER TO bliss_migrator;
+    REVOKE ALL ON DATABASE bliss_dev FROM PUBLIC;
+    GRANT CONNECT ON DATABASE bliss_dev TO bliss_runtime, bliss_catalog;
+    REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+    SQL
+    unset BLISS_MIGRATOR_PASSWORD BLISS_RUNTIME_PASSWORD BLISS_CATALOG_PASSWORD
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: bliss-local
+  labels:
+    app: db
+spec:
+  clusterIP: None
+  selector:
+    app: db
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+  namespace: bliss-local
+  labels:
+    app: db
+spec:
+  serviceName: db
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 70
+      containers:
+        - name: postgres
+          image: bliss-postgres:local
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/usr/local/bin/bliss-postgres-entrypoint.sh"]
+          args: ["postgres"]
+          securityContext:
+            runAsUser: 70
+            runAsGroup: 70
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: POSTGRES_USER
+              value: "bliss_admin"
+            - name: POSTGRES_DB
+              value: "bliss_dev"
+            - name: POSTGRES_PASSWORD_FILE
+              value: "/run/secrets/admin_password"
+            - name: POSTGRES_INITDB_ARGS
+              value: "--auth-host=scram-sha-256"
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          ports:
+            - containerPort: 5432
+              name: postgres
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U bliss_admin -d bliss_dev && psql -U bliss_admin -d bliss_dev -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'bliss_catalog'" | grep -q 1
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 4
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "bliss_admin", "-d", "bliss_dev"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 4
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+            - name: postgres-scripts
+              mountPath: /usr/local/bin/bliss-postgres-entrypoint.sh
+              subPath: postgres-entrypoint.sh
+              readOnly: true
+            - name: postgres-scripts
+              mountPath: /docker-entrypoint-initdb.d/10-roles.sh
+              subPath: 10-roles.sh
+              readOnly: true
+      volumes:
+        - name: secrets
+          secret:
+            secretName: bliss-secrets
+        - name: postgres-scripts
+          configMap:
+            name: postgres-scripts
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

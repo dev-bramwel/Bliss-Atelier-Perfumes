@@ -22,6 +22,7 @@ const (
 	StatusFailed     = "failed"
 
 	DefaultDestination = "rabbitmq"
+	DestinationKafka   = "kafka"
 	DefaultMaxRetries  = 5
 )
 

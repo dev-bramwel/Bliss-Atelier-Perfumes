@@ -35,7 +35,7 @@ try {
 
     Push-Location (Join-Path $PSScriptRoot '..')
     try {
-        go test -count=1 -p 1 ./internal/database ./internal/migration ./internal/catalog ./internal/orders ./internal/delivery ./internal/outbox ./internal/worker ./internal/rediscache ./internal/httpapi ./internal/reconciliation ./internal/auth ./internal/operations ./internal/exchanges ./internal/reports
+        go test -count=1 -p 1 ./internal/database ./internal/migration ./internal/catalog ./internal/orders ./internal/delivery ./internal/outbox ./internal/worker ./internal/rediscache ./internal/httpapi ./internal/reconciliation ./internal/auth ./internal/operations ./internal/exchanges ./internal/reports ./internal/analytics
         if ($LASTEXITCODE -ne 0) { throw 'Database and cache integration checks failed' }
         $env:GO_TEST_RECOVERY_PHASE = 'seed'
         go test -count=1 -run '^TestRecoveryFixture$' ./internal/migration
