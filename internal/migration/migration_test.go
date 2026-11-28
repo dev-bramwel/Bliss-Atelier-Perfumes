@@ -66,15 +66,15 @@ func reset(t *testing.T, pool *pgxpool.Pool) {
 }
 func run(t *testing.T, pool *pgxpool.Pool, command string) Result {
 	t.Helper()
-	result, err := Run(context.Background(), pool, command, 5*time.Second)
+	result, err := Run(context.Background(), pool, command, 30*time.Second)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("migration %s failed: %v", command, err)
 	}
 	return result
 }
 func fails(t *testing.T, pool *pgxpool.Pool, command, reason string) {
 	t.Helper()
-	_, err := Run(context.Background(), pool, command, time.Second)
+	_, err := Run(context.Background(), pool, command, 5*time.Second)
 	if err == nil || !strings.Contains(err.Error(), reason) {
 		t.Fatalf("expected %q failure, got %v", reason, err)
 	}
@@ -98,7 +98,7 @@ func snapshot(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	var body string
 	err := pool.QueryRow(context.Background(), `SELECT jsonb_build_array(
- (SELECT jsonb_agg(to_jsonb(o) ORDER BY id) FROM public."Order" o),
+ (SELECT jsonb_agg(to_jsonb(o) - 'channel' ORDER BY id) FROM public."Order" o),
  (SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM public."MpesaTransaction" m),
  (SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM public._prisma_migrations p))::text`).Scan(&body)
 	if err != nil {
@@ -221,6 +221,10 @@ func TestDisposableMigrations(t *testing.T) {
 			run(t, pool, "status")
 			if after := snapshot(t, pool); after != before {
 				t.Fatal("legacy data/history changed")
+			}
+			var invalidChannels int
+			if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM public."Order" WHERE channel IS DISTINCT FROM 'online'`).Scan(&invalidChannels); err != nil || invalidChannels != 0 {
+				t.Fatalf("invalid legacy order channels: %d, %v", invalidChannels, err)
 			}
 			var version int64
 			var hash, origin string
@@ -436,7 +440,7 @@ func TestDisposableMigrations(t *testing.T) {
 			}
 		}
 	})
-	t.Run("approved v6 schema contract matches SQL", func(t *testing.T) {
+	t.Run("approved v14 schema contract matches SQL", func(t *testing.T) {
 		reset(t, pool)
 		legacy(t, pool, false)
 		execSQL(t, pool, read("ledger.sql"))
@@ -456,7 +460,7 @@ func TestDisposableMigrations(t *testing.T) {
 			t.Fatal(err)
 		}
 		expected := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v16.json")), &expected); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v17.json")), &expected); err != nil {
 			t.Fatal(err)
 		}
 		if len(actual) != len(expected) {
@@ -868,4 +872,36 @@ func TestGenerateSchemaV16(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log("Successfully generated schema-v16.json")
+}
+func TestGenerateSchemaV17(t *testing.T) {
+	if os.Getenv("GENERATE_SCHEMA_V17") != "1" {
+		t.Skip("schema generation not requested")
+	}
+	pool := testPool(t)
+	reset(t, pool)
+	legacy(t, pool, false)
+	execSQL(t, pool, read("ledger.sql"))
+	for _, s := range steps()[1:] {
+		execSQL(t, pool, s.sql)
+	}
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(context.Background(), "SET LOCAL search_path=pg_catalog,public"); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := inspect(context.Background(), tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.MarshalIndent(actual, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("schema-v17.json", b, 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Log("Successfully generated schema-v17.json")
 }

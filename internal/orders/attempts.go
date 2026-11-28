@@ -39,9 +39,9 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 	defer rollback(tx)
 
 	// 1. Verify order state with row lock to serialize concurrent attempts and prevent race conditions
-	var paymentStatus string
+	var paymentStatus, channel string
 	var totalKes int
-	err = tx.QueryRow(ctx, `SELECT "paymentStatus", "totalKes" FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&paymentStatus, &totalKes)
+	err = tx.QueryRow(ctx, `SELECT "paymentStatus", "totalKes", channel FROM public."Order" WHERE id = $1 FOR UPDATE`, orderID).Scan(&paymentStatus, &totalKes, &channel)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrOrderNotFound
@@ -68,7 +68,7 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 
 	// 3. Query existing attempts with row locking
 	rows, err := tx.Query(ctx, `
-		SELECT id, attempt_number, status, created_at
+		SELECT id, attempt_number, status, created_at, COALESCE(error_message, '')
 		FROM public.payment_attempt
 		WHERE order_id = $1
 		ORDER BY attempt_number DESC
@@ -86,7 +86,8 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 		var prevNum int
 		var prevStatus string
 		var prevCreatedAt time.Time
-		if err := rows.Scan(&prevID, &prevNum, &prevStatus, &prevCreatedAt); err != nil {
+		var prevError string
+		if err := rows.Scan(&prevID, &prevNum, &prevStatus, &prevCreatedAt, &prevError); err != nil {
 			return nil, fmt.Errorf("failed to scan previous attempt: %w", err)
 		}
 		rows.Close()
@@ -94,7 +95,10 @@ func (s *Store) CreatePaymentAttempt(ctx context.Context, orderID, phone string,
 		// Unresolved attempt safety check:
 		// Never blindly reinitiate an active, in-flight, or ambiguous charge within the provider resolution window (5 minutes)
 		// No uncertain outcome causes another prompt.
-		if (prevStatus == AttemptCreated || prevStatus == AttemptInitiating || prevStatus == AttemptAccepted || prevStatus == AttemptUnknown) && time.Since(prevCreatedAt) < 5*time.Minute {
+		if (prevStatus == AttemptCreated || prevStatus == AttemptInitiating || prevStatus == AttemptAccepted || prevStatus == AttemptUnknown) && (channel == "counter" || time.Since(prevCreatedAt) < 5*time.Minute) {
+			return nil, ErrUnresolvedPaymentAttempt
+		}
+		if channel == "counter" && prevStatus == AttemptFailed && prevError == "Initiation timed out before provider transaction ID was established" {
 			return nil, ErrUnresolvedPaymentAttempt
 		}
 

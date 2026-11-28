@@ -45,6 +45,7 @@ func TestWebHandler_ScriptOrder(t *testing.T) {
 		{"dashboard page", "/dashboard", "/static/dashboard.js", true},
 		{"admin entry", "/admin", "/static/dashboard.js", true},
 		{"admin orders", "/admin/orders", "/static/dashboard.js", true},
+		{"admin counter", "/admin/counter", "/static/dashboard.js", true},
 		{"admin exchanges", "/admin/exchanges", "/static/dashboard.js", true},
 		{"admin inventory", "/admin/inventory", "/static/dashboard.js", true},
 		{"admin payments", "/admin/payments", "/static/dashboard.js", true},

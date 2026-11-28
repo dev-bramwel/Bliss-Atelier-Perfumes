@@ -52,6 +52,8 @@ type OrderPage struct {
 	Orders          []OrderRow `json:"orders"`
 	Total           int        `json:"total"`
 	PendingDispatch int        `json:"pending_dispatch"`
+	CounterSales    int        `json:"counter_sales"`
+	CounterRevenue  int        `json:"counter_revenue_kes"`
 }
 
 func (s *Store) CanAccess(ctx context.Context, id, userID string) (bool, error) {
@@ -96,11 +98,11 @@ func (s *Store) Orders(ctx context.Context, employeeID string, limit, offset int
 		return nil, err
 	}
 	defer rollback(tx)
-	err = tx.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE o."paymentStatus"='PAID' AND f.status='unfulfilled') FROM public."Order" o JOIN public.order_fulfillment f ON f.order_id=o.id LEFT JOIN public.order_assignment a ON a.order_id=o.id WHERE ($1='' OR a.user_id=$1)`, employeeID).Scan(&p.Total, &p.PendingDispatch)
+	err = tx.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE o."paymentStatus"='PAID' AND f.status='unfulfilled'), count(*) FILTER (WHERE o.channel='counter' AND o."paymentStatus"='PAID'), coalesce(sum(o."totalKes") FILTER (WHERE o.channel='counter' AND o."paymentStatus"='PAID'),0) FROM public."Order" o JOIN public.order_fulfillment f ON f.order_id=o.id LEFT JOIN public.order_assignment a ON a.order_id=o.id WHERE ($1='' OR a.user_id=$1)`, employeeID).Scan(&p.Total, &p.PendingDispatch, &p.CounterSales, &p.CounterRevenue)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT o.id,o."createdAt",o."updatedAt",o."customerName",o."customerPhone",o."deliveryLocation",o."deliveryOption",coalesce(o.notes,''),o."paymentMethod",o."paymentStatus",f.status,o."totalKes",coalesce(a.user_id,''),
+	rows, err := tx.Query(ctx, `SELECT o.id,o.channel,o."createdAt",o."updatedAt",o."customerName",o."customerPhone",o."deliveryLocation",o."deliveryOption",coalesce(o.notes,''),o."paymentMethod",o."paymentStatus",f.status,o."totalKes",coalesce(a.user_id,''),
  (SELECT row_to_json(q) FROM (SELECT order_id,version,amount_kes,fee_recipient,arrangement,CASE WHEN status='pending' AND expires_at<=now() THEN 'expired' ELSE status END AS status,expires_at,created_at,accepted_at,customer_notes FROM public.delivery_quote WHERE order_id=o.id ORDER BY version DESC LIMIT 1) q)
  FROM public."Order" o JOIN public.order_fulfillment f ON f.order_id=o.id LEFT JOIN public.order_assignment a ON a.order_id=o.id WHERE ($1='' OR a.user_id=$1) ORDER BY o."createdAt" DESC,o.id DESC LIMIT $2 OFFSET $3`, employeeID, limit, offset)
 	if err != nil {
@@ -110,7 +112,7 @@ func (s *Store) Orders(ctx context.Context, employeeID string, limit, offset int
 	for rows.Next() {
 		var r OrderRow
 		var raw []byte
-		if err := rows.Scan(&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CustomerName, &r.CustomerPhone, &r.DeliveryLocation, &r.DeliveryOption, &r.Notes, &r.PaymentMethod, &r.PaymentStatus, &r.FulfillmentStatus, &r.TotalKes, &r.AssignedTo, &raw); err != nil {
+		if err := rows.Scan(&r.ID, &r.Channel, &r.CreatedAt, &r.UpdatedAt, &r.CustomerName, &r.CustomerPhone, &r.DeliveryLocation, &r.DeliveryOption, &r.Notes, &r.PaymentMethod, &r.PaymentStatus, &r.FulfillmentStatus, &r.TotalKes, &r.AssignedTo, &raw); err != nil {
 			return nil, err
 		}
 		if len(raw) > 0 {

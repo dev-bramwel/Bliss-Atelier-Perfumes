@@ -6,6 +6,18 @@ import (
 )
 
 var phoneRegex = regexp.MustCompile(`^\+?[0-9]{9,15}$`)
+var counterPhoneRegex = regexp.MustCompile(`^(0|\+?254)[17][0-9]{8}$`)
+
+func ValidateCounterPhone(phone string) (string, error) {
+	phone = strings.NewReplacer(" ", "", "-", "").Replace(strings.TrimSpace(phone))
+	if !counterPhoneRegex.MatchString(phone) {
+		return "", ErrInvalidCustomer
+	}
+	if strings.HasPrefix(phone, "0") {
+		return "254" + phone[1:], nil
+	}
+	return strings.TrimPrefix(phone, "+"), nil
+}
 
 func containsDisallowedChars(s string, disallowNewlines bool) bool {
 	for i := 0; i < len(s); i++ {

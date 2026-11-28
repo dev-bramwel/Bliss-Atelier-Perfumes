@@ -175,6 +175,61 @@ func TestOperationalSessionBoundaries(t *testing.T) {
 	}
 }
 
+func TestCounterOrderStaffBindingAndPolicy(t *testing.T) {
+	for _, role := range []string{auth.RoleOwner, auth.RoleEmployee, auth.RoleCustomer} {
+		t.Run(role, func(t *testing.T) {
+			service, _, cookie, csrf := staffFixture(t, role)
+			var captured orders.CreateOrderRequest
+			orderStore := &mockOrderService{createFn: func(_ context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
+				captured = req
+				return &orders.Order{
+					ID:                "counter-order",
+					Channel:           req.Channel,
+					CustomerName:      req.Customer.Name,
+					CustomerPhone:     req.Customer.Phone,
+					DeliveryOption:    req.Customer.Delivery,
+					PaymentMethod:     req.Customer.Payment,
+					PaymentStatus:     orders.PaymentPending,
+					FulfillmentStatus: orders.FulfillmentUnfulfilled,
+					TotalKes:          2500,
+					LatestAttempt:     &orders.PaymentAttempt{ID: "counter-attempt", Status: orders.AttemptCreated},
+				}, nil
+			}}
+			a := New(":0", time.Second, nil, service, orderStore)
+			body := `{"customer":{"phone":"0712345678","name":"","delivery":"delivery","payment":"on_delivery"},"items":[{"id":"p1","qty":1}]}`
+
+			r := httptest.NewRequest(http.MethodPost, "/api/operations/counter-order", strings.NewReader(body))
+			authorizeStaff(r, cookie, csrf)
+			r.Header.Set("Idempotency-Key", "counter-key")
+			w := httptest.NewRecorder()
+			a.server.Handler.ServeHTTP(w, r)
+			if role == auth.RoleCustomer {
+				if w.Code != http.StatusForbidden {
+					t.Fatalf("customer status %d: %s", w.Code, w.Body.String())
+				}
+				return
+			}
+			if w.Code != http.StatusCreated {
+				t.Fatalf("staff status %d: %s", w.Code, w.Body.String())
+			}
+			if captured.Channel != "counter" || captured.AssignedEmployeeID != "usr_staff-"+role || captured.UserID != "" {
+				t.Fatalf("identity binding failed: %+v", captured)
+			}
+			if captured.Customer.Name != "Walk-in customer" || captured.Customer.Delivery != "showroom_pickup" || captured.Customer.Payment != "pay_now" || captured.Customer.Location != "Bliss Atelier showroom" {
+				t.Fatalf("counter policy was not enforced: %+v", captured.Customer)
+			}
+
+			missingKey := httptest.NewRequest(http.MethodPost, "/api/operations/counter-order", strings.NewReader(body))
+			authorizeStaff(missingKey, cookie, csrf)
+			missingKeyResult := httptest.NewRecorder()
+			a.server.Handler.ServeHTTP(missingKeyResult, missingKey)
+			if missingKeyResult.Code != http.StatusBadRequest {
+				t.Fatalf("missing idempotency key status %d", missingKeyResult.Code)
+			}
+		})
+	}
+}
+
 func TestIssuePayloadsAndActorBinding(t *testing.T) {
 	service, _, cookie, csrf := staffFixture(t, auth.RoleOwner)
 	var resolution orders.ResolveExceptionRequest
@@ -344,5 +399,68 @@ func TestOperationsRestockEndpoint(t *testing.T) {
 	api.server.Handler.ServeHTTP(rr5, req5)
 	if rr5.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden for invalid CSRF token, got %d", rr5.Code)
+	}
+}
+
+func TestCounterOrderIdempotentReplay(t *testing.T) {
+	service, _, cookie, csrf := staffFixture(t, auth.RoleEmployee)
+	var record *orders.IdempotencyRecord
+	created := 0
+
+	mock := &mockOrderService{
+		beginIdempFn: func(_ context.Context, key, scope, operation, hash string, _ time.Duration) (*orders.IdempotencyRecord, bool, error) {
+			if record != nil {
+				if record.RequestHash != hash {
+					return nil, false, orders.ErrIdempotencyConflict
+				}
+				return record, true, nil
+			}
+			record = &orders.IdempotencyRecord{
+				Key:         key,
+				CallerScope: scope,
+				Operation:   operation,
+				RequestHash: hash,
+				Status:      orders.IdempotencyInProgress,
+			}
+			return record, false, nil
+		},
+		completeIdempFn: func(_ context.Context, key, scope, operation string, code int, headers map[string]string, body, resource string) error {
+			record.Status = orders.IdempotencyCompleted
+			record.StatusCode = code
+			record.ResponseBody = body
+			record.ResourceID = resource
+			return nil
+		},
+		createFn: func(_ context.Context, req orders.CreateOrderRequest) (*orders.Order, error) {
+			created++
+			return &orders.Order{
+				ID:            "counter-replay",
+				Channel:       req.Channel,
+				CustomerPhone: req.Customer.Phone,
+				TotalKes:      2500,
+			}, nil
+		},
+	}
+
+	a := New(":0", time.Second, nil, service, mock)
+	body := `{"customer":{"phone":"0712345678"},"items":[{"id":"p1","qty":1}]}`
+
+	for i := 0; i < 2; i++ {
+		r := httptest.NewRequest(http.MethodPost, "/api/operations/counter-order", strings.NewReader(body))
+		authorizeStaff(r, cookie, csrf)
+		r.Header.Set("Idempotency-Key", "counter-replay-key")
+		w := httptest.NewRecorder()
+		a.server.Handler.ServeHTTP(w, r)
+
+		if w.Code != http.StatusCreated {
+			t.Fatalf("unexpected status: %d %s", w.Code, w.Body.String())
+		}
+		if i == 1 && w.Header().Get("X-Idempotent-Replay") != "true" {
+			t.Fatal("expected idempotent replay")
+		}
+	}
+
+	if created != 1 {
+		t.Fatalf("expected one order, got %d", created)
 	}
 }

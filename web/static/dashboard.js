@@ -14,6 +14,10 @@
     selectedException = null,
     selectedExchange = null,
     inventoryProducts = [];
+  let counterProducts = [],
+    counterOrder = null,
+    counterPollTimer = null;
+  const counterCart = new Map();
   const owner = () => context.user?.role === "owner";
   const canManageInventory = () =>
     owner() ||
@@ -44,6 +48,15 @@
     document.querySelectorAll("[data-mutation]").forEach((button) => {
       button.disabled = !context.user || busy || connection.offline;
     });
+    if ($("counterPay"))
+      $("counterPay").disabled =
+        !context.user ||
+        busy ||
+        connection.offline ||
+        counterCart.size === 0 ||
+        Boolean(counterOrder);
+    if ($("counterRetry"))
+      $("counterRetry").disabled = !context.user || busy || connection.offline;
     connection.protectButtons();
   }
   function endSession(reason) {
@@ -178,7 +191,7 @@
       "ordersRows",
       data.orders,
       (row, order) => {
-        cell(row, order.id);
+        cell(row, `${order.id} · ${order.channel || "online"}`);
         cell(
           row,
           `${order.customerPhone} · ${order.deliveryLocation || order.deliveryOption}`,
@@ -201,7 +214,189 @@
       7,
     );
     $("metricDispatch").textContent = data.pending_dispatch;
+    $("metricCounterSales").textContent = data.counter_sales || 0;
+    $("metricCounterRevenue").textContent = money(
+      data.counter_revenue_kes || 0,
+    );
     pager("orders", data.orders?.length || 0, data.total);
+    updated();
+  }
+  function idempotencyKey(storageKey) {
+    let key = sessionStorage.getItem(storageKey);
+    if (!key) {
+      key =
+        globalThis.crypto?.randomUUID?.() ||
+        `counter-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      sessionStorage.setItem(storageKey, key);
+    }
+    return key;
+  }
+  function counterProduct(id) {
+    return counterProducts.find((product) => product.id === id);
+  }
+  function renderCounterProducts() {
+    const root = $("counterProducts");
+    const term = $("counterSearch").value.trim().toLowerCase();
+    root.replaceChildren();
+    const products = counterProducts.filter(
+      (product) =>
+        !term || `${product.name} ${product.size}`.toLowerCase().includes(term),
+    );
+    for (const product of products) {
+      const card = el("article");
+      const heading = el("h3", product.name);
+      const meta = el(
+        "p",
+        `${product.size} · ${money(product.priceKes)} · ${product.stock} available`,
+      );
+      const button = action(
+        product.stock > 0 ? "Add to sale" : "Out of stock",
+        () => {
+          const current = counterCart.get(product.id) || 0;
+          if (current >= product.stock) return;
+          counterCart.set(product.id, current + 1);
+          renderCounterCart();
+        },
+      );
+      button.disabled = product.stock < 1 || Boolean(counterOrder);
+      card.append(heading, meta, button);
+      root.append(card);
+    }
+    if (!products.length) root.append(el("p", "No matching stock available."));
+  }
+  function renderCounterCart() {
+    const root = $("counterCartItems");
+    root.replaceChildren();
+    if (counterOrder) {
+      for (const item of counterOrder.items || []) {
+        const line = el("div");
+        line.className = "counter-cart-line";
+        line.append(el("span", `${item.productName || item.name} · ${item.productSize} × ${item.qty}`), el("span", money(item.subtotalKes)));
+        root.append(line);
+      }
+      $("counterTotal").textContent = money(counterOrder.totalKes || 0);
+      guard();
+      return;
+    }
+    let total = 0;
+    for (const [id, quantity] of counterCart) {
+      const product = counterProduct(id);
+      if (!product) continue;
+      const line = el("div");
+      line.className = "counter-cart-line";
+      const copy = el(
+        "span",
+        `${product.name} · ${product.size}\n${money(product.priceKes * quantity)}`,
+      );
+      const controls = el("div");
+      const minus = action("−", () => {
+        if (quantity <= 1) counterCart.delete(id);
+        else counterCart.set(id, quantity - 1);
+        renderCounterCart();
+      });
+      minus.setAttribute("aria-label", `Reduce ${product.name} quantity`);
+      const count = el("span", quantity);
+      const plus = action("+", () => {
+        if (quantity < product.stock) counterCart.set(id, quantity + 1);
+        renderCounterCart();
+      });
+      plus.setAttribute("aria-label", `Increase ${product.name} quantity`);
+      plus.disabled = quantity >= product.stock || Boolean(counterOrder);
+      const remove = action("Remove", () => {
+        counterCart.delete(id);
+        renderCounterCart();
+      });
+      minus.disabled = Boolean(counterOrder);
+      remove.disabled = Boolean(counterOrder);
+      controls.append(minus, count, plus, remove);
+      line.append(copy, controls);
+      root.append(line);
+      total += product.priceKes * quantity;
+    }
+    if (!counterCart.size) root.append(el("p", "Choose a fragrance to begin."));
+    $("counterTotal").textContent = money(total);
+    guard();
+  }
+  function counterState(text, kind = "waiting") {
+    const node = $("counterPaymentState");
+    node.textContent = text;
+    node.dataset.kind = kind;
+    node.hidden = !text;
+  }
+  let counterPollGeneration = 0;
+  function stopCounterPolling() {
+    counterPollGeneration++;
+    if (counterPollTimer) clearTimeout(counterPollTimer);
+    counterPollTimer = null;
+  }
+  async function pollCounterPayment() {
+    if (!counterOrder || connection.offline) return;
+    stopCounterPolling();
+    const generation = counterPollGeneration;
+    try {
+      const status = await api(
+        `/orders/${encodeURIComponent(counterOrder.id)}/payment-status`,
+      );
+      if (generation !== counterPollGeneration) return;
+      const attempt = status.latestAttempt || {};
+      if (status.paymentStatus === "PAID" && status.fulfillmentStatus === "fulfilled") {
+        stopCounterPolling();
+        counterState(
+          `Payment received${status.receiptNumber ? ` · Receipt ${status.receiptNumber}` : ""}. Sale collected successfully.`,
+          "success",
+        );
+        $("counterRetry").hidden = true;
+        $("counterNewSale").hidden = false;
+        sessionStorage.removeItem("bliss.counter.order");
+        counterCart.clear();
+        $("counterCheckoutForm").reset();
+        renderCounterCart();
+        await Promise.all([loadOrders(), loadCounterCatalog()]);
+        return;
+      }
+      if (
+        ["FAILED", "EXPIRED", "RESOLUTION_REQUIRED"].includes(
+          status.paymentStatus,
+        ) ||
+        ["failed", "cancelled", "expired"].includes(attempt.status)
+      ) {
+        stopCounterPolling();
+        counterState(
+          attempt.errorMessage ||
+            "The M-Pesa request did not complete. Confirm with the customer before retrying.",
+          "error",
+        );
+        $("counterRetry").hidden = status.paymentStatus !== "PENDING" || !["failed", "cancelled", "expired"].includes(attempt.status) || attempt.errorMessage === "Initiation timed out before provider transaction ID was established";
+        $("counterNewSale").hidden = !["FAILED", "EXPIRED"].includes(status.paymentStatus);
+        if (["PENDING", "RESOLUTION_REQUIRED"].includes(status.paymentStatus)) {
+          counterPollTimer = setTimeout(pollCounterPayment, 2000);
+        }
+        return;
+      }
+      $("counterRetry").hidden = true;
+      counterState(attempt.status === "accepted" ? "Waiting for the customer to complete the M-Pesa prompt…" : "Payment initiation is unconfirmed. Verify payment before attempting another sale.");
+      counterPollTimer = setTimeout(pollCounterPayment, 2000);
+    } catch (error) {
+      if (generation !== counterPollGeneration) return;
+      $("counterRetry").hidden = true;
+      counterState(error.message, "error");
+      counterPollTimer = setTimeout(pollCounterPayment, 5000);
+    }
+  }
+  async function loadCounterCatalog(render = true) {
+    const data = await api("/catalog");
+    counterProducts = data.products || [];
+    if (!counterOrder) {
+    for (const [id, quantity] of counterCart) {
+      const product = counterProduct(id);
+      if (!product || product.stock <= 0) counterCart.delete(id);
+      else if (quantity > product.stock) counterCart.set(id, product.stock);
+    }
+    }
+    if (render) {
+      renderCounterProducts();
+      renderCounterCart();
+    }
     updated();
   }
   async function loadInventory() {
@@ -512,6 +707,7 @@
   }
   const loaders = {
     orders: loadOrders,
+    counter: loadCounterCatalog,
     exchanges: loadExchanges,
     reports: loadReports,
     inventory: loadInventory,
@@ -647,7 +843,7 @@
   }
   function sectionFromPath() {
     const last = window.location.pathname.split("/").filter(Boolean).pop();
-    return ["exchanges", "inventory", "payments", "reports", "users"].includes(last)
+    return ["counter", "exchanges", "inventory", "payments", "reports", "users"].includes(last)
       ? last
       : "orders";
   }
@@ -697,14 +893,6 @@
       });
       $("quoteForm").hidden = true;
       $("assignForm").hidden = true;
-      try {
-        const staged = JSON.parse(localStorage.getItem("shopSales") || "[]");
-        $("metricStaged").textContent = Array.isArray(staged)
-          ? staged.length
-          : 0;
-      } catch {
-        $("metricStaged").textContent = 0;
-      }
       guard();
       showSection(sectionFromPath());
       await Promise.all([
@@ -712,6 +900,23 @@
         ...(canManageInventory() ? [loadInventory()] : []),
         ...(!["orders", "inventory"].includes(section) ? [refresh()] : []),
       ]);
+      const savedCounterOrder = sessionStorage.getItem("bliss.counter.order");
+      if (savedCounterOrder) {
+        try {
+          counterOrder = JSON.parse(savedCounterOrder);
+          if (!Array.isArray(counterOrder.items)) {
+            const result = await api(`/orders/${encodeURIComponent(counterOrder.id)}`);
+            counterOrder = result.order;
+          }
+          renderCounterProducts();
+          renderCounterCart();
+          counterState("Restoring the current M-Pesa payment status…");
+          pollCounterPayment();
+        } catch (error) {
+          counterState("Unable to restore the sale. Refresh to retry: " + error.message, "error");
+          guard();
+        }
+      }
     } catch (error) {
       message(error.message);
       if (!context.user) $("adminSignIn").hidden = false;
@@ -761,6 +966,91 @@
   $("exceptionFilter").addEventListener("change", () => {
     pages.exceptions = { offset: 0 };
     loadExceptions().catch((error) => message(error.message));
+  });
+  $("counterSearch").addEventListener("input", renderCounterProducts);
+  $("counterCheckoutForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy || connection.offline || !counterCart.size || counterOrder) return;
+    const formData = Object.fromEntries(new FormData(event.currentTarget));
+    const payload = {
+      customer: {
+        phone: String(formData.phone || "").trim(),
+        name: String(formData.name || "").trim(),
+        notes: String(formData.notes || "").trim(),
+      },
+      items: [...counterCart].map(([id, qty]) => ({ id, qty })),
+    };
+    const storageKey = "bliss.counter.create.key";
+    busy = true;
+    guard();
+    counterState("Creating the sale and sending the M-Pesa prompt…");
+    try {
+      const result = await api("/operations/counter-order", {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey(storageKey) },
+        body: JSON.stringify(payload),
+      });
+      sessionStorage.removeItem(storageKey);
+      counterOrder = result.order;
+      sessionStorage.setItem(
+        "bliss.counter.order",
+        JSON.stringify({ id: result.order.id, items: result.order.items, totalKes: result.order.totalKes }),
+      );
+      renderCounterProducts();
+      renderCounterCart();
+      if (result.warning) counterState(result.warning, "error");
+      else counterState("M-Pesa prompt sent. Waiting for payment…");
+      $("counterRetry").hidden = true;
+      pollCounterPayment();
+    } catch (error) {
+      counterState(error.message, "error");
+    } finally {
+      busy = false;
+      guard();
+    }
+  });
+  $("counterRetry").addEventListener("click", async () => {
+    if (!counterOrder || busy) return;
+    const storageKey = `bliss.counter.retry.${counterOrder.id}`;
+    stopCounterPolling();
+    $("counterRetry").hidden = true;
+    busy = true;
+    guard();
+    counterState("Sending a new M-Pesa prompt…");
+    try {
+      const result = await api(
+        `/orders/${encodeURIComponent(counterOrder.id)}/retry-payment`,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": idempotencyKey(storageKey) },
+          body: JSON.stringify({}),
+        },
+      );
+      sessionStorage.removeItem(storageKey);
+      $("counterRetry").hidden = true;
+      counterState(
+        result.warning || "M-Pesa prompt sent. Waiting for payment…",
+        result.warning ? "error" : "waiting",
+      );
+    } catch (error) {
+      counterState(error.message, "error");
+    } finally {
+      busy = false;
+      guard();
+      pollCounterPayment();
+    }
+  });
+  $("counterNewSale").addEventListener("click", () => {
+    stopCounterPolling();
+    counterOrder = null;
+    counterCart.clear();
+    $("counterCheckoutForm").reset();
+    sessionStorage.removeItem("bliss.counter.order");
+    $("counterNewSale").hidden = true;
+    $("counterRetry").hidden = true;
+    counterState("");
+    renderCounterProducts();
+    renderCounterCart();
   });
   $("adminLogout").addEventListener("click", () =>
     mutate("/auth/logout", {}, "Signed out.", async () => {
@@ -987,8 +1277,14 @@
       else {
         // User-table role selections are drafts too. Refresh operational reads
         // without replacing those controls during connection recovery.
-        const reads = [loadOrders(), loadInventory()];
+        const reads = [loadOrders()];
+        if (canManageInventory()) reads.push(loadInventory());
+        if (section === "counter") reads.push(loadCounterCatalog());
         if (section === "payments") reads.push(loaders.payments());
+        if (counterOrder && $("counterNewSale").hidden && $("counterRetry").hidden) {
+          stopCounterPolling();
+          pollCounterPayment();
+        }
         Promise.all(reads).catch((error) => message(error.message));
       }
     }
@@ -1003,9 +1299,11 @@
       document.visibilityState !== "hidden" &&
       !busy
     )
-      Promise.all([loadOrders(), loadInventory()]).catch((error) =>
-        message(error.message),
-      );
+      Promise.all([
+        loadOrders(),
+        ...(canManageInventory() ? [loadInventory()] : []),
+        ...(section === "counter" ? [loadCounterCatalog()] : []),
+      ]).catch((error) => message(error.message));
   }, 15000);
   initialize();
 })();
