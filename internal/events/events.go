@@ -17,6 +17,15 @@ const (
 	TypeOrderPaid      = "order.paid.v1"
 	TypePaymentAttempt = "payment.attempt.v1"
 	TypeDeliveryQuoted = "delivery.quoted.v1"
+
+	// No-PII analytics event types streamed to Kafka.
+	TypeAnalyticsOrderCreated      = "analytics.order.created.v1"
+	TypeAnalyticsOrderUpdated      = "analytics.order.updated.v1"
+	TypeAnalyticsOrderPaid         = "analytics.order.paid.v1"
+	TypeAnalyticsExchangeCompleted = "analytics.exchange.completed.v1"
+	TypeAnalyticsPaymentCorrection = "analytics.payment.correction.v1"
+
+	CurrencyKES = "KES"
 )
 
 // Envelope is the standard event envelope required by docs/api-and-event-contracts.md.
@@ -76,6 +85,54 @@ type DeliveryQuotedPayload struct {
 	OrderID   string    `json:"orderId"`
 	FeeKes    int       `json:"feeKes"`
 	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// AnalyticsOrderCreatedPayload is a versioned, no-PII analytics event emitted when an order is created.
+type AnalyticsOrderCreatedPayload struct {
+	OrderID   string             `json:"orderId"`
+	Currency  string             `json:"currency"`
+	TotalKes  int                `json:"totalKes"`
+	ItemCount int                `json:"itemCount"`
+	Items     []OrderItemPayload `json:"items"`
+	CreatedAt time.Time          `json:"createdAt"`
+}
+
+// AnalyticsOrderUpdatedPayload is a versioned, no-PII analytics event emitted when a pending order's updatedAt/delivery option changes.
+type AnalyticsOrderUpdatedPayload struct {
+	OrderID       string    `json:"orderId"`
+	Currency      string    `json:"currency"`
+	TotalKes      int       `json:"totalKes"`
+	PaymentStatus string    `json:"paymentStatus"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+// AnalyticsOrderPaidPayload is a versioned, no-PII analytics event emitted when an order settles as PAID.
+type AnalyticsOrderPaidPayload struct {
+	OrderID              string    `json:"orderId"`
+	Currency             string    `json:"currency"`
+	ProductRevenueKes    int       `json:"productRevenueKes"`
+	TransportMerchantKes int       `json:"transportMerchantKes"`
+	TransportCourierKes  int       `json:"transportCourierKes"`
+	PaidAt               time.Time `json:"paidAt"`
+}
+
+// AnalyticsExchangeCompletedPayload is a versioned, no-PII analytics event emitted when an exchange completes.
+type AnalyticsExchangeCompletedPayload struct {
+	ExchangeID         string    `json:"exchangeId"`
+	OrderID            string    `json:"orderId"`
+	Currency           string    `json:"currency"`
+	PriceDifferenceKes int       `json:"priceDifferenceKes"`
+	CompletedAt        time.Time `json:"completedAt"`
+}
+
+// AnalyticsPaymentCorrectionPayload is a versioned, no-PII analytics event emitted when a payment audit entry is recorded.
+type AnalyticsPaymentCorrectionPayload struct {
+	AuditID    string    `json:"auditId"`
+	OrderID    string    `json:"orderId"`
+	Action     string    `json:"action"`
+	Currency   string    `json:"currency"`
+	AmountKes  int       `json:"amountKes"`
+	RecordedAt time.Time `json:"recordedAt"`
 }
 
 // NewEvent creates a new Envelope with generated eventId and UTC occurredAt.

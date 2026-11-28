@@ -263,15 +263,6 @@
         "",
         "",
         null
-      ],
-      [
-        "channel",
-        "text",
-        true,
-        "'online'::text",
-        "",
-        "",
-        "default"
       ]
     ],
     "indexes": [
@@ -292,11 +283,6 @@
       [
         "Order_pkey",
         "PRIMARY KEY (id)",
-        true
-      ],
-      [
-        "order_channel_check",
-        "CHECK ((channel = ANY (ARRAY['online'::text, 'counter'::text])))",
         true
       ]
     ],
@@ -869,6 +855,15 @@
         "",
         "",
         null
+      ],
+      [
+        "quarantined_stock",
+        "integer",
+        true,
+        "0",
+        "",
+        "",
+        null
       ]
     ],
     "indexes": [
@@ -904,7 +899,12 @@
       ],
       [
         "catalog_product_price_override_kes_check",
-        "CHECK ((price_override_kes > 0))",
+        "CHECK ((price_override_kes \u003e 0))",
+        true
+      ],
+      [
+        "catalog_product_quarantined_stock_check",
+        "CHECK ((quarantined_stock \u003e= 0))",
         true
       ],
       [
@@ -914,7 +914,7 @@
       ],
       [
         "catalog_product_stock_check",
-        "CHECK ((stock >= 0))",
+        "CHECK ((stock \u003e= 0))",
         true
       ]
     ],
@@ -960,7 +960,7 @@
     "constraints": [
       [
         "catalog_settings_common_price_kes_check",
-        "CHECK ((common_price_kes > 0))",
+        "CHECK ((common_price_kes \u003e 0))",
         true
       ],
       [
@@ -1133,7 +1133,7 @@
     "constraints": [
       [
         "delivery_quote_amount_kes_check",
-        "CHECK ((amount_kes >= 0))",
+        "CHECK ((amount_kes \u003e= 0))",
         true
       ],
       [
@@ -1163,7 +1163,430 @@
       ],
       [
         "delivery_quote_version_check",
-        "CHECK ((version > 0))",
+        "CHECK ((version \u003e 0))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "exchange_item": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "uuid",
+        true,
+        "gen_random_uuid()",
+        "",
+        "",
+        null
+      ],
+      [
+        "exchange_id",
+        "uuid",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "returned_product_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "returned_quantity",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "returned_unit_price_kes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "replacement_product_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "replacement_quantity",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "replacement_unit_price_kes",
+        "integer",
+        true,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "quarantine_status",
+        "text",
+        true,
+        "'quarantined'::text",
+        "",
+        "",
+        "default"
+      ]
+    ],
+    "indexes": [
+      [
+        "exchange_item_exchange_idx",
+        "CREATE INDEX exchange_item_exchange_idx ON public.exchange_item USING btree (exchange_id)",
+        true,
+        true
+      ],
+      [
+        "exchange_item_pkey",
+        "CREATE UNIQUE INDEX exchange_item_pkey ON public.exchange_item USING btree (id)",
+        true,
+        true
+      ],
+      [
+        "exchange_item_returned_product_idx",
+        "CREATE INDEX exchange_item_returned_product_idx ON public.exchange_item USING btree (returned_product_id)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "exchange_item_exchange_id_fkey",
+        "FOREIGN KEY (exchange_id) REFERENCES exchange_request(id) ON DELETE CASCADE",
+        true
+      ],
+      [
+        "exchange_item_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ],
+      [
+        "exchange_item_quarantine_status_check",
+        "CHECK ((quarantine_status = ANY (ARRAY['quarantined'::text, 'released_to_stock'::text, 'rejected'::text])))",
+        true
+      ],
+      [
+        "exchange_item_replacement_product_id_fkey",
+        "FOREIGN KEY (replacement_product_id) REFERENCES catalog_product(id)",
+        true
+      ],
+      [
+        "exchange_item_replacement_quantity_check",
+        "CHECK ((replacement_quantity \u003e 0))",
+        true
+      ],
+      [
+        "exchange_item_replacement_unit_price_kes_check",
+        "CHECK ((replacement_unit_price_kes \u003e 0))",
+        true
+      ],
+      [
+        "exchange_item_returned_product_id_fkey",
+        "FOREIGN KEY (returned_product_id) REFERENCES catalog_product(id)",
+        true
+      ],
+      [
+        "exchange_item_returned_quantity_check",
+        "CHECK ((returned_quantity \u003e 0))",
+        true
+      ],
+      [
+        "exchange_item_returned_unit_price_kes_check",
+        "CHECK ((returned_unit_price_kes \u003e 0))",
+        true
+      ]
+    ],
+    "persistence": "p"
+  },
+  "exchange_request": {
+    "rls": false,
+    "kind": "r",
+    "columns": [
+      [
+        "id",
+        "uuid",
+        true,
+        "gen_random_uuid()",
+        "",
+        "",
+        null
+      ],
+      [
+        "order_id",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "status",
+        "text",
+        true,
+        "'requested'::text",
+        "",
+        "",
+        "default"
+      ],
+      [
+        "reason",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "requested_by",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "requested_by_role",
+        "text",
+        true,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "inspected_by",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "inspected_by_role",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "inspection_passed",
+        "boolean",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "inspection_notes",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "inspected_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "decided_by",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "decided_by_role",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "decision_reason",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "decided_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "completed_by",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "completed_by_role",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "completed_at",
+        "timestamp with time zone",
+        false,
+        null,
+        "",
+        "",
+        null
+      ],
+      [
+        "price_difference_kes",
+        "integer",
+        true,
+        "0",
+        "",
+        "",
+        null
+      ],
+      [
+        "topup_receipt",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "topup_evidence",
+        "text",
+        false,
+        null,
+        "",
+        "",
+        "default"
+      ],
+      [
+        "created_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ],
+      [
+        "updated_at",
+        "timestamp with time zone",
+        true,
+        "now()",
+        "",
+        "",
+        null
+      ]
+    ],
+    "indexes": [
+      [
+        "exchange_request_order_idx",
+        "CREATE INDEX exchange_request_order_idx ON public.exchange_request USING btree (order_id)",
+        true,
+        true
+      ],
+      [
+        "exchange_request_pkey",
+        "CREATE UNIQUE INDEX exchange_request_pkey ON public.exchange_request USING btree (id)",
+        true,
+        true
+      ],
+      [
+        "exchange_request_status_idx",
+        "CREATE INDEX exchange_request_status_idx ON public.exchange_request USING btree (status, created_at DESC)",
+        true,
+        true
+      ]
+    ],
+    "options": null,
+    "inherits": 0,
+    "policies": null,
+    "triggers": null,
+    "force_rls": false,
+    "partition": false,
+    "constraints": [
+      [
+        "exchange_request_order_id_fkey",
+        "FOREIGN KEY (order_id) REFERENCES \"Order\"(id) ON DELETE RESTRICT",
+        true
+      ],
+      [
+        "exchange_request_pkey",
+        "PRIMARY KEY (id)",
+        true
+      ],
+      [
+        "exchange_request_price_difference_kes_check",
+        "CHECK ((price_difference_kes \u003e= 0))",
+        true
+      ],
+      [
+        "exchange_request_status_check",
+        "CHECK ((status = ANY (ARRAY['requested'::text, 'inspected'::text, 'approved'::text, 'rejected'::text, 'completed'::text])))",
         true
       ]
     ],
@@ -1928,17 +2351,17 @@
       ],
       [
         "order_item_quantity_check",
-        "CHECK ((quantity > 0))",
+        "CHECK ((quantity \u003e 0))",
         true
       ],
       [
         "order_item_subtotal_kes_check",
-        "CHECK ((subtotal_kes > 0))",
+        "CHECK ((subtotal_kes \u003e 0))",
         true
       ],
       [
         "order_item_unit_price_kes_check",
-        "CHECK ((unit_price_kes > 0))",
+        "CHECK ((unit_price_kes \u003e 0))",
         true
       ]
     ],
@@ -2296,12 +2719,12 @@
     "constraints": [
       [
         "payment_attempt_amount_kes_check",
-        "CHECK ((amount_kes > 0))",
+        "CHECK ((amount_kes \u003e 0))",
         true
       ],
       [
         "payment_attempt_attempt_number_check",
-        "CHECK ((attempt_number > 0))",
+        "CHECK ((attempt_number \u003e 0))",
         true
       ],
       [
@@ -2462,7 +2885,7 @@
       ],
       [
         "payment_audit_ledger_amount_kes_check",
-        "CHECK ((amount_kes > 0))",
+        "CHECK ((amount_kes \u003e 0))",
         true
       ],
       [
@@ -2869,7 +3292,7 @@
     "constraints": [
       [
         "stock_batch_kind_check",
-        "CHECK ((kind = ANY (ARRAY['opening'::text, 'receipt'::text, 'local_sale'::text, 'adjustment'::text, 'reconcile'::text])))",
+        "CHECK ((kind = ANY (ARRAY['opening'::text, 'receipt'::text, 'local_sale'::text, 'adjustment'::text, 'reconcile'::text, 'exchange_return'::text, 'exchange_issue'::text])))",
         true
       ],
       [
@@ -3021,7 +3444,7 @@
     "constraints": [
       [
         "stock_entry_balance_check",
-        "CHECK ((balance >= 0))",
+        "CHECK ((balance \u003e= 0))",
         true
       ],
       [
@@ -3210,7 +3633,7 @@
       ],
       [
         "stock_reservation_item_quantity_check",
-        "CHECK ((quantity > 0))",
+        "CHECK ((quantity \u003e 0))",
         true
       ],
       [

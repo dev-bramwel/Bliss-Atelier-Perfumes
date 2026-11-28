@@ -59,7 +59,10 @@ func steps() []step {
 		{11, normalized(read("sql/0011_customer_order_access.sql"))},
 		{12, normalized(read("sql/0012_drop_manager_role.sql"))},
 		{13, normalized(read("sql/0013_employee_inventory_permission.sql"))},
-		{14, normalized(read("sql/0014_counter_order.sql"))},
+		{14, normalized(read("sql/0014_unused_perfume_exchanges.sql"))},
+		{15, normalized(read("sql/0015_reconciled_reports_and_funnel.sql"))},
+		{16, normalized(read("sql/0016_kafka_analytics_read_models.sql"))},
+		{17, normalized(read("sql/0017_counter_order.sql"))},
 	}
 }
 
@@ -127,7 +130,7 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 	}
 	// Stabilize existing relations against DDL and writes for consistent inventory/adoption.
 	for name := range tables {
-		if name != "Order" && name != "MpesaTransaction" && name != "_prisma_migrations" && name != "bliss_schema_migrations" && name != "catalog_settings" && name != "catalog_product" && name != "stock_control" && name != "stock_batch" && name != "stock_entry" && name != "stock_approval" && name != "order_item" && name != "stock_reservation" && name != "stock_reservation_item" && name != "order_fulfillment" && name != "delivery_quote" && name != "guest_order_access" && name != "idempotency_key" && name != "payment_attempt" && name != "outbox_event" && name != "inbox_message" && name != "payment_exception" && name != "payment_audit_ledger" && name != "app_user" && name != "login_transaction" && name != "user_session" && name != "admin_audit_log" && name != "order_assignment" {
+		if name != "Order" && name != "MpesaTransaction" && name != "_prisma_migrations" && name != "bliss_schema_migrations" && name != "catalog_settings" && name != "catalog_product" && name != "stock_control" && name != "stock_batch" && name != "stock_entry" && name != "stock_approval" && name != "order_item" && name != "stock_reservation" && name != "stock_reservation_item" && name != "order_fulfillment" && name != "delivery_quote" && name != "guest_order_access" && name != "idempotency_key" && name != "payment_attempt" && name != "outbox_event" && name != "inbox_message" && name != "payment_exception" && name != "payment_audit_ledger" && name != "app_user" && name != "login_transaction" && name != "user_session" && name != "admin_audit_log" && name != "order_assignment" && name != "exchange_request" && name != "exchange_item" && name != "analytics_funnel_event" && name != "analytics_consumer_dedup" && name != "analytics_consumer_checkpoint" && name != "analytics_order_fact" && name != "analytics_exchange_fact" && name != "analytics_payment_correction_fact" {
 			return Result{}, reject("unrecognized public schema; no changes applied")
 		}
 		if _, err = tx.Exec(ctx, "LOCK TABLE public."+pgx.Identifier{name}.Sanitize()+" IN SHARE ROW EXCLUSIVE MODE NOWAIT"); err != nil {
@@ -217,8 +220,14 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 		contract = "schema-v12.json"
 	} else if applied == 13 {
 		contract = "schema-v13.json"
-	} else if applied >= 14 {
+	} else if applied == 14 {
 		contract = "schema-v14.json"
+	} else if applied == 15 {
+		contract = "schema-v15.json"
+	} else if applied == 16 {
+		contract = "schema-v16.json"
+	} else if applied >= 17 {
+		contract = "schema-v17.json"
 	}
 	versionSchema := map[string]json.RawMessage{}
 	if err = json.Unmarshal([]byte(read(contract)), &versionSchema); err != nil {
@@ -287,7 +296,7 @@ func execute(ctx context.Context, pool *pgxpool.Pool, command string, migrations
 			return Result{}, inspectErr
 		}
 		latest := map[string]json.RawMessage{}
-		if err = json.Unmarshal([]byte(read("schema-v14.json")), &latest); err != nil {
+		if err = json.Unmarshal([]byte(read("schema-v17.json")), &latest); err != nil {
 			return Result{}, err
 		}
 		for name := range latest {

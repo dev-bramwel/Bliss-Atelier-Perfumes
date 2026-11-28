@@ -38,6 +38,16 @@ type Config struct {
 	// RabbitMQ messaging configuration
 	RabbitMQURL string
 
+	// Kafka analytics streaming configuration
+	KafkaBrokers       []string
+	KafkaTopic         string
+	KafkaConsumerGroup string
+	KafkaRetentionMs   int64
+	KafkaTLS           bool
+	KafkaSASLMechanism string
+	KafkaSASLUsername  string
+	KafkaSASLPassword  string
+
 	// Redis caching & rate limiting configuration
 	RedisURL string
 
@@ -211,6 +221,64 @@ func Load(get func(string) string) (Config, error) {
 			return Config{}, errors.New("GO_RABBITMQ_URL_FILE could not be read")
 		}
 		c.RabbitMQURL = strings.TrimSpace(string(data))
+	}
+
+	if v := strings.TrimSpace(get("GO_KAFKA_BROKERS")); v != "" {
+		for _, b := range strings.Split(v, ",") {
+			if s := strings.TrimSpace(b); s != "" {
+				c.KafkaBrokers = append(c.KafkaBrokers, s)
+			}
+		}
+	}
+	c.KafkaTopic = strings.TrimSpace(get("GO_KAFKA_TOPIC"))
+	if c.KafkaTopic == "" {
+		c.KafkaTopic = "bliss.analytics.events.v1"
+	}
+	c.KafkaConsumerGroup = strings.TrimSpace(get("GO_KAFKA_CONSUMER_GROUP"))
+	if c.KafkaConsumerGroup == "" {
+		c.KafkaConsumerGroup = "bliss-analytics-consumer"
+	}
+	c.KafkaRetentionMs = 90 * 24 * 60 * 60 * 1000
+	if v := strings.TrimSpace(get("GO_KAFKA_RETENTION_MS")); v != "" {
+		ms, e := strconv.ParseInt(v, 10, 64)
+		if e != nil || ms < 60000 {
+			return Config{}, errors.New("GO_KAFKA_RETENTION_MS must be an integer >= 60000")
+		}
+		c.KafkaRetentionMs = ms
+	}
+	if v := strings.TrimSpace(get("GO_KAFKA_TLS")); v != "" {
+		if v != "true" && v != "false" {
+			return Config{}, errors.New("GO_KAFKA_TLS must be true or false")
+		}
+		c.KafkaTLS = v == "true"
+	}
+	c.KafkaSASLMechanism = strings.ToLower(strings.TrimSpace(get("GO_KAFKA_SASL_MECHANISM")))
+	c.KafkaSASLUsername = strings.TrimSpace(get("GO_KAFKA_SASL_USERNAME"))
+	c.KafkaSASLPassword = strings.TrimSpace(get("GO_KAFKA_SASL_PASSWORD"))
+	if path := get("GO_KAFKA_SASL_PASSWORD_FILE"); path != "" {
+		if c.KafkaSASLPassword != "" {
+			return Config{}, errors.New("set only one of GO_KAFKA_SASL_PASSWORD and GO_KAFKA_SASL_PASSWORD_FILE")
+		}
+		file, e := os.Open(path)
+		if e != nil {
+			return Config{}, errors.New("GO_KAFKA_SASL_PASSWORD_FILE could not be read")
+		}
+		data, e := io.ReadAll(io.LimitReader(file, 8193))
+		_ = file.Close()
+		if e != nil || len(data) > 8192 {
+			return Config{}, errors.New("GO_KAFKA_SASL_PASSWORD_FILE could not be read")
+		}
+		c.KafkaSASLPassword = strings.TrimSpace(string(data))
+	}
+	if c.KafkaSASLMechanism != "" {
+		switch c.KafkaSASLMechanism {
+		case "plain", "scram-sha-256", "scram-sha-512":
+		default:
+			return Config{}, errors.New("GO_KAFKA_SASL_MECHANISM must be plain, scram-sha-256, or scram-sha-512")
+		}
+		if c.KafkaSASLUsername == "" || c.KafkaSASLPassword == "" {
+			return Config{}, errors.New("GO_KAFKA_SASL_USERNAME and GO_KAFKA_SASL_PASSWORD are required when GO_KAFKA_SASL_MECHANISM is set")
+		}
 	}
 
 	c.RedisURL = strings.TrimSpace(get("GO_REDIS_URL"))

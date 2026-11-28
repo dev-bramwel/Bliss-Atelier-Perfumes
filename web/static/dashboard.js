@@ -12,6 +12,7 @@
     busy = false,
     selectedOrder = null,
     selectedException = null,
+    selectedExchange = null,
     inventoryProducts = [];
   let counterProducts = [],
     counterOrder = null,
@@ -592,9 +593,123 @@
     );
     pager("users", data.users?.length || 0);
   }
+  function openExchangeAction(ex) {
+    selectedExchange = ex;
+    const item = (ex.items || [])[0];
+    $("exchangeDetails").textContent = "";
+    const summary = el(
+      "p",
+      `Exchange ${ex.id.slice(0, 8)} · Order ${ex.order_id} · Status: ${ex.status} · Price diff: ${money(ex.price_difference_kes)}`,
+    );
+    $("exchangeDetails").append(summary);
+    if (item) {
+      $("exchangeDetails").append(
+        el(
+          "p",
+          `Returned: ${item.returned_product_name} × ${item.returned_quantity} (${item.quarantine_status}) → Replacement: ${item.replacement_product_name} × ${item.replacement_quantity}`,
+        ),
+      );
+    }
+    $("exchangeInspectForm").hidden = ex.status !== "requested";
+    $("exchangeApproveForm").hidden = !(
+      ex.status === "inspected" && ex.inspection_passed
+    );
+    $("exchangeRejectForm").hidden = !["requested", "inspected"].includes(
+      ex.status,
+    );
+    $("exchangeCompleteForm").hidden = ex.status !== "approved";
+    $("exchangeActionDialog").showModal();
+  }
+  async function loadExchanges() {
+    const data = await api(`/operations/exchanges?${query("exchanges")}`);
+    table(
+      "exchangesRows",
+      data.exchanges || [],
+      (row, ex) => {
+        const item = (ex.items || [])[0];
+        const pair = item
+          ? `${item.returned_product_name} (${item.returned_quantity}) → ${item.replacement_product_name} (${item.replacement_quantity})`
+          : "—";
+        [
+          ex.id.slice(0, 8),
+          ex.order_id,
+          pair,
+          money(ex.price_difference_kes),
+          ex.status,
+        ].forEach((v) => cell(row, v));
+        const controls = el("div");
+        if (ex.status !== "completed" && ex.status !== "rejected") {
+          controls.append(
+            action("Manage exchange", () => openExchangeAction(ex)),
+          );
+        } else {
+          controls.append(el("span", ex.decision_reason || ex.topup_receipt || "Closed"));
+        }
+        cell(row, controls);
+      },
+      6,
+    );
+    pager("exchanges", data.exchanges?.length || 0);
+  }
+  async function loadReports() {
+    const params = new URLSearchParams();
+    const fromVal = $("reportFrom")?.value?.trim();
+    const toVal = $("reportTo")?.value?.trim();
+    if (fromVal) params.set("from", fromVal);
+    if (toVal) params.set("to", toVal);
+    const qs = params.toString();
+    const suffix = qs ? `?${qs}` : "";
+    const stockParams = new URLSearchParams(query("reportsStock"));
+    if (fromVal) stockParams.set("from", fromVal);
+    if (toVal) stockParams.set("to", toVal);
+
+    if ($("reportExportCsv")) {
+      $("reportExportCsv").href = `/api/admin/reports/export.csv${suffix}`;
+    }
+    const [sales, funnel, stock] = await Promise.all([
+      api(`/admin/reports/sales${suffix}`),
+      api(`/admin/reports/funnel${suffix}`),
+      api(`/admin/reports/stock-movements?${stockParams.toString()}`),
+    ]);
+    $("reportSettled").textContent = money(sales.settled_product_revenue_kes);
+    $("reportTransport").textContent = `${money(sales.transport_fees_merchant_kes)} / ${money(sales.transport_fees_courier_kes)}`;
+    $("reportExchangeTopup").textContent = money(sales.exchange_topup_revenue_kes);
+    $("reportAOV").textContent = `${sales.paid_order_count || 0} · ${money(sales.average_order_value_kes)}`;
+    $("reportFunnel").textContent = `Funnel views ${funnel.catalog_views || 0} → carts ${funnel.cart_adds || 0} → checkouts ${funnel.checkout_starts || 0} → settled ${funnel.settled_orders || 0}`;
+    table(
+      "reportsDailyRows",
+      sales.daily || [],
+      (row, d) =>
+        [
+          d.date,
+          d.paid_orders,
+          money(d.product_revenue_kes),
+          money(d.transport_fees_kes),
+          money(d.exchange_topup_kes),
+        ].forEach((v) => cell(row, v)),
+      5,
+    );
+    table(
+      "reportsStockRows",
+      stock.movements || [],
+      (row, m) =>
+        [
+          date(m.created_at),
+          m.kind,
+          m.product_name,
+          m.delta > 0 ? `+${m.delta}` : String(m.delta),
+          m.balance,
+          m.evidence,
+        ].forEach((v) => cell(row, v)),
+      6,
+    );
+    pager("reportsStock", stock.movements?.length || 0);
+  }
   const loaders = {
     orders: loadOrders,
     counter: loadCounterCatalog,
+    exchanges: loadExchanges,
+    reports: loadReports,
     inventory: loadInventory,
     exceptions: loadExceptions,
     unresolved: loadUnresolved,
@@ -728,13 +843,13 @@
   }
   function sectionFromPath() {
     const last = window.location.pathname.split("/").filter(Boolean).pop();
-    return ["counter", "inventory", "payments", "users"].includes(last)
+    return ["counter", "exchanges", "inventory", "payments", "reports", "users"].includes(last)
       ? last
       : "orders";
   }
   function showSection(next) {
     if (
-      (!owner() && next === "payments") ||
+      (!owner() && ["payments", "reports"].includes(next)) ||
       (!canManageInventory() && next === "inventory")
     ) {
       message("Your role does not permit this section.");
@@ -1071,6 +1186,90 @@
       },
     );
   });
+  $("openExchangeCreate").addEventListener("click", () => {
+    $("exchangeCreateForm").dataset.idemKey =
+      "exch_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    $("exchangeCreateDialog").showModal();
+  });
+  form("exchangeCreateForm", (data) => {
+    const idemKey =
+      $("exchangeCreateForm").dataset.idemKey ||
+      "exch_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    return mutate(
+      "/operations/exchanges",
+      {
+        request_id: idemKey,
+        order_id: data.order_id,
+        returned_product_id: data.returned_product_id,
+        returned_quantity: Number(data.returned_quantity),
+        replacement_product_id: data.replacement_product_id,
+        replacement_quantity: Number(data.replacement_quantity),
+        reason: data.reason,
+      },
+      "Exchange request recorded and returned bottle quarantined.",
+      async () => {
+        delete $("exchangeCreateForm").dataset.idemKey;
+        $("exchangeCreateDialog").close();
+        $("exchangeCreateForm").reset();
+        await loadExchanges();
+      },
+    );
+  });
+  form("exchangeInspectForm", (data) =>
+    mutate(
+      `/operations/exchanges/${encodeURIComponent(selectedExchange.id)}/inspect`,
+      {
+        passed: Boolean($("exchangeInspectForm").querySelector('[name="passed"]').checked),
+        notes: data.notes,
+      },
+      "Exchange inspection recorded.",
+      async () => {
+        $("exchangeInspectForm").reset();
+        $("exchangeActionDialog").close();
+        await loadExchanges();
+      },
+    ),
+  );
+  form("exchangeApproveForm", (data) =>
+    mutate(
+      `/operations/exchanges/${encodeURIComponent(selectedExchange.id)}/approve`,
+      { reason: data.reason },
+      "Exchange approved.",
+      async () => {
+        $("exchangeApproveForm").reset();
+        $("exchangeActionDialog").close();
+        await loadExchanges();
+      },
+    ),
+  );
+  form("exchangeRejectForm", (data) =>
+    mutate(
+      `/operations/exchanges/${encodeURIComponent(selectedExchange.id)}/reject`,
+      { reason: data.reason },
+      "Exchange rejected; returned bottle remains out of saleable stock.",
+      async () => {
+        $("exchangeRejectForm").reset();
+        $("exchangeActionDialog").close();
+        await loadExchanges();
+      },
+    ),
+  );
+  form("reportFilterForm", () => loadReports());
+  form("exchangeCompleteForm", (data) =>
+    mutate(
+      `/operations/exchanges/${encodeURIComponent(selectedExchange.id)}/complete`,
+      {
+        topup_receipt: data.topup_receipt || "",
+        topup_evidence: data.topup_evidence || "",
+      },
+      "Exchange completed and stock ledger updated.",
+      async () => {
+        $("exchangeCompleteForm").reset();
+        $("exchangeActionDialog").close();
+        await Promise.all([loadExchanges(), loadInventory()]);
+      },
+    ),
+  );
   window.addEventListener("bliss:connection", () => {
     guard();
     if (!connection.offline) {

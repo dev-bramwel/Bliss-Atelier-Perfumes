@@ -17,11 +17,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/analytics"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/auth"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/catalog"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/config"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/database"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/delivery"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/exchanges"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/httpapi"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/messaging"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/migration"
@@ -31,6 +33,7 @@ import (
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/provider"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reconciliation"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/rediscache"
+	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/reports"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/telemetry"
 	"github.com/dev-bramwel/Bliss-Atelier-Perfumes/internal/worker"
 )
@@ -181,10 +184,14 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			paymentProv, _ = provider.NewNCBA(ncbaConfig, ncbaClient)
 		}
 		var ops httpapi.OperationsService
+		var exch httpapi.ExchangeService
+		var rep httpapi.ReportService
 		if pool != nil {
 			ops = &operations.Store{Pool: pool, Invalidator: catalogCache}
+			exch = &exchanges.Store{Pool: pool, Invalidator: catalogCache}
+			rep = &reports.Store{Pool: pool}
 		}
-		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService, ops).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
+		return httpapi.New(cfg.Address, cfg.IOTimeout, ping, catalogStore, orderStore, deliveryStore, secConfig, ncbaConfig, paymentProv, redisClient, catalogCache, authService, ops, exch, rep).Serve(ctx, listener, cfg.ShutdownTimeout, logger)
 	case "worker":
 		if pool == nil || orderStore == nil {
 			logger.Info("worker_idle", "mode", "no_database")
@@ -237,6 +244,15 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 		} else {
 			logger.Info("worker_messaging_disabled", "reason", "no_rabbitmq_url")
 		}
+		if len(cfg.KafkaBrokers) > 0 {
+			msgWg.Add(1)
+			go func() {
+				defer msgWg.Done()
+				runKafkaAnalyticsWorker(workerCtx, pool, cfg, logger)
+			}()
+		} else {
+			logger.Info("worker_kafka_analytics_disabled", "reason", "no_kafka_brokers")
+		}
 
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -269,6 +285,12 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 			if _, err := worker.SyncDLQGauge(ctx, pool); err != nil && !errors.Is(err, context.Canceled) {
 				logger.Error("dlq_gauge_sync_failed", "error", err.Error())
 			}
+		}
+		reportStore := &reports.Store{Pool: pool}
+		if purged, err := reportStore.PurgeExpiredFunnelEvents(ctx, reports.DefaultFunnelRetention); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("funnel_purge_failed", "error", err.Error())
+		} else if purged > 0 {
+			logger.Info("funnel_events_purged", "count", purged)
 		}
 
 		for {
@@ -304,6 +326,11 @@ func run(ctx context.Context, command string, args []string, get func(string) st
 						"pending", summary.Pending,
 						"exceptions_raised", summary.ExceptionsRaised,
 					)
+				}
+				if purged, err := reportStore.PurgeExpiredFunnelEvents(sweepCtx, reports.DefaultFunnelRetention); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Error("funnel_purge_failed", "error", err.Error())
+				} else if purged > 0 {
+					logger.Info("funnel_events_purged", "count", purged)
 				}
 				if pool != nil {
 					if _, err := worker.SyncDLQGauge(sweepCtx, pool); err != nil && !errors.Is(err, context.Canceled) {
@@ -377,6 +404,120 @@ func runMessagingWorker(ctx context.Context, pool *pgxpool.Pool, rabbitURL strin
 			return
 		}
 
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
+}
+
+func runKafkaAnalyticsWorker(ctx context.Context, pool *pgxpool.Pool, cfg config.Config, logger *slog.Logger) {
+	outboxStore := outbox.NewStore(pool)
+	analyticsStore := analytics.NewStore(pool, cfg.KafkaConsumerGroup)
+	kCfg := analytics.ClientConfig{
+		Brokers:       cfg.KafkaBrokers,
+		Topic:         cfg.KafkaTopic,
+		ConsumerGroup: cfg.KafkaConsumerGroup,
+		RetentionMs:   cfg.KafkaRetentionMs,
+		TLS:           cfg.KafkaTLS,
+		SASLMechanism: cfg.KafkaSASLMechanism,
+		SASLUsername:  cfg.KafkaSASLUsername,
+		SASLPassword:  cfg.KafkaSASLPassword,
+	}
+	backoff := 2 * time.Second
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		backfillCtx, cancelBackfill := context.WithTimeout(ctx, cfg.IOTimeout)
+		backfilled, bfErr := analyticsStore.BackfillToOutbox(backfillCtx)
+		cancelBackfill()
+		if bfErr != nil {
+			logger.Warn("kafka_backfill_failed", "error", bfErr.Error(), "retry_in", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+		}
+		if backfilled > 0 {
+			logger.Info("kafka_backfill_enqueued", "count", backfilled)
+		}
+
+		ensureCtx, cancelEnsure := context.WithTimeout(ctx, cfg.IOTimeout)
+		err := analytics.EnsureTopicWithConfig(ensureCtx, kCfg)
+		cancelEnsure()
+		if err != nil {
+			logger.Warn("kafka_ensure_topic_failed", "topic", cfg.KafkaTopic, "error", err.Error(), "retry_in", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+		}
+
+		prod, err := analytics.NewProducerWithConfig(kCfg)
+		if err != nil {
+			logger.Warn("kafka_producer_init_failed", "error", err.Error(), "retry_in", backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+				if backoff < 30*time.Second {
+					backoff *= 2
+				}
+				continue
+			}
+		}
+
+		logger.Info("kafka_analytics_connected", "topic", cfg.KafkaTopic, "group", cfg.KafkaConsumerGroup, "tls", cfg.KafkaTLS, "sasl", cfg.KafkaSASLMechanism != "")
+		backoff = 2 * time.Second
+
+		kCtx, cancelK := context.WithCancel(ctx)
+		var wg sync.WaitGroup
+
+		pubCfg := outbox.DefaultPublisherConfig()
+		pubCfg.Destination = outbox.DestinationKafka
+		pub := outbox.NewBackgroundPublisher(outboxStore, prod, pubCfg, logger)
+		cons := analytics.NewConsumerWithConfig(kCfg, analyticsStore, logger)
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := pub.Start(kCtx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("kafka_outbox_publisher_error", "error", err.Error())
+				cancelK()
+			}
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := cons.Start(kCtx); err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("kafka_analytics_consumer_error", "error", err.Error())
+				cancelK()
+			}
+		}()
+
+		<-kCtx.Done()
+		cancelK()
+		_ = prod.Close()
+		wg.Wait()
+
+		if ctx.Err() != nil {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
