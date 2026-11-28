@@ -73,9 +73,9 @@ spec:
                 - /bin/sh
                 - -c
                 - rpk cluster health | grep -E 'Healthy:.+true'
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 5
-            timeoutSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 12
           livenessProbe:
             exec:
@@ -83,9 +83,9 @@ spec:
                 - /bin/sh
                 - -c
                 - rpk cluster health | grep -E 'Healthy:.+true'
-            initialDelaySeconds: 20
+            initialDelaySeconds: 25
             periodSeconds: 15
-            timeoutSeconds: 5
+            timeoutSeconds: 10
           volumeMounts:
             - name: redpanda-data
               mountPath: /var/lib/redpanda/data
