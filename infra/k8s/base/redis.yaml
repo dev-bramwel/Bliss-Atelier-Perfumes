@@ -67,8 +67,10 @@ spec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 2
             periodSeconds: 5
+            timeoutSeconds: 3
           livenessProbe:
             exec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
