@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
@@ -50,8 +51,8 @@ try {
 
     Write-Host '=== 8. HPA & Metrics check ==='
     kubectl get hpa -n bliss-local
-    $topOut = kubectl top pods -n bliss-local 2>&1
-    Write-Host $topOut
+    $topOut = cmd /c "kubectl top pods -n bliss-local 2>&1"
+    Write-Host ($topOut -join "`n")
 
     Write-Host '=== 9. Cluster inventory summary ==='
     kubectl get pods,svc,ingress,networkpolicy,hpa,pvc -n bliss-local
