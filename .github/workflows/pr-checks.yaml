@@ -38,6 +38,15 @@ jobs:
           echo "$RUNNER_TEMP/scanners" >> "$GITHUB_PATH"
       - name: Scan tracked history and Go dependencies
         run: bash scripts/ci/security.sh .local/ci-security
+      - name: Validate Kubernetes base manifests (static)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .local/ci-security
+          kubectl kustomize infra/k8s/base > .local/ci-security/k8s-rendered.yaml
+          grep -q "kind: NetworkPolicy" .local/ci-security/k8s-rendered.yaml
+          grep -q "kind: HorizontalPodAutoscaler" .local/ci-security/k8s-rendered.yaml
+          grep -q "kind: Ingress" .local/ci-security/k8s-rendered.yaml
       - name: Validate contracts and prove a broken contract fails
         shell: bash
         run: |
