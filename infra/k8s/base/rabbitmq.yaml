@@ -78,23 +78,24 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 160Mi
+              memory: 192Mi
             limits:
               cpu: 500m
-              memory: 384Mi
+              memory: 512Mi
           readinessProbe:
-            exec:
-              command: ["rabbitmq-diagnostics", "-q", "ping"]
-            initialDelaySeconds: 10
-            periodSeconds: 5
-            timeoutSeconds: 10
-            failureThreshold: 12
-          livenessProbe:
-            exec:
-              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            tcpSocket:
+              port: 5672
             initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            tcpSocket:
+              port: 5672
+            initialDelaySeconds: 90
             periodSeconds: 15
-            timeoutSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: rabbitmq-data
               mountPath: /var/lib/rabbitmq
