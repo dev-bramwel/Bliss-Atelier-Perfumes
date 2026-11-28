@@ -7,7 +7,7 @@ data:
   postgres-entrypoint.sh: |
     #!/bin/sh
     set -eu
-    if [ -f /var/lib/postgresql/data/PG_VERSION ]; then
+    if [ -f "${PGDATA:-/var/lib/postgresql/data}/PG_VERSION" ]; then
         (
             while ! pg_isready -U "${POSTGRES_USER:-bliss_admin}" -d "${POSTGRES_DB:-bliss_dev}" -q 2>/dev/null; do
                 sleep 0.2
