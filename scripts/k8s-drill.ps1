@@ -41,10 +41,17 @@ try {
     kubectl rollout status deployment/frontend -n bliss-local --timeout=120s
     if ($LASTEXITCODE -ne 0) { throw 'frontend rollout status after restart failed' }
 
-    Write-Host '=== 7. Pod-loss & worker redelivery/shutdown drill ==='
+    Write-Host '=== 7. Pod-loss & worker redelivery/deduplication drill ==='
     $workerPodBefore = kubectl get pods -n bliss-local -l app=worker -o jsonpath='{.items[0].metadata.name}'
     if ($LASTEXITCODE -ne 0 -or -not $workerPodBefore) { throw 'Could not resolve worker pod before deletion' }
-    Write-Host "Deleting api and worker ($workerPodBefore) pods..."
+
+    $drillEvtId = 'evt_k8s_drill_' + [guid]::NewGuid().ToString('N').Substring(0, 12)
+    $drillPayload = '{"orderId":"ord_k8s_drill","customerName":"Synthetic Drill","customerPhone":"254700000000","deliveryLocation":"Mombasa","totalKes":2500,"items":[{"productId":"p1","quantity":1}],"createdAt":"2026-11-28T00:00:00Z"}'
+    $insertSQL = "INSERT INTO public.outbox_event (id, event_type, aggregate_id, aggregate_version, correlation_id, schema_version, payload, destination, status, retry_count, created_at, updated_at) VALUES ('$drillEvtId', 'order.created.v1', 'ord_k8s_drill', 1, 'corr_k8s_drill', 1, '$drillPayload'::jsonb, 'rabbitmq', 'pending', 0, now(), now());"
+    $insertSQL | kubectl exec -i -n bliss-local db-0 -- psql -U bliss_admin -d bliss_dev -v ON_ERROR_STOP=1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to insert synthetic outbox drill event' }
+
+    Write-Host "Deleting api and worker ($workerPodBefore) pods while $drillEvtId is in flight..."
     kubectl delete pod -n bliss-local -l app=api --wait=true
     if ($LASTEXITCODE -ne 0) { throw 'Failed to delete api pod during pod-loss drill' }
     kubectl delete pod -n bliss-local -l app=worker --wait=true
@@ -57,6 +64,39 @@ try {
     if ($LASTEXITCODE -ne 0 -or -not $workerPodAfter) { throw 'Could not resolve replacement worker pod' }
     if ($workerPodAfter -eq $workerPodBefore) { throw "Worker pod was not replaced ($workerPodAfter)" }
     Write-Host "Replacement worker pod ready: $workerPodAfter"
+
+    # Wait for replacement worker to publish and consume the in-flight notification
+    $processed = $false
+    for ($i = 0; $i -lt 30; $i++) {
+        $state = kubectl exec -n bliss-local db-0 -- psql -U bliss_admin -d bliss_dev -At -c "SELECT (SELECT status FROM public.outbox_event WHERE id='$drillEvtId') || '|' || (SELECT coalesce((SELECT status FROM public.inbox_message WHERE id='$drillEvtId' AND consumer_name='bliss-notification-worker'), 'missing'));"
+        if ($LASTEXITCODE -eq 0 -and $state -eq 'published|processed') {
+            $processed = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $processed) { throw "Replacement worker did not publish/process $drillEvtId in time" }
+
+    # Re-trigger RabbitMQ delivery of the exact same event_id to verify duplicate-free redelivery
+    kubectl exec -n bliss-local db-0 -- psql -U bliss_admin -d bliss_dev -v ON_ERROR_STOP=1 -c "UPDATE public.outbox_event SET status='pending', updated_at=now() WHERE id='$drillEvtId';" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to requeue drill event for duplicate redelivery check' }
+
+    $redelivered = $false
+    for ($i = 0; $i -lt 20; $i++) {
+        $outStatus = kubectl exec -n bliss-local db-0 -- psql -U bliss_admin -d bliss_dev -At -c "SELECT status FROM public.outbox_event WHERE id='$drillEvtId';"
+        $logs = kubectl logs -n bliss-local $workerPodAfter --tail=50
+        if ($LASTEXITCODE -eq 0 -and $outStatus -eq 'published' -and ($logs -match 'consumer_duplicate_delivery_ignored')) {
+            $redelivered = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $redelivered) { throw "Duplicate redelivery check did not observe consumer_duplicate_delivery_ignored for $drillEvtId" }
+
+    $inboxCount = kubectl exec -n bliss-local db-0 -- psql -U bliss_admin -d bliss_dev -At -c "SELECT count(*) FROM public.inbox_message WHERE id='$drillEvtId';"
+    if ($LASTEXITCODE -ne 0 -or $inboxCount -ne '1') { throw "Expected exactly 1 inbox row for $drillEvtId, got '$inboxCount'" }
+    kubectl exec -n bliss-local db-0 -- psql -U bliss_admin -d bliss_dev -v ON_ERROR_STOP=1 -c "DELETE FROM public.inbox_message WHERE id='$drillEvtId'; DELETE FROM public.outbox_event WHERE id='$drillEvtId';" | Out-Null
+    Write-Host "Verified in-flight redelivery and duplicate suppression for $drillEvtId (inbox count=1)."
     kubectl logs -n bliss-local $workerPodAfter --tail=20
     if ($LASTEXITCODE -ne 0) { throw 'Failed to read replacement worker logs' }
 
