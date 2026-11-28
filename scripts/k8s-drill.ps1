@@ -35,19 +35,30 @@ try {
 
     Write-Host '=== 6. Rolling restart drill (api & frontend) ==='
     kubectl rollout restart deployment/api deployment/frontend -n bliss-local
+    if ($LASTEXITCODE -ne 0) { throw 'Rolling restart command failed' }
     kubectl rollout status deployment/api -n bliss-local --timeout=120s
+    if ($LASTEXITCODE -ne 0) { throw 'api rollout status after restart failed' }
     kubectl rollout status deployment/frontend -n bliss-local --timeout=120s
+    if ($LASTEXITCODE -ne 0) { throw 'frontend rollout status after restart failed' }
 
     Write-Host '=== 7. Pod-loss & worker redelivery/shutdown drill ==='
     $workerPodBefore = kubectl get pods -n bliss-local -l app=worker -o jsonpath='{.items[0].metadata.name}'
+    if ($LASTEXITCODE -ne 0 -or -not $workerPodBefore) { throw 'Could not resolve worker pod before deletion' }
     Write-Host "Deleting api and worker ($workerPodBefore) pods..."
     kubectl delete pod -n bliss-local -l app=api --wait=true
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to delete api pod during pod-loss drill' }
     kubectl delete pod -n bliss-local -l app=worker --wait=true
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to delete worker pod during pod-loss drill' }
     kubectl rollout status deployment/api -n bliss-local --timeout=120s
+    if ($LASTEXITCODE -ne 0) { throw 'api Deployment did not recover after pod loss' }
     kubectl rollout status deployment/worker -n bliss-local --timeout=120s
+    if ($LASTEXITCODE -ne 0) { throw 'worker Deployment did not recover after pod loss' }
     $workerPodAfter = kubectl get pods -n bliss-local -l app=worker -o jsonpath='{.items[0].metadata.name}'
+    if ($LASTEXITCODE -ne 0 -or -not $workerPodAfter) { throw 'Could not resolve replacement worker pod' }
+    if ($workerPodAfter -eq $workerPodBefore) { throw "Worker pod was not replaced ($workerPodAfter)" }
     Write-Host "Replacement worker pod ready: $workerPodAfter"
     kubectl logs -n bliss-local $workerPodAfter --tail=20
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to read replacement worker logs' }
 
     Write-Host '=== 8. HPA & Metrics check ==='
     kubectl get hpa -n bliss-local
